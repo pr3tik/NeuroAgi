@@ -63,6 +63,14 @@ const GEN_STEPS = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+// Strip lone UTF-16 surrogates and control chars that break JSON.stringify
+function sanitize(text: string): string {
+  return text
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "") // lone high surrogate
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "") // lone low surrogate
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ""); // control chars (keep \t\n\r)
+}
+
 function parseJSON<T>(raw: string): T | null {
   const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
   try { return JSON.parse(clean) as T; } catch { return null; }
@@ -878,7 +886,9 @@ export default function SpaceExams({ spaceId, userId, docRefs, docFiles }: {
     const materials = docRefs.map(id => {
       const f = docFiles.get(id);
       if (!f) return "";
-      return `Document: "${f.name}"\nSummary: ${f.summary ?? ""}\n${f.content_text?.slice(0, 2000) ?? ""}`;
+      const summary = sanitize(f.summary ?? "");
+      const excerpt = sanitize(f.content_text?.slice(0, 1800) ?? "");
+      return `Document: "${sanitize(f.name)}"\nSummary: ${summary}\n${excerpt}`;
     }).filter(Boolean).join("\n\n---\n\n");
 
     const parts: string[] = [];
