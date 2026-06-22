@@ -1,4 +1,6 @@
-// api/flashcards.js — Save and load flashcards server-side using service key (bypasses RLS)
+// api/flashcards.ts — Save/load/delete via flashcards_v2 (one row per card).
+// Callers: DocChat (YouLearn), Study page.
+// user_id is the fschool_uid TEXT from public.users (not auth.users UUID).
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -17,38 +19,42 @@ export default async function handler(req, res) {
     "Content-Profile": "public",
   };
 
-  const { action, userId, courseId, cards } = req.body ?? {};
+  const { action, userId, courseId, cards, cardId } = req.body ?? {};
 
   if (!action || !userId) {
     return res.status(400).json({ error: "action and userId are required" });
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
+  // Replaces the deck for (user, course) — delete then insert so regeneration
+  // doesn't accumulate duplicate cards.
   if (action === "save") {
-    if (!cards) {
-      return res.status(400).json({ error: "cards are required for save" });
+    if (!courseId || !cards?.length) {
+      return res.status(400).json({ error: "courseId and cards are required for save" });
     }
 
-    // When courseId is provided: upsert (merge with existing deck for that course).
-    // When courseId is null/missing (YouLearn docs without a linked course): plain INSERT
-    // so each session's cards survive independently.
-    const hasCourse = !!courseId;
-    const url = hasCourse
-      ? `${supabaseUrl}/rest/v1/flashcards?on_conflict=user_id,course_id`
-      : `${supabaseUrl}/rest/v1/flashcards`;
+    // Clear existing cards for this user+course first (idempotent regeneration)
+    const delRes = await fetch(
+      `${supabaseUrl}/rest/v1/flashcards_v2?user_id=eq.${encodeURIComponent(userId)}&course_id=eq.${encodeURIComponent(courseId)}`,
+      { method: "DELETE", headers: sbHeaders }
+    );
+    if (!delRes.ok) {
+      const err = await delRes.json().catch(() => ({}));
+      return res.status(delRes.status).json({ error: err.message ?? `Delete failed ${delRes.status}` });
+    }
 
-    const r = await fetch(url, {
+    // Insert one row per card
+    const rows = cards.map((c: { question: string; answer: string }) => ({
+      user_id:   userId,
+      course_id: courseId,
+      question:  c.question,
+      answer:    c.answer,
+    }));
+
+    const r = await fetch(`${supabaseUrl}/rest/v1/flashcards_v2`, {
       method:  "POST",
-      headers: {
-        ...sbHeaders,
-        "Prefer": hasCourse ? "resolution=merge-duplicates,return=minimal" : "return=minimal",
-      },
-      body: JSON.stringify({
-        user_id:      userId,
-        course_id:    courseId ?? null,
-        cards,
-        generated_at: new Date().toISOString(),
-      }),
+      headers: { ...sbHeaders, "Prefer": "return=minimal" },
+      body:    JSON.stringify(rows),
     });
 
     if (!r.ok) {
@@ -60,13 +66,15 @@ export default async function handler(req, res) {
   }
 
   // ── Load ──────────────────────────────────────────────────────────────────
+  // Returns { cards: [{id, question, answer, created_at}] }
+  // Study.tsx reads loadData.cards — same shape, just normalized rows instead of blob.
   if (action === "load") {
     if (!courseId) {
       return res.status(400).json({ error: "courseId is required for load" });
     }
 
     const r = await fetch(
-      `${supabaseUrl}/rest/v1/flashcards?user_id=eq.${userId}&course_id=eq.${courseId}&select=cards&limit=1`,
+      `${supabaseUrl}/rest/v1/flashcards_v2?user_id=eq.${encodeURIComponent(userId)}&course_id=eq.${encodeURIComponent(courseId)}&order=created_at.asc&select=id,question,answer,created_at`,
       { headers: { ...sbHeaders, "Prefer": "return=representation" } }
     );
 
@@ -76,8 +84,27 @@ export default async function handler(req, res) {
     }
 
     const rows = await r.json();
-    return res.status(200).json({ cards: rows?.[0]?.cards ?? null });
+    return res.status(200).json({ cards: rows ?? [] });
   }
 
-  return res.status(400).json({ error: "Unknown action. Use save or load." });
+  // ── Delete single card ─────────────────────────────────────────────────────
+  if (action === "delete") {
+    if (!cardId) {
+      return res.status(400).json({ error: "cardId is required for delete" });
+    }
+
+    const r = await fetch(
+      `${supabaseUrl}/rest/v1/flashcards_v2?id=eq.${encodeURIComponent(cardId)}&user_id=eq.${encodeURIComponent(userId)}`,
+      { method: "DELETE", headers: sbHeaders }
+    );
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      return res.status(r.status).json({ error: err.message ?? `Supabase ${r.status}` });
+    }
+
+    return res.status(200).json({ ok: true });
+  }
+
+  return res.status(400).json({ error: "Unknown action. Use save, load, or delete." });
 }
