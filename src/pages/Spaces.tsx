@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../api/supabase";
 import { useApp }   from "../context/AppContext";
 import DocReader    from "../components/DocReader";
+import ReactMarkdown from "react-markdown";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -18,6 +19,23 @@ const PALETTE = [
 
 const EASE_OUT: [number, number, number, number] = [0.25, 0.46, 0.45, 0.94];
 const SPRING = { type: "spring", stiffness: 380, damping: 36 } as const;
+
+// Markdown styles for assistant messages — matches DocChat's renderer
+const MD = `
+.smd p{margin:.4em 0;line-height:1.72;color:var(--text-primary)}
+.smd ul,.smd ol{padding-left:18px;margin:.35em 0}
+.smd li{margin:.2em 0;color:var(--text-primary);line-height:1.65}
+.smd strong{color:rgba(245,245,245,.96);font-weight:700}
+.smd em{color:rgba(245,245,245,.75)}
+.smd h1,.smd h2,.smd h3{color:var(--text-primary);font-weight:600;line-height:1.3;margin:.75em 0 .3em}
+.smd h1{font-size:15px}.smd h2{font-size:14px}.smd h3{font-size:13px}
+.smd code{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 5px;font-size:11.5px;color:#C49A3C}
+.smd pre{background:rgba(0,0,0,.3);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:.5em 0}
+.smd pre code{background:none;border:none;padding:0;color:rgba(245,245,245,.82)}
+.smd blockquote{border-left:2px solid rgba(196,154,60,.35);padding-left:10px;margin:.4em 0;color:rgba(245,245,245,.65);font-style:italic}
+`;
+
+type ChatMsg = { id: string; role: "user" | "assistant"; content: string };
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -430,19 +448,24 @@ function AddDocSheet({
 }
 
 // ── Space Chat ────────────────────────────────────────────────────────────
+// msgs + spaceId lifted from SpaceDetail so state survives tab switches.
+// Every message is persisted to space_chats table so it survives reload.
 
 function SpaceChat({
-  docRefs, userId,
+  docRefs, userId, spaceId, msgs, onMsgsChange,
 }: {
-  docRefs: string[]; userId: string;
+  docRefs: string[]; userId: string; spaceId: string;
+  msgs: ChatMsg[]; onMsgsChange: (m: ChatMsg[]) => void;
 }) {
-  const [msgs,    setMsgs]   = useState<{ id: string; role: "user" | "assistant"; content: string }[]>([]);
-  const [input,   setInput]  = useState("");
-  const [busy,    setBusy]   = useState(false);
-  const [ctx,     setCtx]    = useState("");
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [input,   setInput] = useState("");
+  const [busy,    setBusy]  = useState(false);
+  const [ctx,     setCtx]   = useState("");
+  const bottomRef  = useRef<HTMLDivElement>(null);
+  // Ref mirrors msgs so streaming closures always see the latest array
+  const msgsRef    = useRef<ChatMsg[]>(msgs);
+  useEffect(() => { msgsRef.current = msgs; }, [msgs]);
 
-  // Build context string from summaries
+  // Build context string from doc summaries
   useEffect(() => {
     if (!docRefs.length) { setCtx(""); return; }
     supabase.from("files")
@@ -467,16 +490,27 @@ function SpaceChat({
     const text = input.trim();
     const uid  = `u${Date.now()}`;
     const aid  = `a${Date.now()}`;
-    setMsgs(m => [...m, { id: uid, role: "user", content: text }, { id: aid, role: "assistant", content: "" }]);
+
+    const userMsg: ChatMsg   = { id: uid, role: "user",      content: text };
+    const assistMsg: ChatMsg = { id: aid, role: "assistant", content: "" };
+    const withBoth = [...msgsRef.current, userMsg, assistMsg];
+    msgsRef.current = withBoth;
+    onMsgsChange(withBoth);
     setInput("");
     setBusy(true);
 
+    // Persist user message immediately
+    supabase.from("space_chats").insert({
+      space_id: spaceId, user_id: userId, role: "user", content: text,
+    }).then();
+
     const system = ctx
-      ? `You are a study assistant for this student's space. Use these documents as your primary knowledge:\n\n${ctx}\n\nAnswer concisely and accurately. Refer to specific documents when relevant.`
-      : "You are a study assistant. Help the student with their academic questions.";
+      ? `You are a study assistant for this student's space. Use these documents as your primary knowledge:\n\n${ctx}\n\nAnswer concisely and accurately. Use markdown (bold, bullets, headings) to structure your response.`
+      : "You are a study assistant. Answer concisely using markdown to format your response.";
 
-    const history = msgs.slice(-8).map(m => ({ role: m.role, content: m.content }));
+    const history = msgsRef.current.slice(-10, -2).map(m => ({ role: m.role, content: m.content }));
 
+    let accumulated = "";
     try {
       const res = await fetch("/api/claude", {
         method: "POST",
@@ -490,7 +524,7 @@ function SpaceChat({
 
       const reader = res.body!.getReader();
       const dec = new TextDecoder();
-      let buf = "", accumulated = "";
+      let buf = "";
 
       for (;;) {
         const { done, value } = await reader.read();
@@ -506,29 +540,37 @@ function SpaceChat({
             if (e.type === "content_block_delta" && e.delta?.type === "text_delta") {
               accumulated += e.delta.text;
               const snap = accumulated;
-              setMsgs(m => m.map(msg => msg.id === aid ? { ...msg, content: snap } : msg));
+              const updated = msgsRef.current.map(m => m.id === aid ? { ...m, content: snap } : m);
+              msgsRef.current = updated;
+              onMsgsChange(updated);
             }
           } catch {}
         }
       }
     } catch {
-      setMsgs(m => m.map(msg => msg.id === aid
-        ? { ...msg, content: "Couldn't reach Claude. Try again." }
-        : msg
-      ));
+      accumulated = "Couldn't reach Claude. Try again.";
+      const errUpdate = msgsRef.current.map(m => m.id === aid ? { ...m, content: accumulated } : m);
+      msgsRef.current = errUpdate;
+      onMsgsChange(errUpdate);
+    }
+
+    // Persist completed assistant message
+    if (accumulated) {
+      supabase.from("space_chats").insert({
+        space_id: spaceId, user_id: userId, role: "assistant", content: accumulated,
+      }).then();
     }
     setBusy(false);
-  }, [input, busy, msgs, ctx]);
+  }, [input, busy, ctx, spaceId, userId, onMsgsChange]);
 
   const isEmpty = msgs.length === 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      <style>{MD}</style>
+
       {/* Messages */}
-      <div style={{
-        flex: 1, overflowY: "auto", paddingBottom: 8,
-        scrollbarWidth: "thin",
-      }}>
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 8, scrollbarWidth: "thin" }}>
         {isEmpty && (
           <div style={{
             display: "flex", flexDirection: "column", alignItems: "center",
@@ -566,23 +608,21 @@ function SpaceChat({
             }}
           >
             <div style={{
-              maxWidth: "86%", padding: "9px 13px",
-              borderRadius: m.role === "user"
-                ? "16px 16px 4px 16px"
-                : "16px 16px 16px 4px",
-              background: m.role === "user"
-                ? "rgba(196,154,60,0.13)"
-                : "rgba(255,255,255,0.06)",
-              border: m.role === "user"
-                ? "1px solid rgba(196,154,60,0.2)"
-                : "1px solid rgba(255,255,255,0.07)",
-              color: "var(--text-primary)",
-              fontSize: 13, lineHeight: 1.65,
-              whiteSpace: "pre-wrap",
+              maxWidth: "88%", padding: "9px 13px",
+              borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+              background: m.role === "user" ? "rgba(196,154,60,0.13)" : "rgba(255,255,255,0.06)",
+              border: m.role === "user" ? "1px solid rgba(196,154,60,0.2)" : "1px solid rgba(255,255,255,0.07)",
+              color: "var(--text-primary)", fontSize: 13,
             }}>
-              {m.content || (m.role === "assistant" && busy ? (
+              {m.role === "user" ? (
+                <span style={{ lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{m.content}</span>
+              ) : m.content ? (
+                <div className="smd" style={{ fontSize: 13 }}>
+                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                </div>
+              ) : busy ? (
                 <span style={{ opacity: 0.4 }}>● ● ●</span>
-              ) : null)}
+              ) : null}
             </div>
           </motion.div>
         ))}
@@ -603,29 +643,23 @@ function SpaceChat({
           placeholder={docRefs.length ? "Ask about this space…" : "Add documents first…"}
           disabled={!docRefs.length}
           style={{
-            flex: 1,
-            background: "rgba(255,255,255,0.05)",
+            flex: 1, background: "rgba(255,255,255,0.05)",
             border: "1px solid rgba(255,255,255,0.09)",
             borderRadius: 10, padding: "10px 13px",
             color: "var(--text-primary)", fontSize: 13,
             outline: "none", fontFamily: "inherit",
-            opacity: !docRefs.length ? 0.5 : 1,
-            transition: "border-color 0.15s",
+            opacity: !docRefs.length ? 0.5 : 1, transition: "border-color 0.15s",
           }}
-          onFocus={e  => (e.target.style.borderColor = "rgba(255,255,255,0.22)")}
-          onBlur={e   => (e.target.style.borderColor = "rgba(255,255,255,0.09)")}
+          onFocus={e => (e.target.style.borderColor = "rgba(255,255,255,0.22)")}
+          onBlur={e  => (e.target.style.borderColor = "rgba(255,255,255,0.09)")}
         />
         <button
           onClick={send}
           disabled={!input.trim() || busy || !docRefs.length}
           style={{
             width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
-            background: input.trim() && !busy && docRefs.length
-              ? "rgba(196,154,60,0.18)"
-              : "rgba(255,255,255,0.04)",
-            border: `1px solid ${input.trim() && !busy && docRefs.length
-              ? "rgba(196,154,60,0.32)"
-              : "rgba(255,255,255,0.07)"}`,
+            background: input.trim() && !busy && docRefs.length ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.04)",
+            border: `1px solid ${input.trim() && !busy && docRefs.length ? "rgba(196,154,60,0.32)" : "rgba(255,255,255,0.07)"}`,
             color: input.trim() && !busy && docRefs.length ? "#C49A3C" : "var(--text-tertiary)",
             cursor: input.trim() && !busy && docRefs.length ? "pointer" : "default",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -651,6 +685,7 @@ function SpaceDetail({
   const [items,     setItems]     = useState<SpaceItem[]>([]);
   const [docFiles,  setDocFiles]  = useState<Map<string, DocFile>>(new Map());
   const [cards,     setCards]     = useState<Flashcard[]>([]);
+  const [chatMsgs,  setChatMsgs]  = useState<ChatMsg[]>([]);
   const [addingDoc, setAddingDoc] = useState(false);
   const [showAdd,   setShowAdd]   = useState(false);
   const [openFile,  setOpenFile]  = useState<DocFile | null>(null);
@@ -664,8 +699,21 @@ function SpaceDetail({
       .select("*")
       .eq("space_id", space.id)
       .eq("user_id", userId)
-      .order("processed_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .then(({ data }) => setItems((data ?? []) as SpaceItem[]));
+  }, [space.id, userId]);
+
+  // Load chat history — persisted to space_chats so it survives reload
+  useEffect(() => {
+    supabase.from("space_chats")
+      .select("id, role, content")
+      .eq("space_id", space.id)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true })
+      .limit(200)
+      .then(({ data }) => {
+        if (data?.length) setChatMsgs(data as ChatMsg[]);
+      });
   }, [space.id, userId]);
 
   // Load file objects for doc items
@@ -932,7 +980,10 @@ function SpaceDetail({
                 display: "flex", flexDirection: "column",
               }}
             >
-              <SpaceChat docRefs={docRefs} userId={userId} />
+              <SpaceChat
+                docRefs={docRefs} userId={userId} spaceId={space.id}
+                msgs={chatMsgs} onMsgsChange={setChatMsgs}
+              />
             </motion.div>
           )}
 
