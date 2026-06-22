@@ -207,13 +207,13 @@ export default function DocChat({
 
       const cards = data.flashcards.map(f => ({ question: f.front, answer: f.back }));
 
-      // Save — courseId from the file (may be null for unlinked docs)
+      // Save — use docId as courseId proxy for flashcards_v2 (course_id NOT NULL, no FK)
       let saved = false;
       if (userId) {
         const saveRes = await fetch("/api/flashcards", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "save", userId, courseId: courseId ?? null, cards }),
+          body: JSON.stringify({ action: "save", userId, courseId: docId, cards }),
         });
         if (saveRes.ok) { saved = true; }
         else {
