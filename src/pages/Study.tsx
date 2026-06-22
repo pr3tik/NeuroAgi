@@ -672,7 +672,7 @@ export default function Study() {
         const loadRes = await fetch("/api/flashcards", {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ action: "load", userId, courseId: dbId }),
+          body:    JSON.stringify({ action: "load", userId, courseId: String(dbId) }),
         });
         const loadData = await loadRes.json();
         if (loadData?.cards?.length > 0) setFlashcards(loadData.cards);
@@ -846,7 +846,7 @@ export default function Study() {
             const saveRes = await fetch("/api/flashcards", {
               method:  "POST",
               headers: { "Content-Type": "application/json" },
-              body:    JSON.stringify({ action: "save", userId, courseId: dbId, cards }),
+              body:    JSON.stringify({ action: "save", userId, courseId: String(dbId), cards }),
             });
             if (!saveRes.ok) {
               const saveErr = await saveRes.json().catch(() => ({}));
