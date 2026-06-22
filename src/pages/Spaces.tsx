@@ -324,7 +324,7 @@ function AddDocSheet({
       .select("id,name,file_type,summary,highlights,content_text,processed_at")
       .eq("user_id", userId)
       .not("processed_at", "is", null)
-      .order("created_at", { ascending: false })
+      .order("processed_at", { ascending: false })
       .then(({ data }) => {
         setFiles(((data ?? []) as DocFile[]).filter(f => !existingRefs.has(f.id)));
         setLoading(false);
@@ -664,7 +664,7 @@ function SpaceDetail({
       .select("*")
       .eq("space_id", space.id)
       .eq("user_id", userId)
-      .order("created_at", { ascending: false })
+      .order("processed_at", { ascending: false })
       .then(({ data }) => setItems((data ?? []) as SpaceItem[]));
   }, [space.id, userId]);
 
