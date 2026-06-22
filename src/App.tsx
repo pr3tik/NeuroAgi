@@ -34,6 +34,7 @@ const Leaderboard = lazy(() => import("./pages/Leaderboard"));
 const Files       = lazy(() => import("./pages/Files"));
 const StudyRooms  = lazy(() => import("./pages/StudyRooms"));
 const Onboarding  = lazy(() => import("./pages/Onboarding"));
+const Spaces      = lazy(() => import("./pages/Spaces"));
 
 const PAGES = {
   work:        Work,
@@ -45,6 +46,7 @@ const PAGES = {
   leaderboard: Leaderboard,
   files:       Files,
   rooms:       StudyRooms,
+  spaces:      Spaces,
 };
 
 const LOGGED_IN_KEY = "fschool_logged_in";

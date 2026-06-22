@@ -7,7 +7,8 @@ export const NAV = {
   work:        { right: "assignment", left: "canvas",      up: "identity",    down: "toolkit" },
   assignment:  { left: "work",        down: "study" },
   study:       { up: "assignment",    left: "rooms" },
-  files:       { right: "identity"  },
+  files:       { right: "identity",   down: "spaces" },
+  spaces:      { up: "files" },
   canvas:      { right: "work",       down: "rooms" },
   rooms:       { up: "canvas",        right: "toolkit" },
   toolkit:     { up: "work",          left: "rooms" },
@@ -32,4 +33,5 @@ export const LABEL = {
   courses:     "Courses",
   identity:    "Identity",
   leaderboard: "Leaderboard",
+  spaces:      "Spaces",
 };
