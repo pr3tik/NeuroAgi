@@ -9,6 +9,7 @@ import { supabase } from "../api/supabase";
 import { useApp }   from "../context/AppContext";
 import DocReader    from "../components/DocReader";
 import ReactMarkdown from "react-markdown";
+import SpaceExams   from "../components/SpaceExams";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -1061,26 +1062,13 @@ function SpaceDetail({
               key="exams"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               transition={{ duration: 0.14 }}
-              style={{ textAlign: "center", padding: "52px 24px" }}
             >
-              <div style={{
-                width: 68, height: 68, borderRadius: 18,
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 30, margin: "0 auto 20px",
-              }}>📝</div>
-              <p style={{
-                fontSize: 16, fontWeight: 600,
-                color: "var(--text-secondary)", marginBottom: 8,
-              }}>Exams — Phase 4</p>
-              <p style={{
-                fontSize: 13, color: "var(--text-dim)",
-                lineHeight: 1.7, maxWidth: 260, margin: "0 auto",
-              }}>
-                Generate timed practice exams from your space documents.
-                Choose number of questions, type, and difficulty.
-              </p>
+              <SpaceExams
+                spaceId={space.id}
+                userId={userId}
+                docRefs={docRefs}
+                docFiles={docFiles as any}
+              />
             </motion.div>
           )}
 
