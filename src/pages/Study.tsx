@@ -548,6 +548,12 @@ export default function Study() {
   const [guide,      setGuide]      = useState("");
   const [inSession,  setInSession]  = useState(false);
   const [toast,      setToast]      = useState("");
+  // docMode: when set, Study is showing flashcards for a specific uploaded document
+  // rather than a Canvas course. Persisted in localStorage so refresh survives.
+  const [docMode, setDocMode] = useState<{ id: string; title: string } | null>(() => {
+    try { const s = localStorage.getItem("fschool_study_doc"); return s ? JSON.parse(s) : null; }
+    catch { return null; }
+  });
 
   // ── Spaced repetition ───────────────────────────────────────────────────────
   const [srsStates,   setSrsStates]   = useState({}); // card_key → { dueAt, ease, ... }
@@ -621,6 +627,13 @@ export default function Study() {
       pendingConfig.current = studyConfig;
       setStudyConfig(null);
       setConfigTick(t => t + 1);
+      // YouLearn doc mode: wire in docId so Study loads cards for this document
+      if (studyConfig.docId) {
+        const dm = { id: studyConfig.docId, title: studyConfig.docTitle ?? "Document" };
+        setDocMode(dm);
+        setFlashcards([]);
+        try { localStorage.setItem("fschool_study_doc", JSON.stringify(dm)); } catch {}
+      }
     }
   }, [studyConfig, setStudyConfig]);
 
@@ -650,6 +663,30 @@ export default function Study() {
       setMode(cfg.mode === "guide" ? "guide" : "flashcards");
     }
   }, [liveCourses, configTick]);
+
+  // Auto-load cards whenever docMode is set (on redirect AND on page refresh)
+  useEffect(() => {
+    if (!docMode || !userId) return;
+    setLoading(true);
+    fetch("/api/flashcards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "load", userId, courseId: docMode.id }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data?.cards?.length > 0) setFlashcards(data.cards);
+        else setToast("No flashcards saved for this document yet.");
+      })
+      .catch(() => setToast("Couldn't load document flashcards."))
+      .finally(() => setLoading(false));
+  }, [docMode?.id, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function clearDocMode() {
+    setDocMode(null);
+    setFlashcards([]);
+    try { localStorage.removeItem("fschool_study_doc"); } catch {}
+  }
 
   // Find the DB course id for the currently selected course label
   function getCourseDbId() {
@@ -891,8 +928,8 @@ export default function Study() {
     return <StudySession cards={flashcards} onExit={() => setInSession(false)} updateUserField={updateUserField} userData={userData} />;
   }
 
-  // No Canvas connected yet
-  if (!hasCanvasCourses) {
+  // No Canvas connected — allow through if docMode is active (YouLearn cards don't need Canvas)
+  if (!hasCanvasCourses && !docMode) {
     return (
       <div>
         <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "24px", letterSpacing: "-0.3px" }}>
@@ -932,47 +969,71 @@ export default function Study() {
         </button>
       )}
 
-      <select
-        value={course}
-        onChange={e => { setCourse(e.target.value); setFlashcards([]); setGuide(""); }}
-        style={{
-          width: "100%", background: "var(--color-surface)",
-          border: "1px solid var(--color-border)", borderRadius: "var(--radius-btn)",
-          padding: "12px 36px 12px 14px", color: "var(--text-primary)",
-          fontSize: "14px", outline: "none", fontFamily: "inherit",
-          marginBottom: "14px", cursor: "pointer", appearance: "none", WebkitAppearance: "none",
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.35)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-          backgroundRepeat: "no-repeat", backgroundPosition: "right 14px center",
-        }}
-      >
-        {COURSES.map((c) => <option key={c} value={c} style={{ background: "#1a1a1a" }}>{c}</option>)}
-      </select>
-
-      {/* Mode toggle */}
-      <div style={{
-        display: "flex", gap: "6px", marginBottom: "20px",
-        background: "rgba(255,255,255,0.04)", border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius-btn)", padding: "4px",
-      }}>
-        {["flashcards", "guide"].map((m) => (
+      {/* Course picker — hidden in doc mode; shown in normal Canvas mode */}
+      {docMode ? (
+        <div style={{
+          display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px",
+          background: "rgba(196,154,60,0.07)", border: "1px solid rgba(196,154,60,0.22)",
+          borderRadius: "var(--radius-btn)", padding: "12px 14px",
+        }}>
+          <span style={{ fontSize: "15px" }}>📄</span>
+          <span style={{ flex: 1, color: "var(--text-primary)", fontSize: "14px", fontWeight: 500,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {docMode.title}
+          </span>
           <button
-            key={m}
-            onClick={() => { setMode(m); setFlashcards([]); setGuide(""); }}
-            style={{
-              flex: 1,
-              background: mode === m ? "var(--color-surface-hover)" : "transparent",
-              border:     mode === m ? "1px solid var(--color-border-strong)" : "1px solid transparent",
-              borderRadius: "9px", padding: "8px",
-              color:      mode === m ? "var(--text-primary)" : "var(--text-secondary)",
-              fontSize:   "13px", fontWeight: mode === m ? "600" : "400",
-              cursor:     "pointer", fontFamily: "inherit",
-              transition: "all var(--dur-fast) var(--ease-apple)",
-            }}
+            onClick={() => { clearDocMode(); setCourse(COURSES[0] ?? ""); }}
+            style={{ background: "none", border: "none", color: "var(--text-dim)",
+              fontSize: "12px", cursor: "pointer", padding: "2px 6px", fontFamily: "inherit" }}
           >
-            {m === "guide" ? "Study Guide" : "Flashcards"}
+            ✕ courses
           </button>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <select
+          value={course}
+          onChange={e => { setCourse(e.target.value); setFlashcards([]); setGuide(""); }}
+          style={{
+            width: "100%", background: "var(--color-surface)",
+            border: "1px solid var(--color-border)", borderRadius: "var(--radius-btn)",
+            padding: "12px 36px 12px 14px", color: "var(--text-primary)",
+            fontSize: "14px", outline: "none", fontFamily: "inherit",
+            marginBottom: "14px", cursor: "pointer", appearance: "none", WebkitAppearance: "none",
+            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.35)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+            backgroundRepeat: "no-repeat", backgroundPosition: "right 14px center",
+          }}
+        >
+          {COURSES.map((c) => <option key={c} value={c} style={{ background: "#1a1a1a" }}>{c}</option>)}
+        </select>
+      )}
+
+      {/* Mode toggle — hidden in doc mode (YouLearn cards are always flashcards) */}
+      {!docMode && (
+        <div style={{
+          display: "flex", gap: "6px", marginBottom: "20px",
+          background: "rgba(255,255,255,0.04)", border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-btn)", padding: "4px",
+        }}>
+          {["flashcards", "guide"].map((m) => (
+            <button
+              key={m}
+              onClick={() => { setMode(m); setFlashcards([]); setGuide(""); }}
+              style={{
+                flex: 1,
+                background: mode === m ? "var(--color-surface-hover)" : "transparent",
+                border:     mode === m ? "1px solid var(--color-border-strong)" : "1px solid transparent",
+                borderRadius: "9px", padding: "8px",
+                color:      mode === m ? "var(--text-primary)" : "var(--text-secondary)",
+                fontSize:   "13px", fontWeight: mode === m ? "600" : "400",
+                cursor:     "pointer", fontFamily: "inherit",
+                transition: "all var(--dur-fast) var(--ease-apple)",
+              }}
+            >
+              {m === "guide" ? "Study Guide" : "Flashcards"}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (

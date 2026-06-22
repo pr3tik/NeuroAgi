@@ -139,7 +139,7 @@ function MarkdownContent({ content }: { content: string }) {
 export default function DocChat({
   docId, docTitle, docContext, courseId, initialSelection, initialAction, onClose, onNavigate,
 }: Props) {
-  const { userId } = useApp();
+  const { userId, setStudyConfig } = useApp();
   const [msgs,       setMsgs]       = useState<Message[]>([]);
   const [input,      setInput]      = useState("");
   const [streaming,  setStreaming]  = useState(false);
@@ -230,6 +230,7 @@ export default function DocChat({
         content: `✓ Created ${cards.length} flashcards${saved ? " and saved to your deck" : ""}:\n\n${preview}${cards.length > 3 ? `\n\n…and ${cards.length - 3} more` : ""}\n\nOpening Study section…`,
       }]);
       setFcStatus("saved");
+      setStudyConfig({ mode: "flashcards", docId, docTitle });
       setTimeout(() => { onClose(); onNavigate("study"); }, 2000);
     } catch (e: any) {
       console.error("[DocChat] flashcard error:", e);
