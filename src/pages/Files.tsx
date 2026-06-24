@@ -1,270 +1,336 @@
-// Files.tsx — Files-by-course view + YouLearn Phase 1 document reader.
-// Upload a PDF → store to course-files bucket → extract text → AI summary/highlights
-// → clean reader view. LMS-synced files still work as before.
+// Files.tsx — Unified upload (file + YouTube) + My Documents library + Space wiring.
+// Part A: one AddMaterial card instead of two separate upload areas.
+// Part B: My Documents as a premium card grid, each with Add-to-Space action.
+// Part C: YouTube URL → /api/extract transcript → pipeline → video doc.
 
-import { useMemo, useState, useRef, useEffect } from "react";
-import { useApp } from "../context/AppContext";
-import { supabase } from "../api/supabase";
-import DocUpload from "../components/DocUpload";
-import DocReader from "../components/DocReader";
+import { useMemo, useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { useApp }    from "../context/AppContext";
+import { supabase }  from "../api/supabase";
+import DocReader     from "../components/DocReader";
 
-const card = {
+// ── Design tokens ─────────────────────────────────────────────────────────
+
+const surface = {
   background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
+  border:     "1px solid var(--color-border)",
   borderRadius: "var(--radius-card)",
-  boxShadow: "var(--depth-line)",
+  boxShadow:  "var(--depth-line)",
 };
 
-const PALETTE = ["#64b4ff", "#64dc9b", "#ffc364", "#be82ff", "#ff8080", "#4ecdc4", "#ffe66d", "#a8e6cf"];
-const colorFor = (i) => PALETTE[i % PALETTE.length];
+const PALETTE = ["#64b4ff","#64dc9b","#ffc364","#be82ff","#ff8080","#4ecdc4","#ffe66d","#a8e6cf"];
+const colorFor = (i: number) => PALETTE[i % PALETTE.length];
+const EASE: [number,number,number,number] = [0.25,0.46,0.45,0.94];
 
-function formatSize(bytes) {
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function formatSize(bytes: number | null) {
   if (bytes == null) return null;
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1048576) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-function statusLabel(status) {
-  if (status === "submitted")       return { text: "Submitted",  color: "rgba(100,220,155,0.9)", bg: "rgba(52,199,89,0.14)" };
-  if (status === "course_material") return { text: "Material",   color: "var(--text-secondary)", bg: "var(--color-surface-hover)" };
-  if (status === "feedback")        return { text: "Feedback",   color: "rgba(255,195,100,0.95)", bg: "rgba(255,159,10,0.14)" };
-  return null;
+function timeAgo(iso: string | null) {
+  if (!iso) return null;
+  const d = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(d / 60_000);
+  if (m < 2)   return "just now";
+  if (m < 60)  return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)  return `${h}h ago`;
+  const days = Math.floor(h / 24);
+  return days === 1 ? "yesterday" : `${days}d ago`;
 }
 
-// ── Upload-to-course-files + extract + summarize ──────────────────────────────
-// Returns the file record after processing (with summary + highlights).
+function isYouTubeUrl(s: string) {
+  return /youtu\.be\/|youtube\.com\/(watch|shorts)/.test(s);
+}
+
+function mapFileRow(f: any) {
+  return {
+    ...f,
+    courseDbId:  f.course_id    ?? null,
+    sizeBytes:   f.size_bytes   ?? null,
+    fileType:    f.file_type    ?? null,
+    sourceUrl:   f.source_url   ?? null,
+    storagePath: f.storage_path ?? null,
+    summary:     f.summary      ?? null,
+    highlights:  f.highlights   ?? null,
+    processedAt: f.processed_at ?? null,
+    contentText: f.content_text ?? null,
+  };
+}
+
+async function openExternalFile(file: any) {
+  if (file.storagePath) {
+    try {
+      const res = await fetch("/api/file-url", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ path: file.storagePath }),
+      });
+      const { url } = res.ok ? await res.json() : {};
+      if (url) { window.open(url,"_blank","noopener,noreferrer"); return; }
+    } catch {}
+  }
+  if (file.sourceUrl) window.open(file.sourceUrl,"_blank","noopener,noreferrer");
+}
+
+// ── processUpload — file → public.files (YouLearn pipeline) ──────────────
+
 async function processUpload(
-  file: File,
-  userId: string,
-  onStatus: (msg: string) => void
-): Promise<{
-  id: string; name: string; fileType: string; storagePath: string;
-  summary: string; highlights: string[]; processedAt: string;
-}> {
-  // 1. Upload binary to course-files bucket (anon key works — RLS is off, INSERT policy exists)
+  file: File, userId: string, onStatus: (s: string) => void
+): Promise<any> {
   onStatus("Uploading…");
-  const ext   = file.name.split(".").pop() ?? "pdf";
-  const path  = `${userId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  const ext  = file.name.split(".").pop() ?? "pdf";
+  const path = `${userId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
 
   const { error: upErr } = await supabase.storage
-    .from("course-files")
-    .upload(path, file, { cacheControl: "3600", upsert: false });
+    .from("course-files").upload(path, file, { cacheControl:"3600", upsert:false });
   if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
 
-  const storagePath = path;
-
-  // 2. Extract text via /api/extract (reads from storage server-side — no body-size limit)
   onStatus("Extracting text…");
   const exRes = await fetch("/api/extract", {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    // bucket: tell extract where the file lives; keepFile: don't delete it (it's permanent storage)
-    body:    JSON.stringify({ storagePath, bucket: "course-files", keepFile: true, file_type: file.type, name: file.name }),
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ storagePath:path, bucket:"course-files", keepFile:true, file_type:file.type, name:file.name }),
   });
   const exData = await exRes.json().catch(() => ({}));
-  if (!exRes.ok || !exData.text) throw new Error(exData.error || "Couldn't extract text from this file.");
-
+  if (!exRes.ok || !exData.text) throw new Error(exData.error || "Couldn't extract text.");
   const contentText: string = exData.text;
 
-  // 3. AI summary + highlights
   onStatus("Generating summary…");
-  const sumRes = await fetch("/api/summarize", {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ text: contentText, title: file.name }),
+  const sumRes  = await fetch("/api/summarize", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ text: contentText, title: file.name }),
   });
-  const sumData = await sumRes.json().catch(() => ({}));
-  const summary: string     = sumData.summary    ?? "";
-  const highlights: string[] = sumData.highlights ?? [];
+  const sumData   = await sumRes.json().catch(() => ({}));
+  const summary   = sumData.summary    ?? "";
+  const highlights= sumData.highlights ?? [];
 
-  // 4. Save to files table
   onStatus("Saving…");
   const processedAt = new Date().toISOString();
   const { data: row, error: dbErr } = await supabase
     .from("files")
-    .insert({
-      user_id:      userId,
-      name:         file.name,
-      file_type:    ext,
-      size_bytes:   file.size,
-      storage_path: storagePath,
-      content_text: contentText,
-      summary,
-      highlights,
-      processed_at: processedAt,
-      status:       "course_material",
-      // lms_file_id, course_id, source_url are null (manual upload, not from LMS)
-    })
-    .select("id")
-    .single();
-  if (dbErr) throw new Error(`Couldn't save file: ${dbErr.message}`);
+    .insert({ user_id:userId, name:file.name, file_type:ext, size_bytes:file.size,
+              storage_path:path, content_text:contentText, summary, highlights,
+              processed_at:processedAt, status:"course_material" })
+    .select("id").single();
+  if (dbErr) throw new Error(`Couldn't save: ${dbErr.message}`);
 
-  return {
-    id: row.id, name: file.name, fileType: ext, storagePath,
-    summary, highlights, processedAt,
-  };
+  return { id:row.id, name:file.name, fileType:ext, storagePath:path,
+           summary, highlights, processedAt, sizeBytes:file.size };
 }
 
-// ── Signed-URL open for LMS-synced files ─────────────────────────────────────
-async function openExternalFile(file) {
-  if (file.storagePath) {
-    try {
-      const res = await fetch("/api/file-url", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ path: file.storagePath }),
-      });
-      const { url } = res.ok ? await res.json() : {};
-      if (url) { window.open(url, "_blank", "noopener,noreferrer"); return; }
-    } catch { /* fall through */ }
+// ── processYouTube — URL → transcript → public.files ─────────────────────
+
+async function processYouTube(
+  url: string, userId: string, onStatus: (s: string) => void
+): Promise<any> {
+  onStatus("Fetching transcript…");
+
+  // /api/extract already handles YouTube captions (InnerTube + fallbacks)
+  const exRes = await fetch("/api/extract", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ youtubeUrl: url }),
+  });
+  const exData = await exRes.json().catch(() => ({}));
+  if (!exRes.ok || !exData.text) {
+    throw new Error(exData.error || "Couldn't get a transcript for this video. It may not have captions.");
   }
-  if (file.sourceUrl) window.open(file.sourceUrl, "_blank", "noopener,noreferrer");
-}
+  const contentText: string = exData.text;
 
-// ── FileRow ───────────────────────────────────────────────────────────────────
-function FileRow({ file, color, onOpenReader }) {
-  const size     = formatSize(file.sizeBytes);
-  const stat     = statusLabel(file.status);
-  const isPdf    = ["pdf","docx","doc","pptx","ppt","txt","md"].includes((file.fileType ?? "").toLowerCase());
-  const hasReader = file.summary && isPdf;
+  // Use video title from extract response, or derive from URL
+  const title = exData.title
+    ?? `YouTube — ${url.replace(/.*v=/,"").replace(/&.*/,"").slice(0,20)}`;
 
-  function handleClick() {
-    if (hasReader) {
-      onOpenReader(file);
+  onStatus("Generating summary…");
+  let summary    = "";
+  let highlights: string[] = [];
+  try {
+    const sumRes  = await fetch("/api/summarize", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ text: contentText, title }),
+    });
+    if (sumRes.ok) {
+      const sumData = await sumRes.json().catch(() => ({}));
+      summary    = sumData.summary    ?? "";
+      highlights = sumData.highlights ?? [];
     } else {
-      openExternalFile(file);
+      console.warn("[processYouTube] summarize returned", sumRes.status);
     }
+  } catch (e) {
+    console.warn("[processYouTube] summarize failed:", e);
   }
+  // summary/highlights may be empty — file still saves with transcript (content_text)
 
-  const openable = hasReader || file.storagePath || file.sourceUrl;
+  onStatus("Saving…");
+  const processedAt = new Date().toISOString();
+  const { data: row, error: dbErr } = await supabase
+    .from("files")
+    .insert({ user_id:userId, name:title, file_type:"youtube", source_url:url,
+              content_text:contentText, summary, highlights,
+              processed_at:processedAt, status:"course_material" })
+    .select("id").single();
+  if (dbErr) throw new Error(`Couldn't save: ${dbErr.message}`);
 
-  const inner = (
-    <>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <p style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>
-            {file.name}
-          </p>
-          {/* "Read" badge for AI-processed files */}
-          {hasReader && (
-            <span style={{
-              fontSize: "9px", fontWeight: "700", letterSpacing: "0.5px",
-              textTransform: "uppercase", padding: "2px 6px", borderRadius: "4px",
-              background: "rgba(196,154,60,0.1)", color: "#C49A3C",
-              border: "1px solid rgba(196,154,60,0.22)", flexShrink: 0,
-            }}>
-              Read
-            </span>
-          )}
-        </div>
-        <p style={{ color: "var(--text-dim)", fontSize: "12px", marginTop: "2px", marginBottom: 0 }}>
-          {[file.folder, size].filter(Boolean).join(" · ") || "—"}
-        </p>
-      </div>
-      {file.fileType && (
-        <span style={{ fontSize: "10px", fontWeight: "700", letterSpacing: "0.5px", textTransform: "uppercase", color, flexShrink: 0 }}>
-          {file.fileType}
-        </span>
-      )}
-      {stat && (
-        <span style={{ fontSize: "11px", fontWeight: "600", padding: "4px 10px", borderRadius: "20px", background: stat.bg, color: stat.color, flexShrink: 0, whiteSpace: "nowrap" }}>
-          {stat.text}
-        </span>
-      )}
-    </>
-  );
-
-  const rowStyle = { ...card, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" };
-
-  return openable
-    ? <div role="button" tabIndex={0} onClick={handleClick}
-           onKeyDown={e => { if (e.key === "Enter" || e.key === " ") handleClick(); }}
-           style={{ ...rowStyle, cursor: "pointer" }}>{inner}</div>
-    : <div style={rowStyle}>{inner}</div>;
+  return { id:row.id, name:title, fileType:"youtube", storagePath:null,
+           sourceUrl:url, summary, highlights, processedAt };
 }
 
-// ── Upload progress card ──────────────────────────────────────────────────────
-type UploadState =
-  | { phase: "idle" }
-  | { phase: "working"; message: string }
-  | { phase: "error";   message: string };
+// ── AddMaterialCard — unified upload (Part A) ────────────────────────────
 
-function UploadCard({ onFileProcessed }: { onFileProcessed: (file: any) => void }) {
-  const { userId } = useApp();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [state, setState] = useState<UploadState>({ phase: "idle" });
+type ProcessState = { phase:"idle" }
+  | { phase:"working"; message:string }
+  | { phase:"error";   message:string };
 
+function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
+  const { userId } = useApp() as any;
+  const fileRef  = useRef<HTMLInputElement>(null);
+  const [state,    setState]  = useState<ProcessState>({ phase:"idle" });
+  const [ytUrl,    setYtUrl]  = useState("");
+  const [dragging, setDragging] = useState(false);
   const busy = state.phase === "working";
 
   async function handleFile(file: File | undefined) {
     if (!file || !userId) return;
-    setState({ phase: "working", message: "Starting…" });
+    setState({ phase:"working", message:"Starting…" });
     try {
-      const processed = await processUpload(file, userId, msg =>
-        setState({ phase: "working", message: msg })
-      );
-      setState({ phase: "idle" });
-      onFileProcessed(processed);
-    } catch (err: any) {
-      setState({ phase: "error", message: err.message || "Something went wrong." });
+      const result = await processUpload(file, userId, msg => setState({ phase:"working", message:msg }));
+      setState({ phase:"idle" });
+      onProcessed(result);
+    } catch (e: any) {
+      setState({ phase:"error", message: e.message || "Something went wrong." });
     }
   }
 
+  async function handleYouTube() {
+    const url = ytUrl.trim();
+    if (!url || !userId) return;
+    if (!isYouTubeUrl(url)) {
+      setState({ phase:"error", message:"Please paste a valid YouTube URL." });
+      return;
+    }
+    setState({ phase:"working", message:"Starting…" });
+    try {
+      const result = await processYouTube(url, userId, msg => setState({ phase:"working", message:msg }));
+      setState({ phase:"idle" });
+      setYtUrl("");
+      onProcessed(result);
+    } catch (e: any) {
+      setState({ phase:"error", message: e.message || "Couldn't process that video." });
+    }
+  }
+
+  const onDragOver  = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragging(true); }, []);
+  const onDragLeave = useCallback(() => setDragging(false), []);
+  const onDrop      = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setDragging(false);
+    handleFile(e.dataTransfer.files[0]);
+  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <div style={{
-      ...card, padding: "16px 18px", marginBottom: "24px",
-    }}>
-      <div style={{ marginBottom: "12px" }}>
-        <p style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: 600, margin: 0 }}>
-          Read a document with AI
+    <div style={{ ...surface, padding:"20px", marginBottom:"28px" }}>
+      <p style={{ fontSize:14, fontWeight:600, color:"var(--text-primary)", marginBottom:3 }}>
+        Add material
+      </p>
+      <p style={{ fontSize:12, color:"var(--text-dim)", marginBottom:14 }}>
+        PDF, Word, slides, audio, video — or a YouTube link
+      </p>
+
+      {/* Drop zone */}
+      <div
+        onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+        onClick={() => !busy && fileRef.current?.click()}
+        style={{
+          border: `1.5px dashed ${dragging ? "rgba(196,154,60,0.6)" : "rgba(255,255,255,0.13)"}`,
+          borderRadius: "var(--radius-btn)",
+          padding: "22px 16px",
+          textAlign:"center", cursor: busy ? "default" : "pointer",
+          background: dragging ? "rgba(196,154,60,0.05)" : "rgba(255,255,255,0.02)",
+          transition:"all 0.18s",
+          marginBottom:12,
+        }}
+      >
+        <div style={{ fontSize:24, marginBottom:6, opacity:0.5 }}>📎</div>
+        <p style={{ fontSize:13, color:"var(--text-secondary)", margin:0 }}>
+          {busy ? state.message : "Drag & drop or tap to choose a file"}
         </p>
-        <p style={{ color: "var(--text-dim)", fontSize: "12px", marginTop: "3px", marginBottom: 0 }}>
-          Upload a PDF or Word doc — get an AI summary, highlighted key passages, and the full text.
-        </p>
+        {!busy && (
+          <p style={{ fontSize:11, color:"var(--text-dim)", marginTop:4, marginBottom:0 }}>
+            PDF · Word · PPTX · images · audio · video
+          </p>
+        )}
       </div>
 
       <input
-        ref={fileRef}
-        type="file"
-        accept=".pdf,.docx,.doc,.pptx,.ppt,.txt,.md"
-        style={{ display: "none" }}
-        onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; handleFile(f); }}
+        ref={fileRef} type="file"
+        accept=".pdf,.docx,.doc,.pptx,.ppt,.txt,.md,.png,.jpg,.jpeg,.webp,.mp3,.wav,.mp4,.mov,.webm"
+        style={{ display:"none" }}
+        onChange={e => { const f = e.target.files?.[0]; e.target.value=""; handleFile(f); }}
       />
-      <button
-        onClick={() => fileRef.current?.click()}
-        disabled={busy}
-        style={{
-          background: "var(--color-accent)", color: "#111",
-          border: "none", borderRadius: "var(--radius-btn)",
-          padding: "10px 18px", fontSize: "13px", fontWeight: 600,
-          cursor: busy ? "default" : "pointer", fontFamily: "inherit",
-          opacity: busy ? 0.6 : 1,
-        }}
-      >
-        {busy ? "Processing…" : "Upload PDF or Doc"}
-      </button>
 
+      {/* Separator */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+        <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.07)" }} />
+        <span style={{ fontSize:11, color:"var(--text-dim)", letterSpacing:1 }}>OR</span>
+        <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.07)" }} />
+      </div>
+
+      {/* YouTube input */}
+      <div style={{ display:"flex", gap:8 }}>
+        <input
+          value={ytUrl}
+          onChange={e => setYtUrl(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") handleYouTube(); }}
+          placeholder="Paste a YouTube link…"
+          disabled={busy}
+          style={{
+            flex:1, background:"rgba(255,255,255,0.05)",
+            border:"1px solid rgba(255,255,255,0.09)",
+            borderRadius:"var(--radius-btn)", padding:"9px 12px",
+            color:"var(--text-primary)", fontSize:13,
+            outline:"none", fontFamily:"inherit",
+            opacity: busy ? 0.5 : 1,
+            transition:"border-color 0.15s",
+          }}
+          onFocus={e  => (e.target.style.borderColor="rgba(255,255,255,0.22)")}
+          onBlur={e   => (e.target.style.borderColor="rgba(255,255,255,0.09)")}
+        />
+        <button
+          onClick={handleYouTube}
+          disabled={busy || !ytUrl.trim()}
+          style={{
+            padding:"9px 14px", borderRadius:"var(--radius-btn)",
+            background: busy || !ytUrl.trim() ? "rgba(255,255,255,0.06)" : "rgba(196,154,60,0.14)",
+            border:     busy || !ytUrl.trim() ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(196,154,60,0.3)",
+            color:      busy || !ytUrl.trim() ? "var(--text-dim)" : "#C49A3C",
+            fontSize:13, fontWeight:600, cursor: busy || !ytUrl.trim() ? "default" : "pointer",
+            fontFamily:"inherit", transition:"all 0.15s", whiteSpace:"nowrap",
+          }}
+        >
+          {busy ? "…" : "▶ Process"}
+        </button>
+      </div>
+
+      {/* Progress */}
       {state.phase === "working" && (
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:12 }}>
           <span style={{
-            width: 12, height: 12, borderRadius: "50%",
-            border: "2px solid rgba(255,255,255,0.12)",
-            borderTopColor: "#C49A3C",
-            animation: "spin2 0.7s linear infinite",
-            display: "inline-block",
+            width:11, height:11, borderRadius:"50%",
+            border:"2px solid rgba(255,255,255,0.1)", borderTopColor:"#C49A3C",
+            animation:"f-spin 0.7s linear infinite", display:"inline-block", flexShrink:0,
           }} />
-          <style>{`@keyframes spin2{to{transform:rotate(360deg)}}`}</style>
-          <span style={{ fontSize: "12px", color: "var(--text-dim)" }}>{state.message}</span>
+          <span style={{ fontSize:12, color:"var(--text-dim)" }}>{state.message}</span>
+          <style>{`@keyframes f-spin{to{transform:rotate(360deg)}}`}</style>
         </div>
       )}
       {state.phase === "error" && (
-        <p style={{ fontSize: "12px", color: "rgba(255,100,90,0.85)", marginTop: "10px", marginBottom: 0 }}>
+        <p style={{ fontSize:12, color:"rgba(255,100,90,0.85)", marginTop:10, marginBottom:0 }}>
           {state.message}
-          <button
-            onClick={() => setState({ phase: "idle" })}
-            style={{ marginLeft: "8px", background: "none", border: "none", color: "#C49A3C", cursor: "pointer", fontFamily: "inherit", fontSize: "12px" }}
-          >
+          <button onClick={() => setState({ phase:"idle" })}
+            style={{ marginLeft:8, background:"none", border:"none",
+              color:"#C49A3C", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
             Dismiss
           </button>
         </p>
@@ -273,165 +339,443 @@ function UploadCard({ onFileProcessed }: { onFileProcessed: (file: any) => void 
   );
 }
 
-// Map a raw Supabase files row to the shape the UI expects
-function mapFileRow(f: any) {
-  return {
-    ...f,
-    courseDbId:  f.course_id   ?? null,
-    sizeBytes:   f.size_bytes  ?? null,
-    fileType:    f.file_type   ?? null,
-    sourceUrl:   f.source_url  ?? null,
-    storagePath: f.storage_path ?? null,
-    summary:     f.summary     ?? null,
-    highlights:  f.highlights  ?? null,
-    processedAt: f.processed_at ?? null,
-  };
+// ── AddToSpaceModal (Part B) ──────────────────────────────────────────────
+
+function AddToSpaceModal({ file, userId, onClose }: {
+  file: any; userId: string; onClose: () => void;
+}) {
+  const [spaces,  setSpaces]  = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding,  setAdding]  = useState<string|null>(null);
+  const [added,   setAdded]   = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    supabase.from("spaces")
+      .select("id, name, color")
+      .eq("user_id", userId)
+      .order("last_active", { ascending:false })
+      .then(({ data }) => { setSpaces(data ?? []); setLoading(false); });
+  }, [userId]);
+
+  async function addToSpace(spaceId: string) {
+    setAdding(spaceId);
+    try {
+      await supabase.from("space_items").insert({
+        space_id: spaceId, user_id: userId,
+        item_type: "document", item_ref: file.id, title: file.name,
+      });
+      // bump last_active
+      await supabase.from("spaces").update({ last_active: new Date().toISOString() }).eq("id", spaceId);
+      setAdded(prev => new Set([...prev, spaceId]));
+    } catch { /* non-fatal */ }
+    setAdding(null);
+  }
+
+  const modal = (
+    <motion.div
+      initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+      transition={{ duration:0.15 }}
+      onClick={onClose}
+      style={{
+        position:"fixed", inset:0, zIndex:600,
+        background:"rgba(0,0,0,0.55)", backdropFilter:"blur(8px)",
+        display:"flex", alignItems:"flex-end", justifyContent:"center",
+        paddingBottom:"env(safe-area-inset-bottom,0px)",
+      }}
+    >
+      <motion.div
+        initial={{ y:40, opacity:0 }} animate={{ y:0, opacity:1 }}
+        exit={{ y:30, opacity:0 }}
+        transition={{ type:"spring", stiffness:380, damping:36 }}
+        onClick={e => e.stopPropagation()}
+        style={{
+          width:"100%", maxWidth:480, borderRadius:"20px 20px 0 0",
+          background:"#1c1c1e", border:"1px solid rgba(255,255,255,0.1)",
+          padding:"10px 22px 40px",
+          maxHeight:"72dvh", overflowY:"auto",
+        }}
+      >
+        <div style={{ width:38, height:4, borderRadius:2,
+          background:"rgba(255,255,255,0.18)", margin:"8px auto 20px" }} />
+        <p style={{ fontSize:17, fontWeight:700, color:"var(--text-primary)", marginBottom:16 }}>
+          Add to Space
+        </p>
+        <p style={{ fontSize:13, color:"var(--text-dim)", marginBottom:16 }}>
+          "{file.name}"
+        </p>
+
+        {loading && (
+          <p style={{ color:"var(--text-dim)", fontSize:13, textAlign:"center", padding:"16px 0" }}>
+            Loading spaces…
+          </p>
+        )}
+        {!loading && spaces.length === 0 && (
+          <p style={{ color:"var(--text-dim)", fontSize:13, textAlign:"center", padding:"16px 0" }}>
+            No spaces yet. Create one in the Spaces section.
+          </p>
+        )}
+        {spaces.map(s => {
+          const isAdded   = added.has(s.id);
+          const isAdding  = adding === s.id;
+          return (
+            <button key={s.id} onClick={() => !isAdded && addToSpace(s.id)}
+              disabled={isAdded || !!adding}
+              style={{
+                display:"flex", alignItems:"center", gap:12, width:"100%",
+                padding:"12px 14px", borderRadius:12, marginBottom:8,
+                background: isAdded ? "rgba(74,222,128,0.08)" : "rgba(255,255,255,0.04)",
+                border:`1px solid ${isAdded ? "rgba(74,222,128,0.25)" : "rgba(255,255,255,0.07)"}`,
+                cursor: isAdded || !!adding ? "default" : "pointer",
+                fontFamily:"inherit", textAlign:"left",
+                transition:"background 0.12s",
+              }}
+            >
+              <div style={{
+                width:8, height:8, borderRadius:"50%", flexShrink:0,
+                background: s.color, boxShadow:`0 0 8px ${s.color}55`,
+              }} />
+              <span style={{ flex:1, fontSize:14, fontWeight:500, color:"var(--text-primary)" }}>
+                {s.name}
+              </span>
+              <span style={{ fontSize:13, color: isAdded ? "#4ade80" : "var(--text-dim)" }}>
+                {isAdding ? "Adding…" : isAdded ? "✓ Added" : "Add →"}
+              </span>
+            </button>
+          );
+        })}
+      </motion.div>
+    </motion.div>
+  );
+
+  return typeof document !== "undefined" ? createPortal(modal, document.body) : null;
 }
 
-// ── Files page ────────────────────────────────────────────────────────────────
+// ── DocCard — premium card for My Documents (Part B) ─────────────────────
+
+function DocCard({ file, color, onOpen, userId }: {
+  file: any; color: string; onOpen: (f: any) => void; userId: string;
+}) {
+  const [showSpaceModal, setShowSpaceModal] = useState(false);
+  const isYoutube = file.fileType === "youtube";
+  const isPdf     = ["pdf","docx","doc"].includes((file.fileType ?? "").toLowerCase());
+  // processedAt = pipeline ran → always open in DocReader even if summary is empty
+  const hasReader = !!file.processedAt && (isPdf || isYoutube);
+  const ago       = timeAgo(file.processedAt);
+
+  const typeIcon = isYoutube       ? "▶"
+                 : isPdf           ? "📄"
+                 : ["pptx","ppt"].includes(file.fileType ?? "") ? "📊"
+                 : ["png","jpg","jpeg","webp"].includes(file.fileType ?? "") ? "🖼"
+                 : ["mp3","wav","m4a"].includes(file.fileType ?? "") ? "🎵"
+                 : ["mp4","mov","webm"].includes(file.fileType ?? "") ? "🎬"
+                 : "📝";
+
+  function handleCardClick() {
+    if (hasReader) onOpen(file);
+    else openExternalFile(file);
+  }
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity:0, y:8 }}
+        animate={{ opacity:1, y:0 }}
+        transition={{ duration:0.2, ease:EASE }}
+        style={{
+          ...surface,
+          overflow:"hidden", position:"relative",
+          cursor:"pointer", display:"flex", flexDirection:"column",
+        }}
+        whileHover={{ y:-1 }}
+        onClick={handleCardClick}
+        onMouseEnter={e => {
+          (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.14)";
+          (e.currentTarget as HTMLDivElement).style.boxShadow   = "0 4px 18px rgba(0,0,0,0.28)";
+        }}
+        onMouseLeave={e => {
+          (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-border)";
+          (e.currentTarget as HTMLDivElement).style.boxShadow   = "var(--depth-line)";
+        }}
+      >
+        {/* Color accent strip */}
+        <div style={{
+          height:3, background:`linear-gradient(90deg, ${color}88, transparent)`,
+        }} />
+
+        <div style={{ padding:"14px 14px 12px" }}>
+          {/* Icon + type */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+            <span style={{ fontSize:22, lineHeight:1 }}>{typeIcon}</span>
+            {file.fileType && (
+              <span style={{
+                fontSize:9, fontWeight:700, letterSpacing:"0.5px",
+                textTransform:"uppercase", padding:"2px 6px", borderRadius:4,
+                background:"rgba(255,255,255,0.06)",
+                color:"var(--text-dim)",
+              }}>{file.fileType}</span>
+            )}
+          </div>
+
+          {/* Title */}
+          <p style={{
+            fontSize:13, fontWeight:600, color:"var(--text-primary)",
+            lineHeight:1.4, marginBottom:6,
+            overflow:"hidden", display:"-webkit-box",
+            WebkitLineClamp:2, WebkitBoxOrient:"vertical",
+          }}>{file.name}</p>
+
+          {/* Summary snippet — or transcript hint for YouTube without summary */}
+          {file.summary ? (
+            <p style={{
+              fontSize:11, color:"var(--text-dim)", lineHeight:1.55, marginBottom:8,
+              overflow:"hidden", display:"-webkit-box",
+              WebkitLineClamp:2, WebkitBoxOrient:"vertical",
+            }}>{file.summary}</p>
+          ) : isYoutube && file.processedAt ? (
+            <p style={{ fontSize:11, color:"var(--text-dim)", lineHeight:1.55, marginBottom:8 }}>
+              Transcript ready — tap to read, chat, quiz
+            </p>
+          ) : null}
+
+          {/* Footer */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:"auto" }}>
+            {ago && (
+              <span style={{ fontSize:10, color:"var(--text-dim)" }}>{ago}</span>
+            )}
+            {/* Add-to-Space button */}
+            <button
+              onClick={e => { e.stopPropagation(); setShowSpaceModal(true); }}
+              style={{
+                fontSize:10, fontWeight:600, padding:"3px 8px", borderRadius:6,
+                background:"rgba(196,154,60,0.08)", border:"1px solid rgba(196,154,60,0.2)",
+                color:"rgba(196,154,60,0.8)", cursor:"pointer", fontFamily:"inherit",
+                transition:"all 0.12s", marginLeft:"auto",
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(196,154,60,0.15)"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(196,154,60,0.08)"; }}
+            >
+              + Space
+            </button>
+          </div>
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {showSpaceModal && (
+          <AddToSpaceModal
+            file={file}
+            userId={userId}
+            onClose={() => setShowSpaceModal(false)}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+// ── FileRow — flat row for LMS-synced course files ────────────────────────
+
+function FileRow({ file, color, onOpenReader }: { file:any; color:string; onOpenReader:(f:any)=>void }) {
+  const size  = formatSize(file.sizeBytes);
+  const isPdf = ["pdf","docx","doc","pptx","ppt","txt","md"].includes((file.fileType ?? "").toLowerCase());
+  const hasReader = file.summary && isPdf;
+
+  function handleClick() {
+    if (hasReader) onOpenReader(file);
+    else openExternalFile(file);
+  }
+
+  const openable = hasReader || file.storagePath || file.sourceUrl;
+  const inner = (
+    <>
+      <div style={{ minWidth:0, flex:1 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+          <p style={{ color:"var(--text-primary)", fontSize:14, fontWeight:500,
+            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", margin:0 }}>
+            {file.name}
+          </p>
+          {hasReader && (
+            <span style={{
+              fontSize:9, fontWeight:700, letterSpacing:"0.5px", textTransform:"uppercase",
+              padding:"2px 6px", borderRadius:4, background:"rgba(196,154,60,0.1)",
+              color:"#C49A3C", border:"1px solid rgba(196,154,60,0.22)", flexShrink:0,
+            }}>Read</span>
+          )}
+        </div>
+        <p style={{ color:"var(--text-dim)", fontSize:12, marginTop:2, marginBottom:0 }}>
+          {[file.folder, size].filter(Boolean).join(" · ") || "—"}
+        </p>
+      </div>
+      {file.fileType && (
+        <span style={{ fontSize:10, fontWeight:700, letterSpacing:"0.5px",
+          textTransform:"uppercase", color, flexShrink:0 }}>{file.fileType}</span>
+      )}
+    </>
+  );
+
+  const rowStyle = { ...surface, padding:"14px 16px", display:"flex",
+    justifyContent:"space-between", alignItems:"center", gap:12 };
+
+  return openable
+    ? <div role="button" tabIndex={0} onClick={handleClick}
+        onKeyDown={e => { if (e.key==="Enter"||e.key===" ") handleClick(); }}
+        style={{ ...rowStyle, cursor:"pointer" }}>{inner}</div>
+    : <div style={rowStyle}>{inner}</div>;
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────
+
 export default function Files() {
-  const { files, courses, userId, setPendingNav } = useApp();
-
-  // Reader view state — null = file list, object = reading a doc
+  const { files, courses, userId, setPendingNav } = useApp() as any;
   const [viewingFile, setViewingFile] = useState<any>(null);
-
-  // Saved YouLearn docs fetched directly from Supabase on mount.
-  // This is the persistence fix: freshFiles dies on unmount; AppContext doesn't
-  // re-fetch after an insert. A direct query here always reflects the real DB state.
-  const [savedDocs, setSavedDocs] = useState<any[]>([]);
+  const [savedDocs,   setSavedDocs]   = useState<any[]>([]);
 
   useEffect(() => {
     if (!userId) return;
-    supabase
-      .from("files")
-      .select("id, course_id, lms_file_id, name, file_type, size_bytes, source_url, folder, status, storage_path, summary, highlights, processed_at")
+    supabase.from("files")
+      .select("id,course_id,lms_file_id,name,file_type,size_bytes,source_url,folder,status,storage_path,summary,highlights,processed_at,content_text")
       .eq("user_id", userId)
-      .not("processed_at", "is", null)        // only YouLearn-processed files
-      .order("processed_at", { ascending: false })
+      .not("processed_at","is",null)
+      .order("processed_at", { ascending:false })
       .limit(100)
-      .then(({ data }) => {
-        if (data?.length) setSavedDocs(data.map(mapFileRow));
-      });
+      .then(({ data }) => { if (data?.length) setSavedDocs(data.map(mapFileRow)); });
   }, [userId]);
 
-  function refreshSavedDocs() {
+  const refreshSavedDocs = useCallback(() => {
     if (!userId) return;
-    supabase
-      .from("files")
-      .select("id, course_id, lms_file_id, name, file_type, size_bytes, source_url, folder, status, storage_path, summary, highlights, processed_at")
+    supabase.from("files")
+      .select("id,course_id,lms_file_id,name,file_type,size_bytes,source_url,folder,status,storage_path,summary,highlights,processed_at,content_text")
       .eq("user_id", userId)
-      .not("processed_at", "is", null)
-      .order("processed_at", { ascending: false })
+      .not("processed_at","is",null)
+      .order("processed_at", { ascending:false })
       .limit(100)
-      .then(({ data }) => {
-        if (data?.length) setSavedDocs(data.map(mapFileRow));
-      });
-  }
+      .then(({ data }) => { if (data?.length) setSavedDocs(data.map(mapFileRow)); });
+  }, [userId]);
 
   function handleProcessed(processed: any) {
-    const newFile = {
-      id:          processed.id,
-      name:        processed.name,
-      fileType:    processed.fileType,
-      storagePath: processed.storagePath,
-      summary:     processed.summary,
-      highlights:  processed.highlights,
-      processedAt: processed.processedAt,
-      sizeBytes:   null,
-      sourceUrl:   null,
-      courseDbId:  null,
-      status:      "course_material",
-    };
-    // Add to savedDocs immediately (optimistic) + refresh from DB
-    setSavedDocs(prev => {
-      if (prev.some(d => d.id === newFile.id)) return prev;
-      return [newFile, ...prev];
+    const newFile = mapFileRow({
+      id: processed.id, name: processed.name, file_type: processed.fileType,
+      storage_path: processed.storagePath, source_url: processed.sourceUrl ?? null,
+      summary: processed.summary, highlights: processed.highlights,
+      processed_at: processed.processedAt,
+      size_bytes: processed.sizeBytes ?? null,
+      course_id: null, lms_file_id: null, folder: null, status:"course_material",
     });
+    setSavedDocs(prev => prev.some(d => d.id === newFile.id) ? prev : [newFile, ...prev]);
     setViewingFile(newFile);
-    // Refresh in background to pick up the canonical DB row
     setTimeout(refreshSavedDocs, 1500);
   }
 
-  // Merge savedDocs + AppContext files (LMS-synced), de-duped by id
+  // Merge savedDocs + AppContext LMS files, de-duped
   const allFiles = useMemo(() => {
     const seen = new Set(savedDocs.map(f => f.id));
-    const lmsOnly = files.filter(f => !seen.has(f.id));
-    return [...savedDocs, ...lmsOnly];
+    return [...savedDocs, ...files.filter((f: any) => !seen.has(f.id))];
   }, [files, savedDocs]);
 
   // Group by course
   const groups = useMemo(() => {
     const byDbId = new Map();
-    courses.forEach((c, i) => {
-      if (c.dbId) byDbId.set(c.dbId, { course: c, color: colorFor(i), files: [] });
+    courses.forEach((c: any, i: number) => {
+      if (c.dbId) byDbId.set(c.dbId, { course:c, color:colorFor(i), files:[] as any[] });
     });
-    const other = { course: null, color: "var(--text-dim)", files: [] as any[] };
-
+    const myDocs = { course:null, color:"var(--text-dim)", files:[] as any[] };
     for (const f of allFiles) {
-      const g = (f.courseDbId && byDbId.get(f.courseDbId)) || other;
+      const g = (f.courseDbId && byDbId.get(f.courseDbId)) || myDocs;
       g.files.push(f);
     }
     const ordered = [...byDbId.values()].filter(g => g.files.length);
-    if (other.files.length) ordered.push(other);
+    if (myDocs.files.length) ordered.push(myDocs);
     return ordered;
   }, [allFiles, courses]);
 
-  // ── Reader view ─────────────────────────────────────────────────────────
   if (viewingFile) {
     return (
       <DocReader
         file={viewingFile}
         onBack={() => setViewingFile(null)}
-        onNavigate={(page) => { setViewingFile(null); setPendingNav(page); }}
+        onNavigate={(page: string) => { setViewingFile(null); setPendingNav(page); }}
       />
     );
   }
 
-  // ── File list ────────────────────────────────────────────────────────────
+  const myDocsGroup = groups.find(g => g.course === null);
+  const courseGroups = groups.filter(g => g.course !== null);
+
   return (
     <div>
-      <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "4px", letterSpacing: "-0.3px", fontFamily: "'Fraunces', serif" }}>
+      <h1 style={{ fontSize:26, fontWeight:600, color:"var(--text-primary)",
+        marginBottom:4, letterSpacing:"-0.3px", fontFamily:"'Fraunces',serif" }}>
         Files
       </h1>
-      <p style={{ color: "var(--text-dim)", fontSize: "14px", marginBottom: "24px" }}>
+      <p style={{ color:"var(--text-dim)", fontSize:14, marginBottom:24 }}>
         {allFiles.length > 0
           ? `${allFiles.length} file${allFiles.length !== 1 ? "s" : ""}`
-          : "Upload a document or sync your portal via the extension"}
+          : "Add a document or YouTube video to study"}
       </p>
 
-      {/* YouLearn upload card */}
-      <UploadCard onFileProcessed={handleProcessed} />
-
-      {/* RAG / tutor indexing (separate from the reader) */}
-      <DocUpload />
+      {/* Unified upload card (Part A) — replaces UploadCard + DocUpload */}
+      <AddMaterialCard onProcessed={handleProcessed} />
 
       {allFiles.length === 0 ? (
-        <div style={{ ...card, padding: "24px" }}>
-          <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginBottom: "4px" }}>No files yet</p>
-          <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>
-            Upload a PDF above to read it with AI, or use the browser extension to sync course files from your portal.
+        <motion.div
+          initial={{ opacity:0, y:12 }} animate={{ opacity:1, y:0 }}
+          transition={{ duration:0.3, ease:EASE }}
+          style={{ ...surface, padding:32, textAlign:"center" }}
+        >
+          <div style={{ fontSize:36, marginBottom:12, opacity:0.35 }}>📚</div>
+          <p style={{ color:"var(--text-secondary)", fontSize:15, fontWeight:600, marginBottom:6 }}>
+            Your library is empty
           </p>
-        </div>
+          <p style={{ color:"var(--text-dim)", fontSize:13, lineHeight:1.65, maxWidth:260, margin:"0 auto" }}>
+            Upload a PDF, Word doc, audio file, or paste a YouTube link to start studying with AI.
+          </p>
+        </motion.div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          {groups.map((g, gi) => (
-            <div key={g.course?.dbId ?? `other-${gi}`}>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "10px" }}>
-                <span style={{ color: g.color, fontSize: "12px", fontWeight: "700", letterSpacing: "0.5px" }}>
-                  {g.course ? (g.course.courseCode || g.course.name) : "My Documents"}
+        <div style={{ display:"flex", flexDirection:"column", gap:28 }}>
+
+          {/* My Documents — premium card grid (Part B) */}
+          {myDocsGroup && myDocsGroup.files.length > 0 && (
+            <div>
+              <div style={{ display:"flex", alignItems:"baseline",
+                justifyContent:"space-between", marginBottom:14 }}>
+                <span style={{ color:"var(--text-secondary)", fontSize:13,
+                  fontWeight:600, letterSpacing:"0.3px" }}>My Documents</span>
+                <span style={{ color:"var(--text-dim)", fontSize:11 }}>
+                  {myDocsGroup.files.length} item{myDocsGroup.files.length !== 1 ? "s" : ""}
                 </span>
-                <span style={{ color: "var(--text-dim)", fontSize: "11px" }}>
+              </div>
+              <div style={{
+                display:"grid",
+                gridTemplateColumns:"repeat(auto-fill, minmax(155px, 1fr))",
+                gap:12,
+              }}>
+                {myDocsGroup.files.map((f: any) => (
+                  <DocCard
+                    key={f.id} file={f}
+                    color={colorFor(savedDocs.findIndex(d => d.id === f.id))}
+                    onOpen={setViewingFile}
+                    userId={userId}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Course-linked files — flat rows (LMS-synced) */}
+          {courseGroups.map((g, gi) => (
+            <div key={g.course?.dbId ?? `c-${gi}`}>
+              <div style={{ display:"flex", alignItems:"baseline",
+                justifyContent:"space-between", marginBottom:10 }}>
+                <span style={{ color:g.color, fontSize:12, fontWeight:700, letterSpacing:"0.5px" }}>
+                  {g.course.courseCode || g.course.name}
+                </span>
+                <span style={{ color:"var(--text-dim)", fontSize:11 }}>
                   {g.files.length} file{g.files.length !== 1 ? "s" : ""}
                 </span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {g.files.map(f => (
-                  <FileRow
-                    key={f.id}
-                    file={f}
-                    color={g.color}
-                    onOpenReader={setViewingFile}
-                  />
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {g.files.map((f: any) => (
+                  <FileRow key={f.id} file={f} color={g.color} onOpenReader={setViewingFile} />
                 ))}
               </div>
             </div>

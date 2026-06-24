@@ -1,11 +1,12 @@
 // Landing.jsx — Marketing landing page.
 // LOGIC: All state variables, handlers, and auth flow are preserved exactly.
-// VISUAL: Dark editorial theme — Fraunces display headings, gold accent (#C49A3C),
+// VISUAL: Dark editorial theme — Fraunces display headings, gold accent (#a855f7),
 //         ink background (#111111), Cluely-structure feature cards with CSS mockups.
 // MOTION: Cinematic scroll reveals, hero parallax, living mockups, pill buttons,
 //         waveform animation, stat counter, ambient breathing. Animation-layer only.
 
 import { useState, useEffect, useRef } from "react";
+import ColorBends from "../components/ColorBends";
 
 /* ─────────────────────────────────────────────────────────────────────────
    AUTH MODAL  (inputBase + component untouched)
@@ -192,7 +193,7 @@ function HeroPreview() {
       <div className="l-preview-l" style={{ position: "absolute", left: "0", bottom: "14px", width: "168px", background: "rgba(14,14,18,0.94)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "14px", padding: "14px", transform: "rotate(-3deg)", zIndex: 2, boxShadow: "0 12px 36px rgba(0,0,0,0.45)" }}>
         <p style={{ fontSize: "9px", color: "rgba(255,255,255,0.25)", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "10px" }}>AI TUTOR</p>
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-          <div style={{ alignSelf: "flex-end", background: "rgba(196,154,60,0.22)", borderRadius: "8px 8px 2px 8px", padding: "6px 9px" }}>
+          <div style={{ alignSelf: "flex-end", background: "rgba(168,85,247,0.18)", borderRadius: "8px 8px 2px 8px", padding: "6px 9px" }}>
             <p style={{ color: "#F5F5F5", fontSize: "9px" }}>Summarize my notes</p>
           </div>
           <div style={{ alignSelf: "flex-start", background: "rgba(255,255,255,0.05)", borderRadius: "8px 8px 8px 2px", padding: "6px 9px" }}>
@@ -233,7 +234,7 @@ function RecordingMockup() {
           <div key={i} style={{
             flex: 1,
             height: `${h}px`,
-            background: i < 14 ? "#C49A3C" : "rgba(255,255,255,0.12)",
+            background: i < 14 ? "#a855f7" : "rgba(255,255,255,0.12)",
             borderRadius: "2px",
             opacity: i < 14 ? 0.85 : 0.5,
             transformOrigin: "center bottom",
@@ -242,7 +243,7 @@ function RecordingMockup() {
           }} />
         ))}
       </div>
-      <div style={{ borderLeft: "2px solid rgba(196,154,60,0.45)", paddingLeft: "12px" }}>
+      <div style={{ borderLeft: "2px solid rgba(139,92,246,0.5)", paddingLeft: "12px" }}>
         <p style={{ color: "rgba(255,255,255,0.28)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "5px" }}>Live transcript</p>
         <p style={{ color: "rgba(255,255,255,0.68)", fontSize: "12px", lineHeight: "1.65" }}>
           "…cognitive load theory suggests working memory has limited capacity for processing new information…"
@@ -288,7 +289,7 @@ function TutorMockup() {
 
       {/* User bubble */}
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "10px", opacity: show("user") ? 1 : 0, transform: show("user") ? "none" : "translateY(6px)", transition: "opacity .4s ease, transform .4s ease" }}>
-        <div style={{ background: "rgba(196,154,60,0.22)", border: "1px solid rgba(196,154,60,0.25)", borderRadius: "14px 14px 4px 14px", padding: "9px 13px", maxWidth: "76%" }}>
+        <div style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(139,92,246,0.3)", borderRadius: "14px 14px 4px 14px", padding: "9px 13px", maxWidth: "76%" }}>
           <p style={{ color: "#F5F5F5", fontSize: "12px" }}>Explain homeostasis</p>
         </div>
       </div>
@@ -308,7 +309,7 @@ function TutorMockup() {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: "5px", opacity: show("full") ? 1 : 0, transition: "opacity .4s ease .3s" }}>
-        <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#C49A3C", opacity: 0.55, flexShrink: 0 }} />
+        <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#a855f7", opacity: 0.55, flexShrink: 0 }} />
         <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.28)" }}>From your Lecture 4 notes</span>
       </div>
     </div>
@@ -318,7 +319,7 @@ function TutorMockup() {
 // Study room mockup — participants stagger in when card enters viewport
 function StudyRoomMockup() {
   const members = [
-    { name: "Pratik", i: "P", c: "rgba(196,154,60,0.75)" },
+    { name: "Pratik", i: "P", c: "rgba(168,85,247,0.8)" },
     { name: "Shreya", i: "S", c: "rgba(123,97,214,0.75)" },
     { name: "Marcus", i: "M", c: "rgba(200,119,58,0.75)" },
     { name: "Aiden",  i: "A", c: "rgba(59,168,123,0.75)" },
@@ -359,7 +360,7 @@ function StudyRoomMockup() {
           <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "13px" }}>{m.name}</span>
         </div>
       ))}
-      <button style={{ width: "100%", background: "none", border: "1px dashed rgba(196,154,60,0.3)", borderRadius: "10px", padding: "8px", color: "rgba(196,154,60,0.7)", fontSize: "13px", cursor: "default", fontFamily: "inherit", marginTop: "4px" }}>
+      <button style={{ width: "100%", background: "none", border: "1px dashed rgba(139,92,246,0.35)", borderRadius: "10px", padding: "8px", color: "rgba(168,85,247,0.8)", fontSize: "13px", cursor: "default", fontFamily: "inherit", marginTop: "4px" }}>
         + Add friend
       </button>
     </div>
@@ -433,6 +434,8 @@ export default function Landing({ onEnter }) {
   // ── Animation state ───────────────────────────────────────────────────
   const heroRef    = useRef(null);
   const statsRef   = useRef(null);
+  // Reduced-motion: checked once (ref, not state — no re-render needed)
+  const reducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const [statLangs, setStatLangs] = useState(0);
 
   // ── Countdown + Waitlist state ────────────────────────────────────────
@@ -533,7 +536,7 @@ export default function Landing({ onEnter }) {
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
-    <div style={{ background: "#111111", minHeight: "100dvh", fontFamily: "var(--font-sans)", overflowX: "clip", color: "#F5F5F5" }}>
+    <div style={{ background: "#0a0010", minHeight: "100dvh", fontFamily: "var(--font-sans)", overflowX: "clip", color: "#F5F5F5" }}>
 
       {/* ── All animations ─────────────────────────────────────────────── */}
       <style>{`
@@ -626,15 +629,15 @@ export default function Landing({ onEnter }) {
         }
         .l-feat-card:hover {
           transform:translateY(-8px) !important;
-          box-shadow:0 0 0 1px rgba(196,154,60,.28),
-                     inset 0 0 40px rgba(196,154,60,.04),
+          box-shadow:0 0 0 1px rgba(139,92,246,.32),
+                     inset 0 0 40px rgba(139,92,246,.04),
                      0 28px 64px rgba(0,0,0,.45) !important;
         }
         /* Ambient glow inside each card */
         .l-feat-card .l-card-glow {
           position:absolute; top:50%; left:50%;
           width:55%; height:55%;
-          background:radial-gradient(ellipse,rgba(196,154,60,.04) 0%,transparent 70%);
+          background:radial-gradient(ellipse,rgba(139,92,246,.04) 0%,transparent 70%);
           transform:translate(-50%,-50%);
           animation:statGlow 4s ease-in-out infinite;
           pointer-events:none;
@@ -642,7 +645,7 @@ export default function Landing({ onEnter }) {
 
         /* ── FAQ ── */
         .l-faq-row { border-bottom:1px solid rgba(255,255,255,.06); cursor:pointer; }
-        .l-faq-row:hover .l-faq-q-text { color:#C49A3C; }
+        .l-faq-row:hover .l-faq-q-text { color:#a855f7; }
 
         /* ── Waitlist section ── */
         @keyframes cardScroll {
@@ -665,6 +668,19 @@ export default function Landing({ onEnter }) {
           100%    { transform: rotateX(0deg); }
         }
 
+        /* ── Glassmorphism panels ── */
+        .l-glass {
+          backdrop-filter: blur(18px) saturate(1.2);
+          -webkit-backdrop-filter: blur(18px) saturate(1.2);
+        }
+        /* Reduce blur on mobile for perf */
+        @media(hover:none){
+          .l-glass {
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+          }
+        }
+
         /* ── Responsive ── */
         @media(max-width:640px){
           .l-hero-h1  { font-size:44px !important; letter-spacing:-1.8px !important; line-height:1.08 !important; }
@@ -680,8 +696,34 @@ export default function Landing({ onEnter }) {
         }
       `}</style>
 
+      {/* ── ColorBends fixed background — deep violet/purple, behind everything ── */}
+      {/* Explicit px dimensions: position:fixed with inset:0 doesn't give height to children */}
+      {/* Canvas at z:0 — ABOVE body background, BELOW content wrapper at z:1 */}
+      <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", zIndex: 0, pointerEvents: "none" }}>
+        <ColorBends
+          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
+          colors={["#a855f7", "#7c3aed"]}
+          rotation={90}
+          speed={0.2}
+          scale={1.8}
+          frequency={1}
+          warpStrength={1}
+          mouseInfluence={1}
+          noise={0.15}
+          parallax={0.5}
+          iterations={1}
+          intensity={1.5}
+          bandWidth={6}
+          transparent={true}
+          autoRotate={0.3}
+        />
+      </div>
+
+      {/* Content wrapper at z:1 — above canvas (z:0), backdrop-filter blurs canvas behind each section */}
+      <div style={{ position: "relative", zIndex: 1 }}>
+
       {/* ── Nav ────────────────────────────────────────────────────────── */}
-      <nav style={{ position: "sticky", top: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", background: "rgba(17,17,17,0.9)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+      <nav style={{ position: "sticky", top: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", background: "rgba(11,11,13,0.55)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <img src="/logo.jpeg" alt="FSchoolAI" style={{ width: 28, height: 28, borderRadius: "7px", objectFit: "cover", flexShrink: 0 }} />
           <span style={{ fontWeight: "700", fontSize: "15px", letterSpacing: "-0.3px", color: "#F5F5F5" }}>FSchoolAI</span>
@@ -693,13 +735,14 @@ export default function Landing({ onEnter }) {
       </nav>
 
       {/* ── Hero ───────────────────────────────────────────────────────── */}
-      <section ref={heroRef} className="l-hero-sec" style={{ padding: "120px 24px 80px", background: "#111111", textAlign: "center", position: "relative", overflow: "hidden" }}>
-        {/* Breathing gold radial glow */}
-        <div style={{ position: "absolute", top: "-120px", left: "50%", width: "900px", height: "700px", background: "radial-gradient(ellipse at top, rgba(196,154,60,0.1) 0%, transparent 55%)", pointerEvents: "none", animation: "heroBreathe 6s ease-in-out infinite", willChange: "transform" }} />
+      <section ref={heroRef} className="l-hero-sec" style={{ padding: "120px 24px 80px", background: "transparent", textAlign: "center", position: "relative", overflow: "hidden" }}>
+
+        {/* Scrim: bottom gradient so hero content blends into next section */}
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "200px", background: "linear-gradient(to bottom, transparent, rgba(13,13,15,0.9))", pointerEvents: "none", zIndex: 0 }} />
 
         {/* Parallax layers — wrapper divs receive the JS transform, inner elements animate in via CSS */}
-        <div className="l-par-h1" style={{ willChange: "transform" }}>
-          <p className="l-fade l-d1" style={{ display: "inline-block", fontSize: "11px", fontWeight: "600", color: "rgba(196,154,60,0.8)", letterSpacing: "2.5px", textTransform: "uppercase", background: "rgba(196,154,60,0.08)", border: "1px solid rgba(196,154,60,0.2)", borderRadius: "20px", padding: "5px 14px", marginBottom: "28px" }}>
+        <div className="l-par-h1" style={{ willChange: "transform", position: "relative", zIndex: 2 }}>
+          <p className="l-fade l-d1" style={{ display: "inline-block", fontSize: "11px", fontWeight: "600", color: "rgba(168,85,247,0.85)", letterSpacing: "2.5px", textTransform: "uppercase", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.25)", borderRadius: "20px", padding: "5px 14px", marginBottom: "28px" }}>
             Beta — 1 month free
           </p>
           <h1 className="l-hero-h1 l-fade l-d2" style={{ display: "block", fontSize: "76px", fontWeight: "700", fontFamily: "'Fraunces',Georgia,serif", color: "#F5F5F5", letterSpacing: "-2.8px", lineHeight: "1.04", maxWidth: "760px", margin: "0 auto 22px" }}>
@@ -707,13 +750,13 @@ export default function Landing({ onEnter }) {
           </h1>
         </div>
 
-        <div className="l-par-sub" style={{ willChange: "transform" }}>
+        <div className="l-par-sub" style={{ willChange: "transform", position: "relative", zIndex: 2 }}>
           <p className="l-hero-sub l-fade l-d3" style={{ fontSize: "18px", color: "rgba(255,255,255,0.42)", maxWidth: "480px", margin: "0 auto 40px", lineHeight: "1.7" }}>
             Canvas courses, class notes, and AI in one intelligent space — organized the way you actually study.
           </p>
         </div>
 
-        <div className="l-par-cta" style={{ willChange: "transform" }}>
+        <div className="l-par-cta" style={{ willChange: "transform", position: "relative", zIndex: 2 }}>
           {/* CTAs */}
           <div className="l-fade l-d4" style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap", marginBottom: "28px" }}>
             <button className="l-btn-primary" onClick={() => setAuthMode("signup")}
@@ -742,18 +785,17 @@ export default function Landing({ onEnter }) {
           <div className="l-fade l-d5"><HeroPreview /></div>
         </div>
 
-        {/* Section bottom fade */}
-        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "80px", background: "linear-gradient(to bottom,transparent,rgba(0,0,0,0.3))", pointerEvents: "none" }} />
+        {/* Section bottom fade — removed, replaced by hero scrim above */}
       </section>
 
       {/* ── Feature 1: Recording ───────────────────────────────────────── */}
-      <section className="l-sec" style={{ padding: "80px 24px", background: "#111111", position: "relative" }}>
+      <section className="l-sec" style={{ padding: "80px 24px", background: "rgba(11,11,13,0.72)", position: "relative", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}>
         <div style={{ maxWidth: "960px", margin: "0 auto" }}>
           <Reveal>
-            <div className="l-feat-card l-card-pad l-split" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderTop: "2px solid rgba(196,154,60,0.4)", borderRadius: "28px", padding: "56px 52px", display: "flex", gap: "52px", alignItems: "center" }}>
+            <div className="l-feat-card l-card-pad l-split l-glass" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderTop: "2px solid rgba(139,92,246,0.5)", borderRadius: "28px", padding: "56px 52px", display: "flex", gap: "52px", alignItems: "center", boxShadow: "0 8px 40px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08)" }}>
               <div className="l-card-glow" />
               <Reveal delay={0} style={{ flex: "1 1 0", minWidth: 0 }}>
-                <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2px", textTransform: "uppercase", color: "rgba(196,154,60,0.6)", marginBottom: "16px" }}>In-class recording</p>
+                <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2px", textTransform: "uppercase", color: "rgba(168,85,247,0.7)", marginBottom: "16px" }}>In-class recording</p>
                 <h2 style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "36px", fontWeight: "700", color: "#F5F5F5", letterSpacing: "-0.8px", lineHeight: "1.15", marginBottom: "18px" }}>Never miss what's said in class.</h2>
                 <p style={{ fontSize: "15px", color: "rgba(255,255,255,0.45)", lineHeight: "1.75" }}>FSchoolAI captures and transcribes your lectures in real time. Review exactly what was covered — searchable, always there, in your own notes.</p>
               </Reveal>
@@ -767,13 +809,13 @@ export default function Landing({ onEnter }) {
       </section>
 
       {/* ── Feature 2: AI Tutor ─────────────────────────────────────────── */}
-      <section className="l-sec" style={{ padding: "20px 24px 80px", background: "#111111", position: "relative" }}>
+      <section className="l-sec" style={{ padding: "20px 24px 80px", background: "rgba(11,11,13,0.72)", position: "relative", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}>
         <div style={{ maxWidth: "960px", margin: "0 auto" }}>
           <Reveal>
-            <div className="l-feat-card l-card-pad l-split-rev" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderTop: "2px solid rgba(196,154,60,0.4)", borderRadius: "28px", padding: "56px 52px", display: "flex", flexDirection: "row-reverse", gap: "52px", alignItems: "center" }}>
+            <div className="l-feat-card l-card-pad l-split-rev l-glass" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderTop: "2px solid rgba(139,92,246,0.5)", borderRadius: "28px", padding: "56px 52px", display: "flex", flexDirection: "row-reverse", gap: "52px", alignItems: "center", boxShadow: "0 8px 40px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08)" }}>
               <div className="l-card-glow" />
               <Reveal delay={0} style={{ flex: "1 1 0", minWidth: 0 }}>
-                <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2px", textTransform: "uppercase", color: "rgba(196,154,60,0.6)", marginBottom: "16px" }}>AI Tutor</p>
+                <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2px", textTransform: "uppercase", color: "rgba(168,85,247,0.7)", marginBottom: "16px" }}>AI Tutor</p>
                 <h2 style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "36px", fontWeight: "700", color: "#F5F5F5", letterSpacing: "-0.8px", lineHeight: "1.15", marginBottom: "18px" }}>Your own AI tutor who knows your courses.</h2>
                 <p style={{ fontSize: "15px", color: "rgba(255,255,255,0.45)", lineHeight: "1.75" }}>Answers grounded in your actual lecture notes — not just the internet. Ask anything about your courses and get answers that make sense for your class.</p>
               </Reveal>
@@ -787,14 +829,14 @@ export default function Landing({ onEnter }) {
       </section>
 
       {/* ── Feature 3: Study Rooms ──────────────────────────────────────── */}
-      <section className="l-sec" style={{ padding: "20px 24px 80px", background: "#111111", position: "relative" }}>
+      <section className="l-sec" style={{ padding: "20px 24px 80px", background: "rgba(11,11,13,0.72)", position: "relative", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}>
         <div style={{ maxWidth: "960px", margin: "0 auto" }}>
           <Reveal>
-            <div className="l-feat-card l-card-pad l-split" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderTop: "2px solid rgba(196,154,60,0.4)", borderRadius: "28px", padding: "56px 52px", display: "flex", gap: "52px", alignItems: "center", position: "relative" }}>
+            <div className="l-feat-card l-card-pad l-split l-glass" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderTop: "2px solid rgba(139,92,246,0.5)", borderRadius: "28px", padding: "56px 52px", display: "flex", gap: "52px", alignItems: "center", position: "relative", boxShadow: "0 8px 40px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08)" }}>
               <div className="l-card-glow" />
               <span style={{ position: "absolute", top: "22px", right: "24px", fontSize: "10px", fontWeight: "600", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.06)", borderRadius: "7px", padding: "4px 10px" }}>Coming soon</span>
               <Reveal delay={0} style={{ flex: "1 1 0", minWidth: 0 }}>
-                <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2px", textTransform: "uppercase", color: "rgba(196,154,60,0.6)", marginBottom: "16px" }}>Study rooms</p>
+                <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2px", textTransform: "uppercase", color: "rgba(168,85,247,0.7)", marginBottom: "16px" }}>Study rooms</p>
                 <h2 style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "36px", fontWeight: "700", color: "#F5F5F5", letterSpacing: "-0.8px", lineHeight: "1.15", marginBottom: "18px" }}>Study together. Add friends, join a room.</h2>
                 <p style={{ fontSize: "15px", color: "rgba(255,255,255,0.45)", lineHeight: "1.75" }}>Create study rooms, invite friends from your school, and learn together in real time. Shared notes, shared focus.</p>
               </Reveal>
@@ -808,10 +850,10 @@ export default function Landing({ onEnter }) {
       </section>
 
       {/* ── Stats ──────────────────────────────────────────────────────── */}
-      <section ref={statsRef} className="l-sec" style={{ padding: "96px 24px", background: "#0A0E18", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.05)", position: "relative" }}>
+      <section ref={statsRef} className="l-sec" style={{ padding: "96px 24px", background: "rgba(8,6,14,0.55)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)", position: "relative" }}>
         <div style={{ maxWidth: "800px", margin: "0 auto" }}>
           <Reveal>
-            <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2.5px", textTransform: "uppercase", color: "rgba(196,154,60,0.55)", marginBottom: "64px" }}>By the numbers</p>
+            <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2.5px", textTransform: "uppercase", color: "rgba(168,85,247,0.65)", marginBottom: "64px" }}>By the numbers</p>
           </Reveal>
           <div className="l-stats" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "48px" }}>
             {[
@@ -822,7 +864,7 @@ export default function Landing({ onEnter }) {
               <Reveal key={val} delay={d}>
                 <div style={{ position: "relative" }}>
                   {/* Heartbeat glow */}
-                  <div style={{ position: "absolute", top: "50%", left: "50%", width: "120px", height: "120px", background: "radial-gradient(circle,rgba(196,154,60,0.06) 0%,transparent 70%)", animation: `statGlow 3s ease-in-out infinite ${d * 0.002}s`, pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", top: "50%", left: "50%", width: "120px", height: "120px", background: "radial-gradient(circle,rgba(139,92,246,0.07) 0%,transparent 70%)", animation: `statGlow 3s ease-in-out infinite ${d * 0.002}s`, pointerEvents: "none" }} />
                   <p style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "48px", fontWeight: "700", color: "#F5F5F5", letterSpacing: "-1.5px", lineHeight: 1, marginBottom: "12px", position: "relative" }}>
                     {disp !== null ? `${disp}+` : val}
                   </p>
@@ -836,17 +878,17 @@ export default function Landing({ onEnter }) {
       </section>
 
       {/* ── Pricing ──────────────────────────────────────────────────────── */}
-      <section className="l-sec" style={{ padding: "96px 24px", background: "#111111", position: "relative" }}>
+      <section className="l-sec" style={{ padding: "96px 24px", background: "rgba(11,11,13,0.78)", position: "relative", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}>
         <div style={{ maxWidth: "820px", margin: "0 auto" }}>
           <Reveal style={{ textAlign: "center", marginBottom: "56px" }}>
-            <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2.5px", textTransform: "uppercase", color: "rgba(196,154,60,0.55)", marginBottom: "14px" }}>Pricing</p>
+            <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2.5px", textTransform: "uppercase", color: "rgba(168,85,247,0.65)", marginBottom: "14px" }}>Pricing</p>
             <h2 style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "44px", fontWeight: "700", color: "#F5F5F5", letterSpacing: "-1.4px", marginBottom: "10px" }}>Simple pricing.</h2>
             <p style={{ fontSize: "16px", color: "rgba(255,255,255,0.38)" }}>Start free. Upgrade when you're ready.</p>
           </Reveal>
 
           <div className="l-pricing" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
             <Reveal delay={0}>
-              <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "22px", padding: "36px 32px", display: "flex", flexDirection: "column", height: "100%" }}>
+              <div style={{ background: "rgba(255,255,255,0.05)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "22px", padding: "36px 32px", display: "flex", flexDirection: "column", height: "100%" }}>
                 <p style={{ fontSize: "13px", fontWeight: "700", color: "#F5F5F5", marginBottom: "8px" }}>Free</p>
                 <div style={{ marginBottom: "28px" }}>
                   <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "44px", fontWeight: "700", color: "#F5F5F5" }}>$0</span>
@@ -855,7 +897,7 @@ export default function Landing({ onEnter }) {
                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 32px", display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
                   {FREE_FEATURES.map(f => (
                     <li key={f} style={{ display: "flex", alignItems: "flex-start", gap: "10px", fontSize: "14px", color: "rgba(255,255,255,0.55)", lineHeight: "1.5" }}>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginTop: "2px" }}><circle cx="8" cy="8" r="7" stroke="rgba(196,154,60,0.5)" strokeWidth="1.2"/><path d="M5 8l2.5 2.5L11 5.5" stroke="#C49A3C" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginTop: "2px" }}><circle cx="8" cy="8" r="7" stroke="rgba(139,92,246,0.55)" strokeWidth="1.2"/><path d="M5 8l2.5 2.5L11 5.5" stroke="#a855f7" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                       {f}
                     </li>
                   ))}
@@ -868,11 +910,11 @@ export default function Landing({ onEnter }) {
             </Reveal>
 
             <Reveal delay={80}>
-              <div style={{ background: "rgba(196,154,60,0.05)", border: "1px solid rgba(196,154,60,0.18)", borderRadius: "22px", padding: "36px 32px", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", height: "100%" }}>
-                <div style={{ position: "absolute", top: "-60px", right: "-60px", width: "200px", height: "200px", background: "radial-gradient(circle,rgba(196,154,60,0.08) 0%,transparent 65%)", pointerEvents: "none" }} />
+              <div style={{ background: "rgba(139,92,246,0.08)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid rgba(139,92,246,0.28)", borderRadius: "22px", padding: "36px 32px", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", height: "100%" }}>
+                <div style={{ position: "absolute", top: "-60px", right: "-60px", width: "200px", height: "200px", background: "radial-gradient(circle,rgba(139,92,246,0.1) 0%,transparent 65%)", pointerEvents: "none" }} />
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
                   <p style={{ fontSize: "13px", fontWeight: "700", color: "#F5F5F5" }}>Pro</p>
-                  <span style={{ fontSize: "10px", fontWeight: "600", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(196,154,60,0.6)", background: "rgba(196,154,60,0.1)", border: "1px solid rgba(196,154,60,0.2)", borderRadius: "6px", padding: "3px 8px" }}>Coming soon</span>
+                  <span style={{ fontSize: "10px", fontWeight: "600", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(168,85,247,0.7)", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.25)", borderRadius: "6px", padding: "3px 8px" }}>Coming soon</span>
                 </div>
                 <div style={{ marginBottom: "28px" }}>
                   <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "32px", fontWeight: "700", color: "rgba(255,255,255,0.4)" }}>Coming soon</span>
@@ -880,12 +922,12 @@ export default function Landing({ onEnter }) {
                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 32px", display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
                   {PRO_FEATURES.map(f => (
                     <li key={f} style={{ display: "flex", alignItems: "flex-start", gap: "10px", fontSize: "14px", color: "rgba(255,255,255,0.4)", lineHeight: "1.5" }}>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginTop: "2px" }}><circle cx="8" cy="8" r="7" stroke="rgba(196,154,60,0.25)" strokeWidth="1.2"/><path d="M5 8l2.5 2.5L11 5.5" stroke="rgba(196,154,60,0.3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginTop: "2px" }}><circle cx="8" cy="8" r="7" stroke="rgba(139,92,246,0.3)" strokeWidth="1.2"/><path d="M5 8l2.5 2.5L11 5.5" stroke="rgba(139,92,246,0.35)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                       {f}
                     </li>
                   ))}
                 </ul>
-                <button disabled style={{ width: "100%", background: "rgba(196,154,60,0.08)", color: "rgba(196,154,60,0.35)", border: "1px solid rgba(196,154,60,0.15)", borderRadius: "100px", padding: "13px", fontSize: "15px", fontWeight: "600", cursor: "default", fontFamily: "inherit" }}>
+                <button disabled style={{ width: "100%", background: "rgba(139,92,246,0.1)", color: "rgba(168,85,247,0.4)", border: "1px solid rgba(139,92,246,0.18)", borderRadius: "100px", padding: "13px", fontSize: "15px", fontWeight: "600", cursor: "default", fontFamily: "inherit" }}>
                   Get notified
                 </button>
               </div>
@@ -896,17 +938,17 @@ export default function Landing({ onEnter }) {
       </section>
 
       {/* ── FAQ ─────────────────────────────────────────────────────────── */}
-      <section className="l-sec" style={{ padding: "96px 24px", background: "#0A0E18", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+      <section className="l-sec" style={{ padding: "96px 24px", background: "rgba(8,6,14,0.55)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
         <div style={{ maxWidth: "640px", margin: "0 auto" }}>
           <Reveal style={{ textAlign: "center", marginBottom: "52px" }}>
-            <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2.5px", textTransform: "uppercase", color: "rgba(196,154,60,0.55)", marginBottom: "14px" }}>FAQ</p>
+            <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2.5px", textTransform: "uppercase", color: "rgba(168,85,247,0.65)", marginBottom: "14px" }}>FAQ</p>
             <h2 style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "42px", fontWeight: "700", color: "#F5F5F5", letterSpacing: "-1.2px" }}>Questions answered.</h2>
           </Reveal>
 
           {FAQ_DATA.map((item, i) => (
             <Reveal key={i} delay={i * 50}>
               <div className="l-faq-row" onClick={() => setFaqOpen(faqOpen === i ? null : i)}>
-                <div className="l-faq-q-text" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 0", fontSize: "15px", fontWeight: "600", color: faqOpen === i ? "#C49A3C" : "#F5F5F5", transition: "color .15s" }}>
+                <div className="l-faq-q-text" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 0", fontSize: "15px", fontWeight: "600", color: faqOpen === i ? "#a855f7" : "#F5F5F5", transition: "color .15s" }}>
                   {item.q}
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginLeft: "16px", transform: faqOpen === i ? "rotate(180deg)" : "none", transition: "transform .22s" }}>
                     <path d="M3 6l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -922,7 +964,7 @@ export default function Landing({ onEnter }) {
       </section>
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <footer style={{ padding: "32px 28px", borderTop: "1px solid rgba(255,255,255,0.05)", background: "#111111", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+      <footer style={{ padding: "32px 28px", borderTop: "1px solid rgba(255,255,255,0.07)", background: "rgba(11,11,13,0.82)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <img src="/logo.jpeg" alt="FSchoolAI" style={{ width: 22, height: 22, borderRadius: "5px", objectFit: "cover" }} />
           <span style={{ fontWeight: "700", fontSize: "14px", color: "#F5F5F5" }}>FSchoolAI</span>
@@ -934,6 +976,8 @@ export default function Landing({ onEnter }) {
           ))}
         </div>
       </footer>
+
+      </div>{/* end content wrapper */}
 
       {/* ── Forgot-password banners (unchanged) ──────────────────────────── */}
       <style>{`
@@ -952,8 +996,8 @@ export default function Landing({ onEnter }) {
         </div>
       )}
       {forgotSent && (
-        <div style={{ position:"fixed", top:"env(safe-area-inset-top, 0px)", left:"50%", transform:"translateX(-50%)", zIndex:1001, marginTop:"16px", width:"calc(100% - 40px)", maxWidth:"420px", padding:"14px 18px", borderRadius:"12px", display:"flex", alignItems:"center", gap:"14px", background:"#F6F2E9", border:"1px solid rgba(196,154,60,0.28)", boxShadow:"0 4px 28px rgba(0,0,0,0.24)", animation:"bannerIn 0.3s cubic-bezier(0.0,0.0,0.2,1.0) both" }}>
-          <svg width="34" height="34" viewBox="0 0 34 34" fill="none" style={{flexShrink:0}}><circle cx="17" cy="17" r="16" stroke="#C49A3C" strokeWidth="1" strokeDasharray="4 2.5" opacity="0.5"/><circle cx="17" cy="17" r="12" stroke="#C49A3C" strokeWidth="1.4"/><path d="M11 17l4.5 4.5 7.5-8" stroke="#C49A3C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        <div style={{ position:"fixed", top:"env(safe-area-inset-top, 0px)", left:"50%", transform:"translateX(-50%)", zIndex:1001, marginTop:"16px", width:"calc(100% - 40px)", maxWidth:"420px", padding:"14px 18px", borderRadius:"12px", display:"flex", alignItems:"center", gap:"14px", background:"#F6F2E9", border:"1px solid rgba(139,92,246,0.3)", boxShadow:"0 4px 28px rgba(0,0,0,0.24)", animation:"bannerIn 0.3s cubic-bezier(0.0,0.0,0.2,1.0) both" }}>
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none" style={{flexShrink:0}}><circle cx="17" cy="17" r="16" stroke="#a855f7" strokeWidth="1" strokeDasharray="4 2.5" opacity="0.5"/><circle cx="17" cy="17" r="12" stroke="#a855f7" strokeWidth="1.4"/><path d="M11 17l4.5 4.5 7.5-8" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:"13px", fontWeight:"700", color:"#1a1814", letterSpacing:"-0.1px", marginBottom:"3px" }}>Reset email sent</div>
             <div style={{ fontSize:"12px", color:"rgba(26,24,20,0.5)" }}>Check your inbox — link expires in 1 hour.</div>
