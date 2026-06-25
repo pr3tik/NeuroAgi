@@ -445,6 +445,66 @@ async function extractFileContents(userId, files) {
   }
 }
 
+// ── Harvest embedded / linked files the LMS API misses (phase 2b) ────────────
+// Runs after the normal API sync. Either injects harvestPageFiles() into the tab
+// (autoSync path, tabId known) or accepts pre-computed results from the popup
+// (manual capture path, where the popup already ran the injection).
+// Deduplicates against files already returned by the API sync (by source_url).
+// Inserts file stubs, then reuses extractFileContents for fetch + store + extract.
+// Stores skipped cross-origin embeds so the popup can surface a "upload manually"
+// message. Never throws — harvest is best-effort and must not block the main sync.
+async function harvestAndIngest(userId, tabId, alreadySyncedFiles, precomputed) {
+  let harvest = precomputed ?? null;
+
+  // If no pre-computed results, inject harvestPageFiles into the live tab.
+  if (!harvest && tabId) {
+    try {
+      const [inj] = await chrome.scripting.executeScript({
+        target: { tabId }, world: "MAIN", func: harvestPageFiles,
+      });
+      harvest = inj?.result ?? { files: [], skipped: [] };
+    } catch { return; }   // tab inaccessible (PDF viewer, chrome:// page, etc.)
+  }
+
+  if (!harvest) return;
+
+  const { files: found = [], skipped = [] } = harvest;
+
+  // Dedup against API-synced files so we don't re-import the same file twice.
+  const syncedUrls = new Set((alreadySyncedFiles || []).map(f => f.source_url).filter(Boolean));
+  const newFiles   = found.filter(f => f.source_url && !syncedUrls.has(f.source_url));
+
+  if (newFiles.length) {
+    const now = new Date().toISOString();
+    // Insert file stubs first — extractFileContents does PATCH (rows must exist).
+    const rows = newFiles.map(f => ({
+      user_id:     userId,
+      lms_file_id: f.id,
+      name:        f.name || "document",
+      file_type:   f.file_type || "pdf",
+      source_url:  f.source_url,
+      source:      "extension_harvest",
+      updated_at:  now,
+    }));
+    try { await sbUpsert("files", rows, "user_id,lms_file_id"); }
+    catch (e) { console.warn("[NeuroAgi] harvest stub insert failed:", e.message); }
+
+    // Reuse the full fetch → Supabase Storage → /api/extract → content_text pipeline.
+    await extractFileContents(userId, newFiles).catch(e =>
+      console.warn("[NeuroAgi] harvest extractFileContents:", e.message)
+    );
+  }
+
+  // Persist skipped items (cleared if none this sync) for popup display.
+  try {
+    if (skipped.length) {
+      await chrome.storage.local.set({ neuroagi_skipped: skipped.slice(0, 20) });
+    } else {
+      await chrome.storage.local.remove("neuroagi_skipped");
+    }
+  } catch {}
+}
+
 async function extract(userId, pageContent, stepHint) {
   const { text, tables, url, title } = pageContent;
 
@@ -766,6 +826,8 @@ async function autoSync(userId, tabId) {
     // Await (don't fire-and-forget): an MV3 service worker is killed once its
     // triggering event settles, which would abort an unawaited extraction loop.
     await extractFileContents(userId, api.files).catch(() => {});  // fill content_text
+    // Harvest embedded/linked files the LMS API didn't list (iframes, a[href], Google Docs).
+    await harvestAndIngest(userId, tabId, api.files, null).catch(() => {});
     const stats = await getCurrentStats(userId);
     const caps = [{ step: "courses", auto: true, timestamp: Date.now() }];
     if (api.assignments?.length) caps.push({ step: "assignments", auto: true, timestamp: Date.now() });
@@ -861,6 +923,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // Await so the service worker stays alive until extraction finishes (an
       // unawaited promise is dropped when the worker is torn down post-response).
       await extractFileContents(msg.userId, msg.data.files).catch(() => {});  // fill content_text
+      // Harvest embedded/linked files using pre-computed results from the popup
+      // (popup already ran harvestPageFiles injection and passes results here).
+      await harvestAndIngest(msg.userId, null, msg.data.files, msg.harvest ?? null).catch(() => {});
       const stats  = await getCurrentStats(msg.userId);
       return { ok: true, counts, stats };
     })().then(sendResponse).catch(err => sendResponse({ ok: false, error: err.message }));

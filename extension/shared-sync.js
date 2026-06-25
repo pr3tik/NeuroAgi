@@ -416,3 +416,89 @@ function extractPageContent() {
     links:     links.slice(0, 200),
   };
 }
+
+// ── harvestPageFiles ───────────────────────────────────────────────────────────
+// Injected into the page's MAIN world (must be fully self-contained).
+// Scans the live DOM for file URLs the LMS Files API doesn't list:
+//   • <iframe src>, <embed src>, <object data> pointing at PDF/PPTX/DOCX files
+//   • <a href> direct download links for those same types
+//   • Google Docs / Sheets / Slides links → transforms to an export URL
+//     (export works when the doc is "anyone with link can view"; fails gracefully otherwise)
+// Also detects cross-origin iframes we cannot access so the popup can surface
+// a "please upload manually" message instead of silently skipping them.
+// Returns { files: [...], skipped: [...] }.
+async function harvestPageFiles() {
+  const FILE_EXT = /\.(pdf|pptx?|docx?)(\?[^"'\s#]*)?($|#)/i;
+  const GDOC_RE  = /https?:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([\w-]+)/;
+
+  // Stable, collision-resistant id from a string (same pattern as lmsApiSync's hashId).
+  const urlId = (prefix, str) => {
+    let h = 0; const s = String(str);
+    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+    return prefix + (h >>> 0).toString(36);
+  };
+
+  const seenUrls = new Set();
+  const files    = [];
+  const skipped  = [];
+
+  const tryAddFile = (rawUrl, nameHint, typeHint) => {
+    let url;
+    try { url = new URL(rawUrl, location.href).href; } catch { return; }
+    if (seenUrls.has(url)) return;
+    seenUrls.add(url);
+    const raw  = nameHint || url.split('/').pop().split('?')[0] || 'document';
+    const name = raw.slice(0, 200);
+    const ext  = typeHint || (name.match(/\.([a-z0-9]{1,5})$/i) || [])[1]?.toLowerCase() || 'pdf';
+    files.push({ id: urlId('h_', url), source_url: url, name, file_type: ext });
+  };
+
+  // ── Embedded elements (<iframe>, <embed>, <object>) ──────────────────────────
+  document.querySelectorAll('iframe[src], embed[src], object[data]').forEach(el => {
+    const src = (el.getAttribute('src') || el.getAttribute('data') || '').trim();
+    if (src && FILE_EXT.test(src)) tryAddFile(src, null, null);
+  });
+
+  // ── Linked files + Google Docs (<a href>) ─────────────────────────────────────
+  document.querySelectorAll('a[href]').forEach(a => {
+    const href = (a.getAttribute('href') || '').trim();
+    if (!href) return;
+
+    // Direct download link (.pdf / .docx / .pptx / etc.)
+    if (FILE_EXT.test(href)) {
+      tryAddFile(href, (a.textContent || '').replace(/\s+/g, ' ').trim() || null, null);
+      return;
+    }
+
+    // Google Docs / Sheets / Slides — convert to export URL
+    const full = a.href || '';
+    const gm   = full.match(GDOC_RE) || href.match(GDOC_RE);
+    if (gm) {
+      const [, kind, id] = gm;
+      const fmt    = kind === 'spreadsheets' ? 'xlsx' : kind === 'presentation' ? 'pptx' : 'docx';
+      const expUrl = `https://docs.google.com/${kind}/d/${id}/export?format=${fmt}`;
+      if (!seenUrls.has(expUrl)) {
+        seenUrls.add(expUrl);
+        const label = (a.textContent || '').replace(/\s+/g, ' ').trim() || `Google Doc ${id.slice(0, 8)}`;
+        files.push({ id: urlId('g_', id), source_url: expUrl,
+                     name: `${label}.${fmt}`, file_type: fmt, is_gdoc: true });
+      }
+    }
+  });
+
+  // ── Cross-origin iframes — detect + record for "upload manually" message ─────
+  document.querySelectorAll('iframe[src]').forEach(el => {
+    const src = (el.getAttribute('src') || '').trim();
+    if (!src || /^(javascript:|about:|data:)/.test(src)) return;
+    try {
+      const u = new URL(src, location.href);
+      // Skip same-origin (accessible), file links (handled above), gdocs (handled above)
+      if (u.origin !== location.origin && !FILE_EXT.test(src) && !GDOC_RE.test(src)) {
+        const title = el.title || el.name || u.hostname || 'external content';
+        skipped.push({ url: u.href, title, reason: 'cross_origin' });
+      }
+    } catch {}
+  });
+
+  return { files, skipped };
+}

@@ -124,6 +124,7 @@ async function loadCaptureScreen(user) {
   const { neuroagi_captures = [], neuroagi_stats = {} } = await chrome.storage.local.get(["neuroagi_captures","neuroagi_stats"]);
   renderSteps(neuroagi_captures);
   renderStats(neuroagi_stats);
+  await renderSkipped();   // show any previously-detected inaccessible embeds
 }
 
 function renderSteps(captures) {
@@ -153,6 +154,24 @@ function renderStats(stats) {
   if (filesEl) filesEl.textContent = stats.files ?? "—";
 }
 
+// Show a non-blocking notice about files we detected but couldn't auto-import.
+// Appends a subtle line below the main status message using a dedicated element
+// (id="skipped-msg") that the popup HTML already provides (or degrades silently).
+async function renderSkipped() {
+  const el = document.getElementById("skipped-msg");
+  if (!el) return;   // popup HTML doesn't have the element yet — degrade gracefully
+  try {
+    const { neuroagi_skipped = [] } = await chrome.storage.local.get("neuroagi_skipped");
+    if (!neuroagi_skipped.length) { el.textContent = ""; el.style.display = "none"; return; }
+    const names = neuroagi_skipped.slice(0, 2)
+      .map(s => { try { return s.title || new URL(s.url).hostname; } catch { return s.title || "item"; } })
+      .join(", ");
+    const more  = neuroagi_skipped.length > 2 ? ` +${neuroagi_skipped.length - 2} more` : "";
+    el.textContent = `⚠ ${neuroagi_skipped.length} item${neuroagi_skipped.length !== 1 ? "s" : ""} couldn't be imported automatically (${names}${more}) — open them and use the upload button in the app.`;
+    el.style.display = "block";
+  } catch { el.textContent = ""; el.style.display = "none"; }
+}
+
 function setProcessing(visible, label = "Reading page…") {
   const row = document.getElementById("processing-row");
   row.classList.toggle("visible", visible);
@@ -180,6 +199,17 @@ async function captureCurrentPage(user) {
       api = inj?.result ?? null;
     } catch { /* injection blocked → fall through to scrape */ }
 
+    // Run harvestPageFiles in parallel with (or just after) lmsApiSync so the popup
+    // can include the results in the NEUROAGI_API_INGEST message — avoiding a second
+    // round-trip to inject into the tab from the background service worker.
+    let harvest = { files: [], skipped: [] };
+    try {
+      const [harvInj] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id }, world: "MAIN", func: harvestPageFiles,
+      });
+      harvest = harvInj?.result ?? harvest;
+    } catch { /* page not injectable (PDF viewer etc.) — harvest stays empty */ }
+
     if (api?.lms && (api.courses?.length || api.assignments?.length)) {
       const nCourses = api.courses?.length || 0;
       const nAssign  = api.assignments?.length || 0;
@@ -187,7 +217,10 @@ async function captureCurrentPage(user) {
       console.log(`[NeuroAgi] ${api.lms} API → ${nCourses} courses, ${nAssign} assignments, ${nGraded} graded courses`);
 
       setProcessing(true, `Syncing ${nCourses} courses via ${api.lms}…`);
-      const res = await chrome.runtime.sendMessage({ type: "NEUROAGI_API_INGEST", userId: user.id, data: api });
+      const res = await chrome.runtime.sendMessage({
+        type: "NEUROAGI_API_INGEST", userId: user.id, data: api,
+        harvest,  // pre-computed DOM harvest results — background uses these directly
+      });
       if (!res?.ok) throw new Error(res?.error ?? "Sync failed");
 
       // Honest gating: only green-light a step that actually returned data.
@@ -204,6 +237,8 @@ async function captureCurrentPage(user) {
       document.getElementById("status-msg").textContent = missing.length
         ? `${api.lms.toUpperCase()}: ${res.counts.courses} courses synced, but no ${missing.join(" or ")} found — open the page's console (F12) and send the logs.`
         : `Synced ✓ — ${res.counts.courses} courses, ${res.counts.assignments} assignments, ${res.counts.grades} grades (${api.lms} API)`;
+      // Notify user about any embedded content we couldn't auto-import
+      await renderSkipped();
       return;
     }
 
