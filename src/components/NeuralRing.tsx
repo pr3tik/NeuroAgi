@@ -1019,6 +1019,21 @@ const VoiceToggle = ({ muted, onClick, speaking }) => (
   </button>
 );
 
+// ── S9: notification-permission ask copy, tied to the declared study window ─
+// (PRD §5.1 v2.1 — shown once, after the first completed session, never during
+// onboarding). Falls back to a schedule-agnostic line if study_window wasn't
+// answered (skipped in the S6 intake).
+function buildNotificationAskCopy(studyWindow) {
+  const byWindow = {
+    weeknights: "Want me to remind you on weeknights, before things pile up?",
+    latenight:  "Want me to remind you before your late-night sessions?",
+    mornings:   "Want me to remind you in the morning, before your day gets busy?",
+    weekends:   "Want me to remind you on weekends, ahead of the week?",
+    deadline:   "Want me to remind you as deadlines get close?",
+  };
+  return byWindow[studyWindow] || "Want me to remind you before deadlines and study sessions?";
+}
+
 export default function NeuralRing() {
   const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, userId, flashcardMap, syllabus, forceSync, canvasToken } = useApp();
 
@@ -1034,6 +1049,8 @@ export default function NeuralRing() {
   const [livingMind,       setLivingMind]       = useState(null);
   const [preloadedContext, setPreloadedContext] = useState<string | null>(null);
 
+  // ── S9: notification-permission ask (shown once, after first session close) ─
+  const [showNotifAsk, setShowNotifAsk] = useState(false);
 
   // ── Session tracking — for session-close payload + self-write trigger ───────
   const sessionStartedAt  = useRef(null);
@@ -1662,8 +1679,34 @@ export default function NeuralRing() {
       // Reset for next session
       sessionStartedAt.current  = null;
       exchangeCountRef.current  = 0;
+
+      // S9 — one-time notification-permission ask, first completed session only.
+      // Guarded on: browser support, OS-level permission still undecided, and
+      // our own "already asked" flag so it never shows twice (even across tabs).
+      if (
+        typeof Notification !== "undefined" &&
+        Notification.permission === "default" &&
+        !localStorage.getItem("sa_notif_ask_shown")
+      ) {
+        localStorage.setItem("sa_notif_ask_shown", "1");
+        setShowNotifAsk(true);
+      }
     }
   }, [chatOpen, userId, messages]);
+
+  // ── S9 handlers — accept requests the real browser permission; decline just
+  // records that the ask was seen and dismissed. Either way it's a one-shot. ──
+  const acceptNotifAsk = useCallback(async () => {
+    setShowNotifAsk(false);
+    let result = "dismissed";
+    try { result = await Notification.requestPermission(); } catch { /* unsupported */ }
+    updateUserField({ notification_permission: result, notification_asked_at: new Date().toISOString() }).catch(() => {});
+  }, [updateUserField]);
+
+  const dismissNotifAsk = useCallback(() => {
+    setShowNotifAsk(false);
+    updateUserField({ notification_permission: "dismissed", notification_asked_at: new Date().toISOString() }).catch(() => {});
+  }, [updateUserField]);
 
   // Also fire session-close on page unload/refresh so memory saves even without
   // explicitly closing the chat sheet
@@ -2677,6 +2720,45 @@ export default function NeuralRing() {
           <canvas ref={canvasRef} width={SIZE} height={SIZE} style={{ display: "block", borderRadius: "50%" }} />
         </div>
       </div>
+
+      {/* S9 — notification-permission ask, shown once after the first completed session */}
+      {showNotifAsk && (
+        <div style={{
+          position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
+          zIndex: 9998, width: "calc(100% - 40px)", maxWidth: "380px",
+          padding: "16px 18px", borderRadius: "16px",
+          background: "rgba(16,16,16,0.96)", border: "1px solid rgba(255,255,255,0.12)",
+          boxShadow: "0 18px 50px rgba(0,0,0,0.5)",
+          backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+          fontFamily: "var(--font-sans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif)",
+        }}>
+          <p style={{ color: "#F5F5F5", fontSize: "14px", lineHeight: 1.5, margin: "0 0 14px" }}>
+            {buildNotificationAskCopy(userData?.study_window)}
+          </p>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={acceptNotifAsk}
+              style={{
+                flex: 1, padding: "10px", background: "rgba(255,255,255,0.92)", color: "#111",
+                border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Remind me
+            </button>
+            <button
+              onClick={dismissNotifAsk}
+              style={{
+                flex: 1, padding: "10px", background: "transparent", color: "rgba(255,255,255,0.5)",
+                border: "1px solid rgba(255,255,255,0.14)", borderRadius: "10px", fontSize: "13px",
+                fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Chat sheet */}
       {chatOpen && (
