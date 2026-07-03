@@ -653,6 +653,48 @@ async function fetchAndDecodeAudio(text, voiceId, speed = 1.0, voiceSettings) {
   };
 }
 
+// ── First-ever-session opening (PRD §5.1, S8): the one message that has to visibly
+// use every S6 intake answer, proving the intake wasn't wasted. Only called when the
+// student has zero prior conversations (checked at the call site) — every later
+// session uses buildSituationGreeting below, unchanged.
+//
+// Never invents specifics we don't actually have (same discipline as the S1 demo
+// honesty fix): only references a real assignment/course if synced data exists;
+// only maps in an intake-based phrasing, never a fabricated topic/week number.
+const WALKTHROUGH_STYLE = {
+  diagram: "a diagram-first walkthrough",
+  talk:    "me talking you through it",
+  read:    "a written breakdown you can read at your own pace",
+  problem: "a practice problem to start with",
+  mix:     "a mix of approaches",
+};
+
+function buildFirstSessionGreeting(assignments, courses, userData) {
+  const name = userData?.name?.split(" ")[0] || "there";
+  const now  = new Date();
+
+  // Broader window than the returning-session greeting (14 days, not 48h) — S8 wants
+  // to reference whatever's genuinely most pressing, not just what's due imminently.
+  const upcoming = (assignments || [])
+    .filter(a => a.dueAt && !a.submission?.submittedAt && new Date(a.dueAt) > now)
+    .sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt));
+  const nextDue = upcoming[0] || null;
+  const daysUntil = nextDue ? Math.max(1, Math.round((+new Date(nextDue.dueAt) - +now) / 86400000)) : null;
+
+  const walkthrough = WALKTHROUGH_STYLE[userData?.learning_style] || "a walkthrough";
+
+  if (nextDue) {
+    const course = courses?.find(c => c.id === nextDue.courseId || c.dbId === nextDue.courseId);
+    const courseLabel = course?.courseCode || course?.name;
+    const subject = courseLabel ? `${courseLabel} — ${nextDue.name}` : nextDue.name;
+    return `${name}, your ${subject} is due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}. Want ${walkthrough}, or a 2-minute readiness check?`;
+  }
+
+  // No synced deadline yet (e.g. skipped Canvas connect) — still personalize with
+  // the intake answer instead of falling back to something generic.
+  return `Hey ${name} — want to start with ${walkthrough} on something you're working on, or a quick 2-minute check-in on where you're at?`;
+}
+
 // ── Situation-aware opening greeting ─────────────────────────────────────────
 function buildSituationGreeting(assignments, courses, userData) {
   const now   = new Date();
@@ -1746,8 +1788,9 @@ export default function NeuralRing() {
     historyLoadedRef.current = true;
 
     (async () => {
+      let convos = [];
       if (userId) {
-        const convos = await loadConversations(userId);
+        convos = await loadConversations(userId);
         setConversations(convos);
         if (convos.length > 0) {
           const recent = convos[0];
@@ -1762,7 +1805,12 @@ export default function NeuralRing() {
       }
       // No history → situation-aware greeting (a fresh conversation is created
       // lazily on the first user message, so greeting-only chats aren't saved).
-      setMessages([{ role: "assistant", content: buildSituationGreeting(assignments, courses, userData) }]);
+      // Zero prior conversations = genuinely their first-ever session (S8): use the
+      // intake-personalized opening instead of the generic returning-session ones.
+      const greeting = (userId && convos.length === 0)
+        ? buildFirstSessionGreeting(assignments, courses, userData)
+        : buildSituationGreeting(assignments, courses, userData);
+      setMessages([{ role: "assistant", content: greeting }]);
     })();
   }, [chatOpen, assignments, courses, userData, userId]);
 
