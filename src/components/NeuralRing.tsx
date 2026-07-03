@@ -160,7 +160,7 @@ function renderStreamingHTML(text) {
 }
 
 /** Render tutor message markdown as safe HTML (no dependency) */
-function renderMessageHTML(text) {
+export function renderMessageHTML(text) {
   let s = text
     .replace(/&/g,  "&amp;")
     .replace(/</g,  "&lt;")

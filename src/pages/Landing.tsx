@@ -423,9 +423,9 @@ const PRO_FEATURES = [
    LANDING PAGE
    ──────────────────────────────────────────────────────────────────────── */
 
-export default function Landing({ onEnter }) {
+export default function Landing({ onEnter, initialAuthMode = null }) {
   // ── Preserved state ───────────────────────────────────────────────────
-  const [authMode,      setAuthMode]      = useState(null);
+  const [authMode,      setAuthMode]      = useState(initialAuthMode);
   const [forgotSent,    setForgotSent]    = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotError,   setForgotError]   = useState(false);

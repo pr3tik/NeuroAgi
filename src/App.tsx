@@ -12,6 +12,7 @@ import PageDots             from "./components/PageDots";
 import NeuralRing           from "./components/NeuralRing";
 import BottomNav            from "./components/BottomNav";
 import Landing              from "./pages/Landing"; // eager — logged-out entry, shown on first paint
+import PreSignupDemo, { hasSeenPreSignupDemo } from "./pages/PreSignupDemo"; // S0-S2: shown once, before Landing, for brand-new visitors only
 import { useApp }           from "./context/AppContext";
 import { supabase }         from "./api/supabase";
 import { signIn, signUp, adoptIdentity } from "./api/auth";
@@ -132,6 +133,11 @@ export default function App() {
 
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
+  );
+  // Shown at most once per browser, and only if not already logged in — a
+  // returning visitor (or one who already saw/skipped it) goes straight to Landing.
+  const [showPreSignupDemo, setShowPreSignupDemo] = useState(
+    () => !isLoggedIn && !hasSeenPreSignupDemo()
   );
   const [showOnboarding,      setShowOnboarding]     = useState(false);
   const [onboardingEmail,     setOnboardingEmail]    = useState("");
@@ -620,6 +626,10 @@ export default function App() {
         />
       </Suspense>
     );
+  }
+
+  if (!isLoggedIn && showPreSignupDemo) {
+    return (<>{overlays}<PreSignupDemo onEnter={handleEnter} /></>);
   }
 
   if (!isLoggedIn) {
