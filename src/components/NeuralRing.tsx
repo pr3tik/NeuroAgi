@@ -665,7 +665,7 @@ const WALKTHROUGH_STYLE = {
   diagram: "a diagram-first walkthrough",
   talk:    "me talking you through it",
   read:    "a written breakdown you can read at your own pace",
-  problem: "a practice problem to start with",
+  problem: "a practice problem",
   mix:     "a mix of approaches",
 };
 
