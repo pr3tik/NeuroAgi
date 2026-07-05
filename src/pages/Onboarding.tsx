@@ -1,49 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Check } from "lucide-react";
-import { supabase } from "../api/supabase";
-
-/* ─── Supabase school search ───────────────────────────────────────────────── */
-
-async function searchSchools(query) {
-  const trimmed = query.trim();
-  if (!trimmed || trimmed.length < 2) return [];
-
-  const COLS = "name, city, country, continent, status, login_url, token_flow, domain";
-
-  // Run three queries in parallel: match on name, city, or country
-  const [byName, byCity, byCountry] = await Promise.all([
-    supabase.from("schools").select(COLS).ilike("name",    `%${trimmed}%`).limit(8),
-    supabase.from("schools").select(COLS).ilike("city",    `%${trimmed}%`).limit(6),
-    supabase.from("schools").select(COLS).ilike("country", `%${trimmed}%`).limit(6),
-  ]);
-
-  // Merge and deduplicate by name — name-matches appear first
-  const seen = new Set();
-  const merged = [];
-  for (const row of [
-    ...(byName.data    || []),
-    ...(byCity.data    || []),
-    ...(byCountry.data || []),
-  ]) {
-    const key = row.name?.toLowerCase();
-    if (key && !seen.has(key)) {
-      seen.add(key);
-      merged.push(row);
-    }
-  }
-
-  return merged.slice(0, 8).map(s => ({
-    name:        s.name,
-    city:        s.city        || "",
-    country:     s.country     || "",
-    continent:   s.continent   || "",
-    status:      s.status      || "needsVerification",
-    loginUrl:    s.login_url   || "",
-    tokenFlow:   s.token_flow  || "",
-    domain:      s.domain      || "",
-    isCustom:    false,
-  }));
-}
+import { searchSchools } from "../lib/schoolSearch";
 
 /* ─── Canvas fetch ─────────────────────────────────────────────────────────── */
 
@@ -629,6 +586,36 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
                           </div>
                         </button>
                       ))}
+                    </div>
+                  )}
+                  {showDropdown && !schoolLoading && schoolResults.length === 0 && draft.schoolSearchQuery.trim().length >= 2 && (
+                    <div style={{
+                      position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
+                      background: "rgba(16,16,18,0.98)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "14px",
+                      overflow: "hidden",
+                      boxShadow: "0 20px 50px rgba(0,0,0,0.65)",
+                      zIndex: 200,
+                    }}>
+                      <button
+                        className="ob-result"
+                        onClick={() => selectSchool({ name: draft.schoolSearchQuery.trim(), isCustom: true, status: "needsVerification" })}
+                        style={{
+                          display: "block", width: "100%", textAlign: "left",
+                          padding: "13px 18px",
+                          background: "none", border: "none",
+                          cursor: "pointer", fontFamily: "inherit",
+                          transition: "background 0.1s",
+                        }}
+                      >
+                        <div style={{ color: "#F5F5F5", fontSize: "14px", fontWeight: "500", marginBottom: "3px" }}>
+                          Use "{draft.schoolSearchQuery.trim()}"
+                        </div>
+                        <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.28)" }}>
+                          Not listed — add it and enter your Canvas URL
+                        </div>
+                      </button>
                     </div>
                   )}
                 </div>
