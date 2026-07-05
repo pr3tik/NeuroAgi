@@ -240,6 +240,10 @@ const tutorContextProxyPlugin = {
       process.env.ANTHROPIC_API_KEY    = loadEnvKey("ANTHROPIC_API_KEY");
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
       process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      // OPENAI_API_KEY: the pattern-recognition hint lookup dynamically imports
+      // rag.js's embed() — without this, embed() throws locally (Vercel prod
+      // already has this set for other functions).
+      process.env.OPENAI_API_KEY       = loadEnvKey("OPENAI_API_KEY");
 
       let body = "";
       req.on("data", c => { body += c; });
@@ -603,7 +607,9 @@ const LMS_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY",
 export default defineConfig({
   plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
     handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
-    handlerProxy("/api/session-close",    () => import("./api/session-close.js")),
+    // OPENAI_API_KEY: session-close.ts now imports rag.js's embed() for the
+    // pattern-recognition harvest — without this, embed() throws locally.
+    handlerProxy("/api/session-close",    () => import("./api/session-close.js"), [...HANDLER_ENV, "OPENAI_API_KEY"]),
     handlerProxy("/api/brain-person-link",() => import("./api/brain-person-link.js")),
     handlerProxy("/api/leaderboard",      () => import("./api/leaderboard.js")),
     handlerProxy("/api/content-connector",() => import("./api/content-connector.js")),

@@ -22,7 +22,7 @@ const supabase = createClient(
 
 // ── OpenAI embeddings ────────────────────────────────────────────────────────
 /** Embed an array of strings → array of 1536-d vectors (order preserved). */
-async function embed(texts) {
+export async function embed(texts) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY not configured");
   const out = [];

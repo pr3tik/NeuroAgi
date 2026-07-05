@@ -1,5 +1,11 @@
 // api/session-close.js — Session close queue: living mind rewrite + brain signal write
 //
+// ALSO: pattern-recognition harvest (see supabase-teaching-strategies-migration.sql).
+// If this session shows a concept genuinely resolved, save a de-identified
+// description of the teaching method used — never the student's identity or
+// raw content — so it can help a different student later. Best-effort only:
+// any failure here never affects the living-mind response above.
+//
 // ARCHITECTURE CONTRACT (from Reggie):
 //   FIRES:  when NeuralRing chat closes (non-blocking, fire-and-forget)
 //   READS:  chat_logs (current session transcript) + tutor_impressions (last 10)
@@ -21,6 +27,8 @@
 //     5. HOW TO HELP     — what works for this student, what to avoid
 //
 // Loaded into every NeuralRing session via buildChatSystem() as LIVING MIND section.
+
+import { embed } from "./rag.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -44,7 +52,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: false, reason: "missing env" });
   }
 
-  const { userId, sessionMessages } = body;
+  const { userId, sessionMessages, usedStrategyId = null, usedStrategyKind = null } = body;
   if (!userId) return res.status(200).json({ ok: false, reason: "missing userId" });
 
   // Need at least 2 real exchanges to be worth rewriting
@@ -235,6 +243,130 @@ RULES:
         headers: { ...brainHeaders, "Prefer": "resolution=merge-duplicates,return=minimal" },
         body: JSON.stringify(contextUpdate),
       }).catch(err => console.error("[session-close] context_window update failed:", err.message));
+    }
+
+    // ── 8. Pattern-recognition harvest ──────────────────────────────────────
+    // Detect a genuine confusion→understanding shift and, if found, save a
+    // de-identified teaching-method card. Never blocks or affects the response
+    // above — any failure here is caught and swallowed.
+    try {
+      const classifyRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method:  "POST",
+        headers: {
+          "Content-Type":      "application/json",
+          "x-api-key":         anthropicKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model:      "claude-haiku-4-5-20251001",
+          max_tokens: 200,
+          messages: [{
+            role: "user",
+            content: `Analyze this tutoring session transcript. Did the student go from being confused about ONE specific academic concept to actually understanding it? This must be a genuine shift from confusion to understanding, not just a normal question-and-answer exchange.
+
+SESSION TRANSCRIPT:
+${sessionTranscript}
+
+If a concept was clearly resolved, return JSON only:
+{"resolved":true,"concept":"<short concept name>","strategy_kind":"<one of: retrieval_practice, elaborative_interrogation, self_explanation, concrete_example, dual_coding, interleaving, spaced_callback>","strategy_summary":"<one sentence describing the teaching approach used, written generically>"}
+
+If no clear resolution happened, or you're not confident, return exactly:
+{"resolved":false}`,
+          }],
+        }),
+      });
+
+      if (classifyRes.ok) {
+        const classifyData = await classifyRes.json();
+        const rawClassify  = classifyData.content?.[0]?.text?.trim() ?? "{}";
+        const parsed       = JSON.parse(rawClassify.replace(/```json|```/g, "").trim());
+
+        // If a hint was shown this session, record whether the hinted technique
+        // actually panned out. This is what keeps the personal affinity ratio
+        // honest — without it, affinity would only ever accumulate successes
+        // with nothing to weigh them against. A match on the resolved branch
+        // below already records the success case; this only fires the failure
+        // case (hint shown, but this session didn't resolve via that technique).
+        if (usedStrategyKind) {
+          const hintWorked = parsed.resolved === true && parsed.strategy_kind === usedStrategyKind;
+          if (!hintWorked) {
+            fetch(`${supabaseUrl}/rest/v1/rpc/bump_student_strategy_affinity`, {
+              method:  "POST",
+              headers: sbHeaders,
+              body: JSON.stringify({ p_user_id: userId, p_strategy_kind: usedStrategyKind, p_success: false }),
+            }).catch(() => {});
+          }
+        }
+
+        if (parsed.resolved && parsed.concept && parsed.strategy_kind && parsed.strategy_summary) {
+          // Fail-closed de-identification: if the model isn't fully confident the
+          // summary is clean of anything traceable, DROP means "don't store it."
+          const deidRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method:  "POST",
+            headers: {
+              "Content-Type":      "application/json",
+              "x-api-key":         anthropicKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model:      "claude-haiku-4-5-20251001",
+              max_tokens: 100,
+              messages: [{
+                role: "user",
+                content: `Rewrite the following teaching-method description as a fully GENERIC pedagogical approach. Remove every specific detail — names, course codes, assignment titles, dates, or anything that could identify a specific student or situation. Keep only the abstract method.
+
+If you cannot produce a fully generic version with total confidence, respond with exactly: DROP
+
+Input: "${parsed.strategy_summary}"`,
+              }],
+            }),
+          });
+          const deidText = deidRes.ok ? (await deidRes.json()).content?.[0]?.text?.trim() : null;
+
+          if (deidText && deidText !== "DROP") {
+            // Everything past this point is best-effort and non-blocking.
+            (async () => {
+              try {
+                const [conceptEmbedding] = await embed([parsed.concept]);
+
+                const harvestRes = await fetch(`${supabaseUrl}/rest/v1/rpc/harvest_teaching_strategy`, {
+                  method:  "POST",
+                  headers: sbHeaders,
+                  body: JSON.stringify({
+                    p_concept:           parsed.concept,
+                    p_concept_embedding: conceptEmbedding,
+                    p_strategy_kind:     parsed.strategy_kind,
+                    p_strategy_summary:  deidText,
+                  }),
+                });
+                const strategyId = harvestRes.ok ? await harvestRes.json() : null;
+
+                if (strategyId) {
+                  // Provenance — identity, quarantined, erasure-only. Never
+                  // read by the matching/retrieval path.
+                  fetch(`${supabaseUrl}/rest/v1/strategy_provenance`, {
+                    method:  "POST",
+                    headers: { ...sbHeaders, "Prefer": "return=minimal" },
+                    body: JSON.stringify({ strategy_id: strategyId, user_id: userId }),
+                  }).catch(() => {});
+
+                  // This resolution also strengthens this student's own personal
+                  // track record for this technique — never compared to anyone else's.
+                  fetch(`${supabaseUrl}/rest/v1/rpc/bump_student_strategy_affinity`, {
+                    method:  "POST",
+                    headers: sbHeaders,
+                    body: JSON.stringify({ p_user_id: userId, p_strategy_kind: parsed.strategy_kind, p_success: true }),
+                  }).catch(() => {});
+                }
+              } catch (err) {
+                console.error("[session-close] pattern-recognition harvest failed:", err.message);
+              }
+            })();
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[session-close] pattern-recognition classify failed:", err.message);
     }
 
     return res.status(200).json({ ok: true });
