@@ -67,6 +67,62 @@ export async function signOut(): Promise<void> {
   try { await supabase.auth.signOut(); } catch { /* clear local state regardless */ }
 }
 
+// ── Google sign-in ────────────────────────────────────────────────────────────
+// Two halves: signInWithGoogle() kicks off the redirect; completeOAuthLogin() runs
+// when the browser lands back on /?auth=google and turns the fresh GoTrue session
+// into a usable app identity. Unlike password signup, a first-time Google user has
+// NO public.users row (the ?action=signup path is skipped), so we provision one
+// server-side before setting the local flags the app gates on.
+
+/** Redirect to Google. Nothing after this runs — the browser navigates away. */
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${window.location.origin}/?auth=google`,
+      queryParams: { prompt: 'select_account' },
+    },
+  });
+  if (error) throw new Error(error.message);
+}
+
+export type OAuthResult = { userId: string; isNew: boolean; name: string };
+
+/** Complete the Google redirect: provision/link the profile, merge the guest id,
+ *  and set the localStorage flags the app reads on boot. Returns null if there is
+ *  no session yet (caller should wait for the SIGNED_IN event first). */
+export async function completeOAuthLogin(): Promise<OAuthResult | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const prevUid = localStorage.getItem('fschool_uid');
+  const res = await fetch('/api/auth-migrate?action=oauth-provision', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+
+  // Email already owned by a password account → don't silently take it over.
+  if (res.status === 409 && data.error === 'account_exists') {
+    await supabase.auth.signOut();
+    throw new Error('You already have an account with this email — please sign in with your password.');
+  }
+  if (!res.ok) throw new Error(data.error || 'Sign-in failed. Please try again.');
+
+  // Merge this browser's guest data into the canonical profile before discarding it
+  // (same guarantee as the password path; failure is retried at next boot).
+  if (prevUid && prevUid !== data.userId) await adoptIdentity(prevUid);
+  localStorage.setItem('fschool_uid', data.userId);
+  localStorage.setItem('fschool_logged_in', '1');
+
+  const name =
+    (session.user?.user_metadata?.full_name as string | undefined) ||
+    (session.user?.user_metadata?.name as string | undefined) || '';
+  if (name) localStorage.setItem('fschool_name', name);
+
+  return { userId: data.userId, isNew: !!data.isNew, name };
+}
+
 /** Uids whose merge failed and should be retried at next boot. Stored as a JSON
  *  list (a single-slot marker would drop the first uid when a second merge fails). */
 const MERGE_PENDING_KEY = 'fschool_merge_pending';
