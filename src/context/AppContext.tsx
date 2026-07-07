@@ -115,6 +115,15 @@ export function AppProvider({ children }) {
   const [tokenSummary, setTokenSummary] = useState(null);
   // Per-course-card change badges: { [courseId]: { newAssignments, gradedAssignments, scoreChanged, scoreDelta } }
   const [cardChanges, setCardChanges] = useState({});
+  // Bridge so Study Assistant (a separate page) can see the whiteboard/chat of
+  // whatever Study Room the student is currently (or was most recently) in.
+  // Only one page is mounted at a time (see App.tsx), so the Room's own components
+  // unmount on navigation — this in-memory state is what survives the page switch.
+  // Whiteboards are deliberately session-only/unpersisted (cleared when everyone
+  // leaves), so `whiteboardSnapshot` is the only record of what was drawn; it is
+  // never written to the DB, matching that ephemeral-by-design choice.
+  const [activeRoomId, setActiveRoomId] = useState(null);
+  const [whiteboardSnapshot, setWhiteboardSnapshot] = useState(null); // { dataUrl, capturedAt, roomId }
   // Navigation mode: 'swipe' (spatial/gesture graph) | 'tabs' (bottom tab bar).
   // localStorage mirror so it's available instantly and survives a missing DB column.
   const [navMode, setNavModeState] = useState(() => {
@@ -548,6 +557,10 @@ export function AppProvider({ children }) {
       refreshTokens,
       navMode,
       setNavMode,
+      activeRoomId,
+      setActiveRoomId,
+      whiteboardSnapshot,
+      setWhiteboardSnapshot,
     }}>
       {children}
     </AppContext.Provider>

@@ -44,28 +44,6 @@ async function claudeTutor(messages, system, signal?, tools?) {
   return data.content ?? "";
 }
 
-// The agent's one data-fetch tool. The model calls it only when an answer needs
-// the student's live records; the result is served by /api/tutor-context.
-const RECALL_TOOL = {
-  name: "recall",
-  description: "Look up the student's live academic data — course grades/scores, assignment due dates, missing or late work, synced course files, and flashcards. Call this whenever the answer depends on their actual courses, scores, deadlines, files, or submission status; never guess those. Pass the student's question (or a focused rephrase) as `query`.",
-  input_schema: {
-    type: "object",
-    properties: {
-      query: { type: "string", description: "What to look up, e.g. 'current grades in all courses', 'what's due this week', 'is the HW2 file available'" },
-    },
-    required: ["query"],
-  },
-};
-
-// ── Fire-and-forget impression writer — never awaited in critical path ──
-function writeImpression(userId, userMessage, tutorResponse) {
-  fetch("/api/tutor-impression", {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId, userMessage, tutorResponse }),
-  }).catch(() => {}); // silent — never block UI
-}
 
 const NAV_REGEX      = /<\s*n?\s*nav[^>]*>([\s\S]*?)<\/\s*n?\s*nav\s*>/i;
 const NAV_STRIP_REGEX = /<\s*n?\s*nav[\s\S]*$/i;
@@ -240,289 +218,25 @@ function getUrgentAssignments(assignments) {
   });
 }
 
-function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, isFirstMessage = false, voicesForContext = [], courses = []) {
-  const courseList = courseOptions.length
-    ? courseOptions.join("\n- ")
-    : "No courses loaded yet";
+function buildChatSystem() {
+  return `You are "Site Guide," a friendly assistant that helps students navigate FSchoolAI and answer general questions about the product. You do NOT have access to any student's personal data, grades, courses, or assignments — you only help with navigation and general product questions.
 
-  const now = Date.now();
+PAGES (for navigation): work, canvas, assignment, study, courses, identity, leaderboard, toolkit
 
-  // Per-course grades the tutor can speak to directly
-  const courseGrades = (courses || [])
-    .filter(c => c.currentScore != null || c.finalScore != null)
-    .map(c => {
-      const pct = c.currentScore ?? c.finalScore;
-      return `- ${c.name || c.courseCode}: ${Math.round(pct)}%`;
-    })
-    .join("\n");
-
-  // Upcoming (future, unsubmitted)
-  const upcoming = (assignments || [])
-    .filter(a => a.dueAt && new Date(a.dueAt).getTime() > now && !a.submission?.submittedAt)
-    .sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt))
-    .slice(0, 8)
-    .map(a => `- ${a.name} (${a.courseName || a.courseCode || ""}) — due ${new Date(a.dueAt).toLocaleDateString()}`)
-    .join("\n");
-
-  // Recent graded / submitted work with scores
-  const recentWork = (assignments || [])
-    .filter(a => a.submission?.score != null || a.submission?.submittedAt)
-    .sort((a, b) => +new Date(b.dueAt || 0) - +new Date(a.dueAt || 0))
-    .slice(0, 12)
-    .map(a => {
-      const score = a.submission?.score;
-      const scoreStr = score != null
-        ? (a.pointsPossible ? ` — ${Math.round((score / a.pointsPossible) * 100)}%` : ` — ${score}`)
-        : " — submitted";
-      return `- ${a.name} (${a.courseName || a.courseCode || ""})${scoreStr}`;
-    })
-    .join("\n");
-
-  // Anything overdue and not submitted
-  const overdue = (assignments || [])
-    .filter(a => a.dueAt && new Date(a.dueAt).getTime() < now && !a.submission?.submittedAt)
-    .sort((a, b) => +new Date(b.dueAt) - +new Date(a.dueAt))
-    .slice(0, 8)
-    .map(a => `- ${a.name} (${a.courseName || a.courseCode || ""}) — was due ${new Date(a.dueAt).toLocaleDateString()}`)
-    .join("\n");
-
-  const userContext = userData ? [
-    userData.name       ? `Student name: ${userData.name}` : null,
-    userData.gpa        ? `GPA: ${userData.gpa}` : null,
-    userData.streak     ? `Study streak: ${userData.streak} days` : null,
-    userData.study_time ? `Total study time: ${userData.study_time} mins` : null,
-    userData.school     ? `School: ${userData.school}` : null,
-  ].filter(Boolean).join("\n") : "";
-
-  // Flashcard topics per course (just question subjects, not full cards)
-  const flashcardContext = Object.entries(flashcardMap || {})
-    .map(([, data]: [string, any]) => {
-      if (!data?.cards?.length) return null;
-      const topics = data.cards.slice(0, 4).map(c => c.question).join(" | ");
-      return `• ${topics}`;
-    })
-    .filter(Boolean)
-    .slice(0, 3)
-    .join("\n");
-
-  // Syllabus topics (first 5 items)
-  const syllabusContext = (syllabus || [])
-    .slice(0, 5)
-    .map(s => `• ${s.title ?? s.name ?? JSON.stringify(s)}`)
-    .join("\n");
-
-  // Impressions from previous sessions
-  const impressionContext = (impressions || [])
-    .slice(0, 5)
-    .map(i => `• ${i.impression}`)
-    .join("\n");
-
-  // Last session continuity
-  const lastSessionLine = lastSession
-    ? `Last session: ${lastSession}`
-    : "";
-
-  return `You are a sharp, direct academic AI tutor. You know this student — their patterns, work habits, courses, and any study materials they've uploaded. Answer in 1-3 sentences unless the student asks for more detail.
-
-USING THE STUDENT'S MATERIALS:
-- If a "SOURCE MATERIAL" section appears later in this prompt, those are passages from the student's OWN uploaded documents. Treat them as authoritative, answer directly from them, and cite inline as [1], [2], etc.
-- NEVER claim you have "nothing indexed" or that you can't see their materials when a SOURCE MATERIAL section is present.
-- Canvas is only ONE optional way to add materials — the student can also upload files directly, and many will. Do NOT push them to sync Canvas and never imply it's required. Only bring up Canvas if they explicitly ask about live grades/assignments you don't currently have.
-
-STUDENT DATA:
-${userContext || "No user data yet"}
-
-COURSE GRADES (you CAN share these when asked):
-${courseGrades || "No grades synced yet"}
-
-UPCOMING ASSIGNMENTS:
-${upcoming || "None"}
-
-OVERDUE / NOT SUBMITTED:
-${overdue || "None"}
-
-RECENT GRADED / SUBMITTED WORK (with scores — you CAN share these when asked):
-${recentWork || "None"}
-
-COURSES (internal reference — never list back verbatim):
-- ${courseList}
-
-${flashcardContext ? `WHAT THEY'VE BEEN STUDYING (flashcard topics):\n${flashcardContext}` : ""}
-
-${syllabusContext ? `SYLLABUS TOPICS:\n${syllabusContext}` : ""}
-
-${impressionContext ? `RECENT OBSERVATIONS (this and past sessions):\n${impressionContext}` : ""}
-
-${livingMind ? `LIVING MIND (your full student model — built across all sessions):\n${livingMind}` : ""}
-
-${lastSessionLine ? `CONTINUITY:\n${lastSessionLine}` : ""}
-
-PAGES: work, canvas, assignment, study, courses, identity, leaderboard, toolkit
-
-NAVIGATION: When the user wants to go somewhere or study a course, append this EXACTLY at the end of your reply — nothing after it:
-<nav>{"page":"pagename","course":"EXACT course string","mode":"flashcards or guide"}</nav>
-Omit "course"/"mode" when not relevant. Only use <nav> for clear navigation intent.
-
-QUIZ FORMAT: When the student asks to be quizzed, respond with EXACTLY this format — one short intro line BEFORE the block, nothing after:
-[QUIZ_START]
-Q: question text | A: answer text
-Q: question text | A: answer text
-[QUIZ_END]
-Generate exactly 5 Q/A pairs.
-CRITICAL — quiz content rules:
-- Questions MUST come from the student's actual courses, assignments, syllabus, and modules listed in your context above. NEVER generic trivia (no "capital of France", no general knowledge).
-- If the student names a course, quiz only on that course's material.
-- If no course is specified, quiz on the course with the nearest upcoming deadline.
-- If you have no course content AND no uploaded SOURCE MATERIAL in context at all, don't generate generic trivia — ask them to upload notes or a PDF (or optionally sync Canvas) first.
-
-VOICE CONTROL: When the student asks you to change how you sound or perform a voice action, include ONE hidden tag at the very end of your reply (stripped before display):
-  [VOICE:<exactName>]  when they ask for a different voice — pick the BEST match from available voices below by scoring accent, gender, age, descriptive labels. Confirm in speech which voice and why.
-  [SPEED:<0.7-1.3>]    when they ask to speak faster/slower (slower≈0.8, faster≈1.2)
-  [TONE:<calm|energetic|neutral|serious>]  when they ask for a mood/persona
-  [READ:assignments]   when they ask you to read their assignments or what's due
-  [QUIZ:<course>]      when they ask to be quizzed out loud (course optional)
-If no strong match exists, ask ONE short clarifying question instead of guessing.
-Still reply naturally in words too (e.g. 'Switching to Daniel — a British broadcaster.'). Only ONE tag per reply.
-${voicesForContext.length > 0
-  ? `Available voices (name [accent/gender/age/style]):\n${voicesForContext.slice(0,8).map(v => {
-      const lbls = Object.values(v.labels ?? {}).filter(Boolean).join("/");
-      return `- ${v.name}${lbls ? ` [${lbls}]` : ""}`;
-    }).join("\n")}`
-  : ""}
-
-STRESS SUPPORT: If the student says they're stressed, overwhelmed, or anxious: respond calmly and warmly FIRST (1-2 sentences of genuine acknowledgment, no toxic positivity), THEN offer ONE small concrete next step based on their actual workload — the single easiest or most urgent item, framed as "just this one thing for now". Never dump their full list when they're stressed. Keep it under 4 sentences. If they express serious distress beyond schoolwork, gently suggest they talk to someone they trust or their campus support services.
-
-PLAN REQUESTS: When the student asks what to do / to plan their day / what's next, respond with a SHORT ranked list in this exact format (max 3 items):
-1. **[item]** — [one short reason]
-2. **[item]** — [one short reason]
-3. **[item]** — [one short reason]
-Rank by: overdue first, then nearest deadline, then highest points_possible. End with: "Start with #1?"
-
-RESPONSE STYLE — CRITICAL:
-- Keep responses SHORT. 2–4 sentences for most answers. Max 6 sentences unless the student explicitly asks for detail.
-- One thing at a time. If multiple assignments are urgent, name the TOP ONE only, then ask if they want the rest.
-- Talk like a sharp friend who knows their stuff, not a computer generating a report.
-- Use **bold** sparingly — only for assignment names and key dates.
-- End with a question or next action when natural, not always.
-- Never dump lists of more than 3 items. Summarize and offer to expand.
-- You are the brain of this app. You can navigate, quiz, plan their day. Act like it.
-
-RULES:
-- Be human and conversational. Max 2 sentences for casual questions, more only when asked.
-- NEVER read out course codes (e.g. GGRC25H3, MDSB11H3) — use the course name only.
-- You DO have access to their courses, assignments, grades, and scores (listed above) — answer confidently and specifically when asked. Never say you can't see them.
-- Don't dump the full lists unprompted, but when asked about assignments/grades/a course, give the real specifics from the data above.
-- The summary above is NOT complete — it does NOT contain the student's course files/PDFs, full assignment instructions, or older/detailed records. Answer from what IS in context (including any SOURCE MATERIAL section below). If a specific file or detail isn't present, say you don't have that one in front of you and offer to have them upload it or open the relevant page. NEVER claim a record "isn't synced" or "doesn't exist" just because it's not shown here. CRITICAL: reply only in plain conversational language — never output JSON, function calls, or tool-call syntax like {"name": ...} in your response.
-- Only mention GPA/streak/stats when relevant or asked.
-- If asked something personal (name, age, city) — answer from STUDENT DATA or say you don't have it. Do not pivot to courses.
-- Match the student's energy — casual when they're casual, focused when they need help.
-- Use the living mind doc to inform your tone — you know this student well.
-- ${isFirstMessage ? "FIRST MESSAGE RULE: Greet them warmly by name in one short sentence only. No assignments, no stats, no courses." : "Only mention assignments or deadlines if directly relevant to what they asked."}`; 
-}
-
-// ── Voice-mode system prompt — written for the ear, not for reading ──────────
-// Used ONLY when voiceModeRef.current is true. Text chat keeps buildChatSystem.
-function buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, voicesForContext = [], leaderboardRank = null) {
-  const now = Date.now();
-  const name = userData?.name?.split(" ")[0] || "there";
-
-  const upcomingStr = (assignments || [])
-    .filter(a => a.dueAt && new Date(a.dueAt).getTime() > now)
-    .sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt))
-    .slice(0, 3)
-    .map(a => `${a.name} due ${new Date(a.dueAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`)
-    .join("; ") || "nothing urgent due";
-
-  const courseList = courseOptions.length ? courseOptions.join(", ") : "no courses loaded yet";
-
-  const statLine = [
-    userData?.gpa        ? `GPA ${userData.gpa.toFixed(2)}`      : null,
-    userData?.streak     ? `${userData.streak}-day streak`        : null,
-    userData?.study_time ? `${userData.study_time} mins studied`  : null,
-  ].filter(Boolean).join(", ");
-
-  const rankLine = leaderboardRank
-    ? `Leaderboard: #${leaderboardRank.rank} with ${leaderboardRank.points} tokens (${leaderboardRank.tier}${leaderboardRank.above ? ` — ${leaderboardRank.above.gap} tokens behind #${leaderboardRank.rank - 1}` : " — top"}).`
-    : "";
-
-  const impressionLine = (impressions || []).slice(0, 2).map(i => i.impression).join(" ");
-  const livingMindLine = livingMind ? `Student model: ${livingMind.slice(0, 200)}` : "";
-
-  const voiceList = voicesForContext.slice(0, 8)
-    .map(v => {
-      const lbls = Object.values(v.labels ?? {}).filter(Boolean).join("/");
-      return `${v.name}${lbls ? ` (${lbls})` : ""}`;
-    }).join(", ");
-
-  const flashcardTopics = Object.entries(flashcardMap || {})
-    .flatMap(([, d]: [string, any]) => (d?.cards || []).slice(0, 2).map(c => c.question))
-    .slice(0, 4).join("; ");
-
-  return `You are in a VOICE conversation with ${name}. You are their academic AI, FschoolAI — direct, warm, knowledgeable.
-
-VOICE RULES — ABSOLUTE:
-- Speak like a real person talking. Short, natural spoken sentences only.
-- ZERO markdown ever: no asterisks, no bullet points, no numbered lists, no headings. They are read aloud literally and sound broken.
-- Never read long content verbatim. Summarize, then offer.
-- One idea at a time. Say the most important thing first.
-- Max 2-3 sentences per reply unless the student asks for more.
-- When quizzing: ask ONE question then stop and wait. Never list all questions.
-- Contractions are good. Sound human.
-
-STUDENT:
-${name}${statLine ? ` — ${statLine}` : ""}${userData?.school ? ` — ${userData.school}` : ""}
-Upcoming: ${upcomingStr}
-Courses: ${courseList}
-${rankLine}
-${impressionLine ? `Known: ${impressionLine}` : ""}
-${livingMindLine}
-${flashcardTopics ? `Recently studied: ${flashcardTopics}` : ""}
-${lastSession ? `Last session: ${lastSession}` : ""}
-
-TOKEN COACHING — you know this, use it to coach concretely:
-Daily login 2 pts · Canvas sync 5 pts · Flashcards 10 pts · Quiz 8 pts (+5 perfect) · Assignment 15 pts · Streak day 3 pts · Streak milestone 25 pts
-Tier thresholds: Scholar 20 pts → Mastermind 100 pts → Brain Owner 500 pts.
-If asked "how do I climb" → give a specific 2-step plan using the above numbers.
-
-APP KNOWLEDGE — you ARE FschoolAI, guide the student:
-FschoolAI is your academic OS. It syncs your Canvas grades, helps you study with AI flashcards and quizzes, tracks your assignments, and rewards you with tokens for every action. Ask me anything about your courses, grades, or schedule.
-Pages I can take you to: home/dashboard (work), assignments, study/flashcards (study), Canvas/courses (canvas), toolkit (toolkit), leaderboard/rankings (leaderboard), profile/settings (identity).
-
-NAVIGATION: To navigate, append at the very end of your reply:
+NAVIGATION: When the user wants to go somewhere, append this EXACTLY at the end of your reply:
 <nav>{"page":"pagename"}</nav>
-Valid pages: work · assignment · study · canvas · toolkit · leaderboard · identity
-Speak a brief confirmation first: "Taking you to assignments now." then the tag.
-Never navigate without confirming in speech.
 
-VOICE CONTROL (one hidden tag at end, stripped before display):
-[VOICE:name] — switch voice; choose from: ${voiceList || "available voices"}. Confirm: "Switching to Aria now."
-[SPEED:0.7-1.3] — change speed. Confirm: "Slowing down."
-[TONE:calm|energetic|neutral|serious] — mood shift. Confirm: "Shifting to calm."
-Only one tag per reply.
+ABOUT FSCHOOLAI:
+FSchoolAI is an AI-powered academic platform that syncs with Canvas, organizes courses and assignments, and gives each student a personal AI tutor. Key features: Canvas sync (read-only), AI study guide, flashcards, assignment tracker, GPA view, Study Rooms (collaborative sessions with private AI), and a leaderboard.
 
-QUIZ FORMAT (voice mode): When the student asks to be quizzed, output the full set so I can parse it and run it one question at a time:
-[QUIZ_START]
-Q: question | A: answer
-[QUIZ_END]
-One intro line before, nothing after. Quiz ONLY on the student's real course material from context. If none, say so plainly.
-
-ACTIONS I CAN PERFORM — include ONE action tag at the very end of your reply (stripped before display):
-[SYNC]                         — trigger a Canvas sync. Use when they ask to sync, refresh, or update courses/grades.
-[GENERATE_FLASHCARDS:course]   — generate flashcards for that course. Use the exact course name.
-[QUIZ:course]                  — start a spoken interactive quiz for that course.
-[NAVIGATE:page]                — navigate. Pages: work, assignment, study, canvas, toolkit, leaderboard, identity.
-When taking an action: speak a brief confirmation first, then append the tag.
-  "Syncing your Canvas now. [SYNC]"
-  "Generating flashcards for Calculus. [GENERATE_FLASHCARDS:Calculus]"
-Only include an action tag when the student explicitly asks for that action.
-
-STYLE:
-- Never mention GPA, streak, or tokens unless asked.
-- Never dump assignment lists unless asked.
-- Never say course codes (like GGRC25H3) — use the course name.
-- If they sound stressed: one warm sentence, then one small concrete next step.
-- Match their energy. Casual when they're casual, focused when they need help.`;
+RESPONSE STYLE:
+- Keep answers SHORT and friendly (2-3 sentences max).
+- Help students navigate the app or understand features.
+- If they ask about personal data (their GPA, assignments, grades): explain that's only visible once they're logged in and using the app — you don't have access here.
+- If the question is unrelated to FSchoolAI entirely, politely redirect.
+- Never claim to know student-specific information.`;
 }
+
 
 function parseNav(raw) {
   const tagMatch = raw.match(NAV_REGEX);
@@ -2407,9 +2121,7 @@ export default function NeuralRing() {
         await Promise.race([ragFetch, new Promise(r => setTimeout(r, 4000))]);
       }
 
-      const system = voiceModeRef.current
-        ? buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, availableVoices, leaderboardRank)
-        : buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices, courses);
+      const system = buildChatSystem();
 
       abortCtrlRef.current = new AbortController();
 
@@ -2634,7 +2346,6 @@ export default function NeuralRing() {
 
       if (cleanText) {
         logChat(userId, "assistant", cleanText, null, currentConvIdRef.current);
-        writeImpression(userId, userMsg.content, cleanText);
       }
 
       // ── Self-write trigger — fires every 6th exchange ─────────────────────
@@ -3110,7 +2821,6 @@ export default function NeuralRing() {
                               if (reactions[i] === "up") return;
                               setReactions(r => ({ ...r, [i]: "up" }));
                               setReasonPicker(null);
-                              writeImpression(userId, messages[i-1]?.content ?? "", m.content + " [student liked this response]");
                             }}
                             style={{
                               background: reactions[i] === "up" ? "rgba(52,199,89,0.15)" : "none",
@@ -3156,7 +2866,6 @@ export default function NeuralRing() {
                                 onClick={() => {
                                   setReactions(r => ({ ...r, [i]: "down" }));
                                   setReasonPicker(null);
-                                  writeImpression(userId, messages[i-1]?.content ?? "", m.content + ` [student disliked — reason: ${reason}]`);
                                   // Offer regenerate — set input to last user message
                                   const lastUserMsg = messages[i-1]?.content;
                                   if (lastUserMsg) setInput(lastUserMsg);
@@ -3280,7 +2989,7 @@ export default function NeuralRing() {
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); getAudioContext(); sendMessage(); } }}
-                  placeholder="Ask about assignments, navigate…"
+                  placeholder="Ask a question, or where to go…"
                   rows={1}
                   style={{
                     flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",

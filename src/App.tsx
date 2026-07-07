@@ -10,6 +10,7 @@ import { NAV, LABEL }       from "./navigation/navConfig";
 import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
 import NeuralRing           from "./components/NeuralRing";
+import SiteGuide            from "./components/SiteGuide";
 import BottomNav            from "./components/BottomNav";
 import Landing              from "./pages/Landing"; // eager — logged-out entry, shown on first paint
 import PreSignupDemo, { hasSeenPreSignupDemo } from "./pages/PreSignupDemo"; // S0-S2: shown once, before Landing, for brand-new visitors only
@@ -685,7 +686,7 @@ export default function App() {
   }
 
   if (!isLoggedIn) {
-    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} /></>);
+    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} /><SiteGuide /></>);
   }
 
   // ── Email verification gate ───────────────────────────────────────────────

@@ -1438,6 +1438,7 @@ export default function Whiteboard({
         <div style={{ position: "relative", width: "100%", maxWidth: `${BOARD_W}px`, transformOrigin: "center center", transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
           <canvas
             ref={canvasRef}
+            data-whiteboard-canvas="true"
             width={BOARD_W}
             height={BOARD_H}
             onPointerDown={onPointerDown}

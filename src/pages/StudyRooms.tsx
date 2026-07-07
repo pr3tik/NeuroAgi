@@ -22,9 +22,8 @@ import Whiteboard, { PEN_COLORS, PEN_WIDTHS, ERASER_SIZES, DEFAULT_BG } from "..
 import type { Tool } from "../components/Whiteboard";
 import StudyOrb from "../components/StudyOrb";
 import VoiceRoom from "../components/VoiceRoom";
-import RoomPrivateAssistant from "../components/RoomPrivateAssistant";
 import {
-  School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail, Bot,
+  School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
   Timer, Coins, ThumbsUp, ThumbsDown, Image as ImageIcon, Hand, Zap, Hourglass,
   RefreshCw, LogOut,
@@ -168,7 +167,7 @@ async function getFriendsForInvite(userId) {
 // Root — owns global-studying presence channel shared across Lobby ↔ RoomView
 // ─────────────────────────────────────────────────────────────────────────────
 export default function StudyRooms() {
-  const { userId, userData } = useApp();
+  const { userId, userData, setActiveRoomId, setWhiteboardSnapshot } = useApp();
   const [view,        setView]        = useState("lobby");
   const [activeRoom,  setActiveRoom]  = useState(null);
   const [globalState, setGlobalState] = useState({});
@@ -250,6 +249,11 @@ export default function StudyRooms() {
     await trackGlobal(null);
     setActiveRoom(null);
     setView("lobby");
+    // This is the actual "no longer in a room" signal — unlike RoomView
+    // unmounting from a page switch, this only fires when the student truly
+    // leaves, so it's the right place to drop the Study Assistant bridge.
+    setActiveRoomId(null);
+    setWhiteboardSnapshot(null);
   }, [userId]); // eslint-disable-line
 
   const dismissInviteRoot = useCallback((id) => {
@@ -967,7 +971,7 @@ function cursorColor(uid: string) {
 // RoomView — Phase 2A: + Pomodoro, Goal prompt, Session summary
 // ─────────────────────────────────────────────────────────────────────────────
 function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
-  const { userId, userData } = useApp();
+  const { userId, userData, setActiveRoomId, setWhiteboardSnapshot } = useApp();
   const [members,            setMembers]            = useState([]);
   const [workingOn,          setWorkingOn]          = useState("");
   const [requests,           setRequests]           = useState([]);
@@ -979,13 +983,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [showGoalPrompt,     setShowGoalPrompt]     = useState(false);
   const [showSummary,        setShowSummary]        = useState(false);
   const [summaryDurationSecs,setSummaryDurationSecs]= useState(0);
-  // Phase 2C — AI Study Buddy
-  const [showBuddy,          setShowBuddy]          = useState(false);
-  const [buddyQAs,           setBuddyQAs]           = useState([]);
-  const [buddyStreaming,     setBuddyStreaming]     = useState(false);
   const [courseName,         setCourseName]         = useState("");
-  // Private per-student AI assistant — never broadcast to the room
-  const [showPrivateAssistant, setShowPrivateAssistant] = useState(false);
   // Voice chat (Daily.co)
   const [showVoice,          setShowVoice]          = useState(false);
   const [activeSpeakerName,  setActiveSpeakerName]  = useState<string | null>(null);
@@ -1041,10 +1039,20 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const pomoRef             = useRef(null);
   const pomoAutoAdvancedRef = useRef(null);
   const goalTextRef         = useRef("");
-  const buddyCallsRef       = useRef([]);   // timestamps for rate limiting (5/5min)
-  const buddyAbortRef       = useRef(null); // AbortController for current buddy stream
 
   const isHost = room.created_by === userId;
+
+  // Let Study Assistant (a separate page) know which room this student is
+  // currently in, so it can pull room chat / whiteboard context on request.
+  // Deliberately NOT cleared on unmount: only one page mounts at a time (see
+  // App.tsx), so navigating to Study Assistant unmounts this component too —
+  // clearing here would wipe the bridge the instant the student left to go
+  // ask about it. Actually leaving the room is handled by the root
+  // StudyRooms component's handleLeave, which is the real "no longer in a
+  // room" signal.
+  useEffect(() => {
+    setActiveRoomId(room.id);
+  }, [room.id, setActiveRoomId]);
 
   // Close the ⋯ room menu when clicking outside
   useEffect(() => {
@@ -1073,8 +1081,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       clearInterval(timer);
       clearTimeout(workingOnDebounce.current);
       window.removeEventListener("beforeunload", handleUnload);
-      // Abort any in-flight buddy stream on unmount
-      buddyAbortRef.current?.abort();
       yjsProviderRef.current?.destroy();
       yjsDocRef.current?.destroy();
       try { wbChRef.current?.unsubscribe(); } catch {}
@@ -1288,20 +1294,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     .on("broadcast", { event: "access_changed" }, ({ payload }) => {
       setAccessFilters(payload?.filters || {});
     })
-    // AI Buddy — shared Q&A events
-    .on("broadcast", { event: "buddy_question" }, ({ payload }) => {
-      setBuddyQAs(prev => {
-        if (prev.some(q => q.id === payload.qaId)) return prev;
-        return [...prev, { id: payload.qaId, question: payload.question, askerName: payload.askerName, answer: "", done: false, streaming: true }];
-      });
-      setShowBuddy(true);
-    })
-    .on("broadcast", { event: "buddy_stream" }, ({ payload }) => {
-      setBuddyQAs(prev => prev.map(qa => qa.id === payload.qaId ? { ...qa, answer: payload.text } : qa));
-    })
-    .on("broadcast", { event: "buddy_done" }, ({ payload }) => {
-      setBuddyQAs(prev => prev.map(qa => qa.id === payload.qaId ? { ...qa, answer: payload.text, done: true, streaming: false } : qa));
-    })
     .on("broadcast", { event: "chat_message" }, ({ payload }) => {
       setChatMessages(prev => {
         if (prev.some(m => m.id === payload.id)) return prev;
@@ -1505,114 +1497,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     if (data) setCourseName(data.course_code ? `${data.course_code} — ${data.name}` : data.name);
   }
 
-  async function handleBuddyAsk(question) {
-    if (buddyStreaming) return;
-    // Rate limit: 5 calls per 5-minute window, per client
-    const now = Date.now();
-    buddyCallsRef.current = buddyCallsRef.current.filter(t => now - t < 5 * 60 * 1000);
-    if (buddyCallsRef.current.length >= 5) return;
-    buddyCallsRef.current.push(now);
-
-    const qaId       = `${userId}-${now}`;
-    const askerName  = userData?.name ?? "Someone";
-
-    // Add to local state immediately (asker doesn't receive own broadcast)
-    setBuddyQAs(prev => [...prev, { id: qaId, question, askerName, answer: "", done: false, streaming: true }]);
-
-    // Notify room that a question was asked
-    if (channelRef.current) {
-      channelRef.current.send({ type: "broadcast", event: "buddy_question",
-        payload: { qaId, question, askerName } }).catch(() => {});
-    }
-
-    // System prompt: inject room context the buddy knows automatically
-    const workingOnLines = members
-      .filter(m => m.workingOn)
-      .map(m => `  • ${m.name}: ${m.workingOn}`)
-      .join("\n") || "  (no goals set yet)";
-    const system = [
-      "You are an AI study buddy in a shared study room. Be concise (2-4 sentences unless depth truly warrants more), encouraging, and academically accurate. Format for readability — use a short list if it helps, but default to prose.",
-      "",
-      "ROOM CONTEXT (injected automatically — do not repeat this back):",
-      `Course: ${courseName || "General study session"}`,
-      "Students currently studying:",
-      workingOnLines,
-      "",
-      "Answer the question directly. If you don't have enough information, say what you know and suggest where to find more.",
-    ].join("\n");
-
-    setBuddyStreaming(true);
-    buddyAbortRef.current = new AbortController();
-
-    try {
-      const resp = await fetch("/api/claude", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stream: true, messages: [{ role: "user", content: question }], system, max_tokens: 600 }),
-        signal: buddyAbortRef.current.signal,
-      });
-
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        setBuddyQAs(prev => prev.map(qa => qa.id === qaId
-          ? { ...qa, answer: errData.error || "Sorry, I couldn't answer that right now. Try again.", done: true, streaming: false }
-          : qa));
-        return;
-      }
-
-      const reader  = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let sseBuffer = "", fullText = "";
-      let broadcastTimer = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        sseBuffer += decoder.decode(value, { stream: true });
-        const lines = sseBuffer.split("\n");
-        sseBuffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (!data || data === "[DONE]") continue;
-          try {
-            const evt = JSON.parse(data);
-            if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-              fullText += evt.delta.text ?? "";
-              setBuddyQAs(prev => prev.map(qa => qa.id === qaId ? { ...qa, answer: fullText } : qa));
-              // Broadcast accumulated text every 300ms (debounced) — not per-token
-              clearTimeout(broadcastTimer);
-              broadcastTimer = setTimeout(() => {
-                if (channelRef.current) {
-                  channelRef.current.send({ type: "broadcast", event: "buddy_stream",
-                    payload: { qaId, text: fullText } }).catch(() => {});
-                }
-              }, 300);
-            }
-          } catch {}
-        }
-      }
-
-      // Final: mark done locally + broadcast complete answer
-      clearTimeout(broadcastTimer);
-      setBuddyQAs(prev => prev.map(qa => qa.id === qaId
-        ? { ...qa, answer: fullText, done: true, streaming: false } : qa));
-      if (channelRef.current) {
-        channelRef.current.send({ type: "broadcast", event: "buddy_done",
-          payload: { qaId, text: fullText } }).catch(() => {});
-      }
-    } catch (err) {
-      if (err?.name !== "AbortError") {
-        setBuddyQAs(prev => prev.map(qa => qa.id === qaId
-          ? { ...qa, answer: "Connection error. Please try again.", done: true, streaming: false }
-          : qa));
-      }
-    } finally {
-      setBuddyStreaming(false);
-      buddyAbortRef.current = null;
-    }
-  }
-
   async function handleCloseRoom() {
     await supabase.from("study_rooms").update({ is_active: false }).eq("id", room.id);
     if (channelRef.current) {
@@ -1663,6 +1547,27 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [showBoard]);
+
+  // Snapshot bridge for Study Assistant: the whiteboard is session-only and
+  // never persisted, and Study Assistant is a separate page (this component
+  // unmounts on navigation) — so periodically capture the canvas into
+  // AppContext while the Board panel is open, which is the only place that
+  // survives the page switch. Captured on an interval (not per-stroke) to
+  // avoid re-encoding a full PNG on every pointer move.
+  useEffect(() => {
+    if (!showBoard) return;
+    function capture() {
+      const canvas = document.querySelector("canvas[data-whiteboard-canvas]") as HTMLCanvasElement | null;
+      if (!canvas) return;
+      try {
+        const dataUrl = canvas.toDataURL("image/png");
+        setWhiteboardSnapshot({ dataUrl, capturedAt: Date.now(), roomId: room.id });
+      } catch { /* tainted canvas or similar — skip this tick */ }
+    }
+    capture();
+    const interval = setInterval(capture, 4000);
+    return () => clearInterval(interval);
+  }, [showBoard, room.id, setWhiteboardSnapshot]);
 
   // Ctrl/Cmd+Z → undo, Ctrl/Cmd+Shift+Z or Ctrl+Y → redo (whiteboard only).
   const undoHandlerRef = useRef(handleUndoStroke);
@@ -1844,8 +1749,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         </div>
         <div style={{ display:"flex", gap:"6px", alignItems:"center", flexWrap:"wrap" }}>
           {/* Panel toggles */}
-          <button onClick={() => setShowPrivateAssistant(p => !p)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showPrivateAssistant ? "rgba(160,120,220,0.1)" : "none", borderColor: showPrivateAssistant ? "rgba(160,120,220,0.3)" : "rgba(255,255,255,0.09)", color: showPrivateAssistant ? "#a078dc" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Lock size={13} />You</span></button>
-          <button onClick={() => setShowBuddy(b => !b)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBuddy ? "rgba(111,179,196,0.1)" : "none", borderColor: showBuddy ? "rgba(111,179,196,0.3)" : "rgba(255,255,255,0.09)", color: showBuddy ? "#6fb3c4" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Bot size={13} />AI</span></button>
           <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><MessageCircle size={13} />Chat</span></button>
           <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(196,154,60,0.1)" : "none", borderColor: showBoard ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "#c49a3c" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Pen size={13} />Board</span></button>
           <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Mic size={13} />Voice</span></button>
@@ -1995,26 +1898,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             <MemberCard key={m.userId} member={m} isMe={m.userId === userId} isSpeaking={activeSpeakerName === m.name} handRaised={!!raisedHands[m.userId]} />
           ))}
         </div>
-      )}
-
-      {/* Private per-student AI assistant — never broadcast, renders only for this student */}
-      {showPrivateAssistant && (
-        <RoomPrivateAssistant
-          courseId={room.course_id}
-          courseName={courseName}
-          onClose={() => setShowPrivateAssistant(false)}
-        />
-      )}
-
-      {/* AI Study Buddy panel — collapsible, shared Q&A */}
-      {showBuddy && (
-        <BuddyPanel
-          qaItems={buddyQAs}
-          streaming={buddyStreaming}
-          callsLeft={Math.max(0, 5 - buddyCallsRef.current.filter(t => Date.now() - t < 5 * 60 * 1000).length)}
-          onAsk={handleBuddyAsk}
-          onClose={() => setShowBuddy(false)}
-        />
       )}
 
       {/* Voice chat panel — collapses to slim bar when the whiteboard is open */}
@@ -2356,131 +2239,6 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
       </div>
     </div>,
     document.body
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BuddyPanel — AI Study Buddy: shared Q&A, streaming, rate-limited
-// ─────────────────────────────────────────────────────────────────────────────
-function BuddyPanel({ qaItems, streaming, callsLeft, onAsk, onClose }) {
-  const [input, setInput] = useState("");
-  const bottomRef = useRef(null);
-
-  // Auto-scroll to latest answer
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [qaItems]);
-
-  function handleSend() {
-    const q = input.trim();
-    if (!q || streaming || callsLeft <= 0) return;
-    setInput("");
-    onAsk(q);
-  }
-
-  return (
-    <div style={{
-      border: "1px solid rgba(111,179,196,0.2)",
-      borderRadius: "14px",
-      background: "rgba(111,179,196,0.03)",
-      marginBottom: "20px",
-      overflow: "hidden",
-    }}>
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "12px 16px",
-        borderBottom: "1px solid rgba(111,179,196,0.12)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ display: "flex", color: "#6fb3c4" }}><Bot size={15} /></span>
-          <span style={{ fontSize: "13px", fontWeight: "600", color: "#6fb3c4" }}>AI Study Buddy</span>
-          <span style={{ fontSize: "11px", color: "var(--text-dim)", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
-            shared with room
-          </span>
-        </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dim)", fontSize: "18px", cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
-      </div>
-
-      {/* Q&A history */}
-      <div style={{ maxHeight: "340px", overflowY: "auto", padding: qaItems.length ? "12px 16px" : "0" }}>
-        {qaItems.length === 0 && !streaming && (
-          <div style={{ padding: "20px 16px", textAlign: "center" }}>
-            <p style={{ fontSize: "13px", color: "var(--text-dim)", lineHeight: 1.5 }}>
-              Ask anything about the coursework.<br />
-              <span style={{ fontSize: "12px", opacity: 0.7 }}>Everyone in the room sees the answer.</span>
-            </p>
-          </div>
-        )}
-        {qaItems.map((qa, i) => (
-          <div key={qa.id} style={{ marginBottom: i < qaItems.length - 1 ? "18px" : "4px" }}>
-            {/* Question */}
-            <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "6px" }}>
-              <span style={{ fontSize: "11px", color: "var(--text-dim)", flexShrink: 0 }}>{qa.askerName}</span>
-              <p style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: "500", margin: 0 }}>{qa.question}</p>
-            </div>
-            {/* Answer */}
-            <div style={{
-              background: "rgba(111,179,196,0.06)", border: "1px solid rgba(111,179,196,0.12)",
-              borderRadius: "10px", padding: "10px 14px",
-              fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.65",
-              whiteSpace: "pre-wrap",
-            }}>
-              {qa.answer ? (
-                <>
-                  {qa.answer}
-                  {qa.streaming && <span style={{ opacity: 0.4, animation: "blink 1s step-end infinite" }}>|</span>}
-                </>
-              ) : (
-                <span style={{ color: "var(--text-dim)", fontStyle: "italic" }}>
-                  {qa.streaming ? "Thinking…" : "—"}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div style={{ padding: "10px 16px 14px", borderTop: qaItems.length ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder={callsLeft <= 0 ? "Rate limit reached — try again in a few minutes" : "Ask about the coursework…"}
-            disabled={streaming || callsLeft <= 0}
-            maxLength={400}
-            style={{
-              flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",
-              borderRadius: "9px", padding: "9px 12px", color: "var(--text-primary)", fontSize: "13px",
-              outline: "none", fontFamily: "inherit", opacity: (streaming || callsLeft <= 0) ? 0.5 : 1,
-              transition: "border-color 0.15s",
-            }}
-            onFocus={e => (e.target.style.borderColor = "rgba(111,179,196,0.3)")}
-            onBlur={e  => (e.target.style.borderColor = "rgba(255,255,255,0.09)")}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || streaming || callsLeft <= 0}
-            style={{
-              background: "rgba(111,179,196,0.12)", color: "#6fb3c4",
-              border: "1px solid rgba(111,179,196,0.28)", borderRadius: "9px",
-              padding: "9px 16px", fontSize: "13px", fontWeight: "600",
-              cursor: (!input.trim() || streaming || callsLeft <= 0) ? "default" : "pointer",
-              fontFamily: "inherit", opacity: (!input.trim() || streaming || callsLeft <= 0) ? 0.4 : 1,
-              flexShrink: 0,
-            }}
-          >
-            {streaming ? "…" : "Ask →"}
-          </button>
-        </div>
-        <p style={{ fontSize: "11px", color: "var(--text-dim)", marginTop: "6px" }}>
-          {callsLeft <= 0 ? "Rate limit reached — resets in a few minutes" : `${callsLeft} question${callsLeft === 1 ? "" : "s"} remaining this window`}
-        </p>
-      </div>
-    </div>
   );
 }
 
