@@ -64,7 +64,28 @@ export async function signUp({ name, email, password }: { name: string; email: s
 }
 
 export async function signOut(): Promise<void> {
-  try { await supabase.auth.signOut(); } catch { /* clear local state regardless */ }
+  // Sign out THIS browser only (scope:'local' — no network revoke round-trip). The
+  // default 'global' scope needs a network call AND takes the supabase-js auth lock
+  // (navigator.locks); either can hang, and since callers await this before clearing
+  // local state, a hang left the user stuck ("nothing happens" on the button).
+  // Race a short timeout so teardown always proceeds, then delete the persisted GoTrue
+  // session ourselves so boot's identity-reconcile can't resurrect the login.
+  try {
+    await Promise.race([
+      supabase.auth.signOut({ scope: 'local' }),
+      new Promise((resolve) => setTimeout(resolve, 1500)),
+    ]);
+  } catch { /* clear local state regardless */ }
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) localStorage.removeItem(k);
+    }
+  } catch { /* localStorage unavailable — nothing to clear */ }
+  localStorage.removeItem('fschool_uid');
+  localStorage.removeItem('fschool_logged_in');
+  localStorage.removeItem('fschool_name');
+  localStorage.removeItem('sa_onboarding_draft');
 }
 
 // ── Google sign-in ────────────────────────────────────────────────────────────
