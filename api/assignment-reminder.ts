@@ -12,13 +12,14 @@
  * Note: uses SUPABASE_SERVICE_KEY (not anon key) to read all users server-side
  */
 
+import { deliverSMS } from "./_notify.js";
+
 const TWILIO_SID   = process.env.TWILIO_SID;
 const TWILIO_TOKEN = process.env.TWILIO_TOKEN;
 const TWILIO_FROM  = process.env.TWILIO_FROM;
 const SB_URL       = process.env.SUPABASE_URL;
 const SB_KEY       = process.env.SUPABASE_SERVICE_KEY; // service role key for server-side reads
 
-const TWILIO_API   = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`;
 const H48          = 48 * 60 * 60 * 1000;
 
 async function sbFetch(path, params = {}) {
@@ -36,18 +37,9 @@ async function sbFetch(path, params = {}) {
   return res.json();
 }
 
-async function sendSMS(to, body) {
-  const creds = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString("base64");
-  const res = await fetch(TWILIO_API, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${creds}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ To: to, From: TWILIO_FROM, Body: body }).toString(),
-  });
-  return res.ok;
-}
+// SMS delivery is now the shared deliverSMS() primitive (api/_notify.ts) — same Twilio
+// call, reusable from any caller (this cron, the Arbiter, tutor tools).
+const sendSMS = deliverSMS;
 
 export default async function handler(req, res) {
   // Vercel cron sends GET; reject other methods in prod

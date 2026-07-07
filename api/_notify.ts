@@ -102,6 +102,29 @@ export async function deliverDiscord(userId: string, content: string): Promise<b
   }
 }
 
+// ── SMS delivery (Twilio) ─────────────────────────────────────────────────────
+/** Send a transactional SMS via Twilio. Returns true if Twilio accepted it for
+ *  delivery; false (no throw) when Twilio env is unset, args are empty, or the API
+ *  returns non-2xx. Shared primitive extracted from the assignment-reminder cron so
+ *  any caller (Arbiter, tutor tools) can reach the SMS channel. */
+export async function deliverSMS(to: string, body: string): Promise<boolean> {
+  const sid = process.env.TWILIO_SID, token = process.env.TWILIO_TOKEN, from = process.env.TWILIO_FROM;
+  if (!sid || !token || !from || !to || !body) return false;
+  const creds = Buffer.from(`${sid}:${token}`).toString("base64");
+  try {
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+      method: "POST",
+      headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
+    });
+    if (!r.ok) console.error("[notify] sms non-2xx:", r.status);
+    return r.ok;
+  } catch (e) {
+    console.error("[notify] sms error:", (e as Error).message);
+    return false;
+  }
+}
+
 // ── Proactive candidate (background/brain agents → the Arbiter) ───────────────
 export interface ProactiveCandidate {
   agentSource: string;          // 'intervention' | 'cohort' | …
