@@ -36,6 +36,12 @@ export default async function handler(req: any, res: any) {
   const u = encodeURIComponent(userId);
 
   try {
+    // Validate the userId exists (mirrors api/extension-sync.ts, per the contract's
+    // "SERVICE_KEY + userId validation"). Not full IDOR protection (anon/RLS-off model).
+    const uCheck = await fetch(`${sbUrl}/rest/v1/users?id=eq.${u}&select=id&limit=1`, { headers: H });
+    if (!uCheck.ok) return res.status(uCheck.status).json({ error: `Supabase ${uCheck.status}` });
+    if (!((await uCheck.json().catch(() => [])) || []).length) return res.status(401).json({ error: "Invalid userId" });
+
     // 0. Resolve the course (accept DB uuid or canvas id) → both ids.
     const cr = await fetch(
       `${sbUrl}/rest/v1/courses?user_id=eq.${u}&${courseFilter(courseId)}&select=id,canvas_course_id&limit=1`,

@@ -15,6 +15,7 @@ function stubFetch(routes: any = {}) {
   const R = (data: any) => ({ ok: true, status: 200, json: async () => data, text: async () => JSON.stringify(data) });
   const fn = vi.fn(async (url: any) => {
     const u = String(url);
+    if (u.includes("/rest/v1/users"))       return R(routes.users ?? [{ id: "u1" }]); // userId-exists check
     if (u.includes("/rest/v1/courses"))     return R(routes.courses ?? []);
     if (u.includes("/rest/v1/canvas_data")) return R(routes.canvas_data ?? []);
     if (u.includes("/rest/v1/assignments")) return R(routes.assignments ?? []);
@@ -35,6 +36,13 @@ describe("grade-weights handler", () => {
     const h = await load(); const res = makeRes();
     await h({ method: "POST", body: { userId: "u1" } }, res);
     expect(res.statusCode).toBe(400);
+  });
+
+  it("401 when the userId doesn't exist", async () => {
+    stubFetch({ users: [] });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { userId: "ghost", courseId: "111" } }, res);
+    expect(res.statusCode).toBe(401);
   });
 
   it("404 when the course isn't found", async () => {

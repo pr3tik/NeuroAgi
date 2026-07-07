@@ -30,6 +30,13 @@ export default async function handler(req: any, res: any) {
   const H = sbHeaders(sbKey);
 
   try {
+    // Validate the userId exists (mirrors api/extension-sync.ts, per the contract's
+    // "SERVICE_KEY + userId validation"). Rejects bogus ids; note this is not full IDOR
+    // protection — the app's anon/RLS-off model means a valid id still authorizes reads.
+    const uCheck = await fetch(`${sbUrl}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=id&limit=1`, { headers: H });
+    if (!uCheck.ok) return res.status(uCheck.status).json({ error: `Supabase ${uCheck.status}` });
+    if (!((await uCheck.json().catch(() => [])) || []).length) return res.status(401).json({ error: "Invalid userId" });
+
     if (action === "grades")   return await grades(res, sbUrl, H, userId, courseId);
     if (action === "upcoming") return await upcoming(res, sbUrl, H, userId, withinDays, includeSubmitted);
     return res.status(400).json({ error: "Unknown action. Use grades or upcoming." });
