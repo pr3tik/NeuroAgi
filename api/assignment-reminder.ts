@@ -60,11 +60,21 @@ export default async function handler(req, res) {
     const now  = new Date();
     const h48  = new Date(now.getTime() + H48).toISOString();
 
-    // Get all users who have a phone number stored
-    const users = await sbFetch("users", {
-      select: "id,name,phone",
-      "phone": "not.is.null",
-    });
+    // Get all users who have a phone number stored. Page through PostgREST's default
+    // row cap (~1000) so users beyond the first page still get reminders.
+    const users: any[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const page = await sbFetch("users", {
+        select: "id,name,phone",
+        "phone": "not.is.null",
+        order: "id",
+        limit: "1000",
+        offset: String(offset),
+      });
+      if (!Array.isArray(page) || page.length === 0) break;
+      users.push(...page);
+      if (page.length < 1000) break;
+    }
 
     if (!Array.isArray(users) || !users.length) {
       return res.status(200).json({ sent: 0, message: "No users with phone numbers" });

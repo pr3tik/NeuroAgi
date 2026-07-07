@@ -86,6 +86,15 @@ describe("exam handler", () => {
     expect(res.body.results[0]).toMatchObject({ correct: true, score: 1 });
   });
 
+  it("parseJsonLoose ignores a stray bracket in prose before the JSON object", async () => {
+    // greedy [..] would have grabbed from '[see below]'; the {..} anchor extracts the object
+    stubFetch({ anthropicText: 'Grading [see below]: {"results":[{"correct":true,"score":1,"feedback":"ok"}]}' });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "evaluate_answers", items: [{ question: "q", studentAnswer: "a" }] } }, res);
+    expect(res.body.results[0]).toMatchObject({ correct: true, score: 1 });
+    expect(res.body.totalScore).toBe(1);
+  });
+
   it("generate_quiz: 400 with no source, 200 with raw text", async () => {
     const h = await load();
     let res = makeRes();

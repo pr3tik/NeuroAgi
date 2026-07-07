@@ -15,6 +15,7 @@ function stubFetch(routes: any = {}) {
   const R = (data: any, ok = true, status = 200) => ({ ok, status, json: async () => data, text: async () => JSON.stringify(data) });
   const fn = vi.fn(async (url: any) => {
     const u = String(url);
+    if (u.includes("/rest/v1/users"))       return R(routes.users ?? [{ id: "u1" }]); // userId-exists check
     if (u.includes("/rest/v1/courses"))     return R(routes.courses ?? []);
     if (u.includes("/rest/v1/assignments")) return R(routes.assignments ?? []);
     return R([]);
@@ -40,6 +41,13 @@ describe("canvas-reads handler", () => {
     const h = await load(); const res = makeRes();
     await h({ method: "POST", body: { action: "grades" } }, res);
     expect(res.statusCode).toBe(400);
+  });
+
+  it("401 when the userId doesn't exist", async () => {
+    stubFetch({ users: [] });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "grades", userId: "ghost" } }, res);
+    expect(res.statusCode).toBe(401);
   });
 
   it("grades: maps title->name, groups assignments by course_id, computes GPA", async () => {

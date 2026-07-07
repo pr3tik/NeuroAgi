@@ -19,7 +19,9 @@ function parseJsonLoose(text: any, fallback: any) {
     .replace(/```\s*$/, "")
     .trim();
   try { return JSON.parse(stripped); } catch { /* try span extraction below */ }
-  const m = stripped.match(/[[{][\s\S]*[\]}]/);
+  // Every exam tool returns a JSON OBJECT, so extract the outermost {...}. Anchoring on
+  // braces (not any bracket) avoids grabbing a stray `[...]` in prose before the JSON.
+  const m = stripped.match(/\{[\s\S]*\}/);
   if (m) { try { return JSON.parse(m[0]); } catch { /* fall through */ } }
   return fallback;
 }

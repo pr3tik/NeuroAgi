@@ -14,9 +14,11 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: "userMessage is required" });
   }
 
+  // JSON.stringify safely quotes + escapes the message so a stray double-quote can't
+  // break out of the delimiter and steer the classifier.
   const prompt = `Classify this student query for a DB lookup. Return JSON only: {"type":"assignment_detail"|"course_grades"|"missing_late"|"flashcard_detail"|"file_lookup"|"none","keyword":"extracted course/assignment/file name or null"}
 
-Query: "${String(userMessage).slice(0, 200)}"
+Query: ${JSON.stringify(String(userMessage).slice(0, 200))}
 
 Examples:
 "What's my score in BIO 101?" → {"type":"course_grades","keyword":"BIO 101"}
@@ -33,7 +35,8 @@ Examples:
     const r = await callModel({
       task: "classify",
       messages: [{ role: "user", content: prompt }],
-      max_tokens: 40,
+      max_tokens: 120, // 40 could truncate a long extracted keyword → JSON parse fail → fail-open loss
+
       metadata: { tool: "route.intent" },
     });
     if (r.ok) {
