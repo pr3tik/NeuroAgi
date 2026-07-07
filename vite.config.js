@@ -620,6 +620,10 @@ export default defineConfig({
     handlerProxy("/api/lms-proxy",        () => import("./api/lms-proxy.js"),     [...HANDLER_ENV, "EXTENSION_AUTH_SECRET"]),
     handlerProxy("/api/digest-lecture",   () => import("./api/digest-lecture.js"), [...HANDLER_ENV, "OPENAI_API_KEY", "ELEVENLABS_API_KEY"]),
     handlerProxy("/api/office-hours",     () => import("./api/office-hours.js"),  HANDLER_ENV),
+    handlerProxy("/api/exam",             () => import("./api/exam.js")),
+    handlerProxy("/api/canvas-reads",     () => import("./api/canvas-reads.js")),
+    handlerProxy("/api/grade-weights",    () => import("./api/grade-weights.js")),
+    handlerProxy("/api/route-intent",     () => import("./api/route-intent.js")),
     handlerProxy("/api/guest-demo",       () => import("./api/guest-demo.js"),    HANDLER_ENV)],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
   build: {
