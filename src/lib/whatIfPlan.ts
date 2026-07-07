@@ -89,12 +89,16 @@ export function whatIf(basePlan: StudyPlan, changes: WhatIfChanges = {}): WhatIf
   }, null);
 
   let readiness = 1;
-  if (neededMinutes > 0 && examMs != null && firstSessionMs != null && examMs > firstSessionMs) {
-    const daysAvail = Math.max(1, Math.round((examMs - firstSessionMs) / DAY_MS));
-    const perDay = changes.dailyMinutes && changes.dailyMinutes > 0
-      ? changes.dailyMinutes
-      : neededMinutes / daysAvail;              // no budget given → assume the plan fits
-    readiness = (perDay * daysAvail) / neededMinutes;
+  if (neededMinutes > 0 && examMs != null && firstSessionMs != null) {
+    if (examMs <= firstSessionMs) {
+      readiness = 0;                            // exam at/before study starts → no time to prepare
+    } else {
+      const daysAvail = Math.max(1, Math.round((examMs - firstSessionMs) / DAY_MS));
+      const perDay = changes.dailyMinutes && changes.dailyMinutes > 0
+        ? changes.dailyMinutes
+        : neededMinutes / daysAvail;            // no budget given → assume the plan fits
+      readiness = (perDay * daysAvail) / neededMinutes;
+    }
   }
   readiness = Math.max(0, Math.min(1, readiness));
 

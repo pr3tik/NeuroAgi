@@ -36,6 +36,12 @@ describe("whatIf study-plan recompute", () => {
     expect(sooner.deltas.join(" ")).toMatch(/moved up/);
   });
 
+  it("reports readiness 0 when the exam is moved to/before the first study session", () => {
+    // first session is 2026-08-01; move the exam to 2026-07-30 (before it) → no time to prep
+    const r = whatIf(base, { examDate: "2026-07-30" });
+    expect(r.readiness).toBe(0);
+  });
+
   it("throws on a malformed basePlan", () => {
     // @ts-expect-error intentional bad input
     expect(() => whatIf({}, {})).toThrow();

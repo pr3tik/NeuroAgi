@@ -24,7 +24,12 @@ const H48          = 48 * 60 * 60 * 1000;
 
 async function sbFetch(path, params = {}) {
   const url = new URL(`${SB_URL}/rest/v1/${path}`);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
+  // Array value → append the same key multiple times (e.g. a two-sided due_at range,
+  // which PostgREST ANDs together). Scalars use set (single filter).
+  Object.entries(params).forEach(([k, v]) => {
+    if (Array.isArray(v)) v.forEach((val) => url.searchParams.append(k, String(val)));
+    else url.searchParams.set(k, String(v));
+  });
   const res = await fetch(url.toString(), {
     headers: {
       apikey:        SB_KEY,
@@ -75,7 +80,9 @@ export default async function handler(req, res) {
         select: "title,due_at,courses(name)",
         user_id: `eq.${user.id}`,
         submitted_at: "is.null",
-        due_at: `gte.${now.toISOString()}`,
+        // Two-sided window: due from now through +48h (h48). Previously only the lower
+        // bound was applied, so the "due soon" text fired for ALL future assignments.
+        due_at: [`gte.${now.toISOString()}`, `lte.${h48}`],
       });
 
       if (!Array.isArray(assignments) || !assignments.length) return;
