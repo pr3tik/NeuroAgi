@@ -33,6 +33,15 @@
 //   missing_late       → fetch missing/late assignments
 //   flashcard_detail   → fetch flashcards for a specific course
 //   none               → no DB fetch needed (but brain + library context still returned)
+//
+// NOTE: unlike most api/ files, vite.config.js imports this file STATICALLY at
+// its own top level (a legacy pattern predating the handlerProxy() lazy-import
+// factory used elsewhere). That means any static import chain from here that
+// evaluates env-dependent code at module load (like rag.ts's top-level
+// createClient() call) breaks `vite build` locally, since env vars aren't
+// injected until request time. embed() below is imported dynamically inside
+// the function body specifically to avoid that — don't change it to a static
+// top-level import.
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -135,6 +144,27 @@ export default async function handler(req, res) {
           });
 
           return snippets.join("\n\n");
+        } catch { return null; }
+      })()
+    : Promise.resolve(null);
+
+  // ── 0c. Pattern-recognition hint — runs in parallel, gated on the same
+  // "student is asking to understand a concept" signal as the library search.
+  // See supabase-teaching-strategies-migration.sql. Never compares this student
+  // to any other student directly — only looks up this user's own affinity row.
+  const strategyHintFetch = (isLibraryQuery && supabaseUrl && supabaseKey)
+    ? (async () => {
+        try {
+          const { embed } = await import("./rag.js");
+          const [queryEmbedding] = await embed([userMessage]);
+          const r = await fetch(`${supabaseUrl}/rest/v1/rpc/find_teaching_strategy_hint`, {
+            method:  "POST",
+            headers: sbHeaders,
+            body: JSON.stringify({ p_concept_embedding: queryEmbedding, p_user_id: userId, p_limit: 1 }),
+          });
+          if (!r.ok) return null;
+          const rows = await r.json();
+          return rows?.[0] ?? null;
         } catch { return null; }
       })()
     : Promise.resolve(null);
@@ -251,8 +281,8 @@ Examples:
     }
   } catch { /* fall through to none */ }
 
-  // Await brain context and library (both fetched in parallel with classification)
-  const [brainRows, librarySnippets] = await Promise.all([brainFetch, libraryFetch]);
+  // Await brain context, library, and the strategy hint (all in parallel with classification)
+  const [brainRows, librarySnippets, strategyHint] = await Promise.all([brainFetch, libraryFetch, strategyHintFetch]);
   const brainWindow = brainRows?.[0] ?? null;
   if (brainWindow) {
     const parts = [];
@@ -273,10 +303,21 @@ Examples:
     libraryContext = `COURSE LIBRARY (from your actual course materials):\n${librarySnippets}`;
   }
 
+  // A hint, never a script — the tutor may draw on it, not required to follow it.
+  // strategyHintId/strategyHintKind are returned separately (not embedded in the
+  // text) so the caller can report back later whether it actually helped, without
+  // parsing prose — session-close.ts uses these to close the feedback loop.
+  let strategyContext = null;
+  const strategyHintId   = strategyHint?.strategy_id   ?? null;
+  const strategyHintKind = strategyHint?.strategy_kind ?? null;
+  if (strategyHint) {
+    strategyContext = `PEDAGOGICAL NOTE (a technique that's worked before for a concept like this — use it if it fits, adapt it, don't force it): ${strategyHint.strategy_summary}`;
+  }
+
   if (queryType === "none") {
-    // Even if no DB query needed, return brain + library context if available
-    const parts = [brainContext, libraryContext].filter(Boolean);
-    return res.status(200).json({ context: parts.length ? parts.join("\n\n") : null });
+    // Even if no DB query needed, return brain + library + strategy context if available
+    const parts = [brainContext, libraryContext, strategyContext].filter(Boolean);
+    return res.status(200).json({ context: parts.length ? parts.join("\n\n") : null, strategyHintId, strategyHintKind });
   }
 
   // ── 2. Fetch relevant data ─────────────────────────────────────────────────
@@ -390,7 +431,7 @@ Examples:
     console.error("[tutor-context] fetch error:", err.message);
   }
 
-  // Merge all context layers: brain + library + DB
-  const contextParts = [brainContext, libraryContext, context].filter(Boolean);
-  return res.status(200).json({ context: contextParts.length ? contextParts.join("\n\n") : null });
+  // Merge all context layers: brain + library + strategy hint + DB
+  const contextParts = [brainContext, libraryContext, strategyContext, context].filter(Boolean);
+  return res.status(200).json({ context: contextParts.length ? contextParts.join("\n\n") : null, strategyHintId, strategyHintKind });
 }

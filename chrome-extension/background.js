@@ -318,12 +318,18 @@ function transientError(message) {
 
 // Shared response→bytes pipeline: size caps, HTML/login-wall rejection, and
 // server-declared filename extraction (Content-Disposition, then final URL).
-async function bytesFromResponse(res) {
+async function bytesFromResponse(res, allowedHost) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   // Redirect chains can land anywhere — a public viewer URL 302ing to an internal
   // host must not have its content ingested (same rationale as isPrivateTarget on
   // the entry URL; this covers every resolver-derived and post-redirect fetch).
   if (res.url && isPrivateTarget(res.url)) throw new Error("Refusing a private/internal address");
+  // A same-origin file URL that 302s to an arbitrary PUBLIC third party must not be
+  // ingested either (RAG poisoning via open-redirect / attacker-posted link — most
+  // relevant to the generic crawler). When the caller passes the consented host, the
+  // FINAL url must be same-origin or a known LMS CDN — isAllowedSyncFileUrl still
+  // permits Canvas inst-fs / D2L CDN, so this doesn't break the API adapters.
+  if (allowedHost && res.url && !isAllowedSyncFileUrl(res.url, allowedHost)) throw new Error("Refusing a cross-origin redirect target");
   const mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "application/octet-stream";
   const buffer = await res.arrayBuffer();
   if (buffer.byteLength > MAX_FILE_BYTES) throw new Error("File too large (max 50 MB)");
@@ -337,9 +343,9 @@ async function bytesFromResponse(res) {
   return { bytes: b64, mimeType, filename, finalUrl: res.url };
 }
 
-async function fetchFileBytes(url) {
+async function fetchFileBytes(url, allowedHost) {
   const res = await fetch(url, { credentials: "include", redirect: "follow" });
-  return bytesFromResponse(res);
+  return bytesFromResponse(res, allowedHost);
 }
 
 // Diagnostic: fetch a URL the exact same way the download does, but report the
@@ -379,7 +385,7 @@ async function diagnoseFetch(url) {
 //     an HTML wrapper whose pluginfile link we extract (same-origin only).
 // Everything else: plain fetch + HTML rejection is the verification.
 
-async function resolveViewerFile(url, hint) {
+async function resolveViewerFile(url, hint, allowedHost) {
   if (hint === "canvas-module-item") {
     const res = await fetch(url, { credentials: "include", redirect: "follow" });
     // A stale Canvas session redirects to SSO — that's not "not a file".
@@ -387,13 +393,13 @@ async function resolveViewerFile(url, hint) {
     const m = (res.url ?? "").match(/\/files\/(\d+)/);
     if (!m) throw new Error("Not a file (module item is a page/quiz/link)");
     const origin = new URL(res.url).origin;
-    return fetchFileBytes(`${origin}/files/${m[1]}/download?download_frd=1`);
+    return fetchFileBytes(`${origin}/files/${m[1]}/download?download_frd=1`, allowedHost);
   }
 
   if (hint === "moodle-resource") {
     const res = await fetch(url, { credentials: "include", redirect: "follow" });
     const ct = res.headers.get("content-type") ?? "";
-    if (res.ok && !ct.includes("text/html")) return bytesFromResponse(res);  // 302'd straight to the file
+    if (res.ok && !ct.includes("text/html")) return bytesFromResponse(res, allowedHost);  // 302'd straight to the file
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     // Embed/in-frame display mode: the wrapper HTML carries the pluginfile link.
     // The FIRST match isn't necessarily the resource — intro/description images
@@ -409,10 +415,10 @@ async function resolveViewerFile(url, hint) {
     candidates.sort((a, b) => score(b) - score(a));
     const target = new URL(candidates[0], res.url);
     if (target.origin !== new URL(url).origin) throw new Error("Cross-origin file blocked");
-    return fetchFileBytes(target.toString());
+    return fetchFileBytes(target.toString(), allowedHost);
   }
 
-  return fetchFileBytes(url);
+  return fetchFileBytes(url, allowedHost);
 }
 
 // ── Signed-upload path for big files (Vercel body limit) ────────────────────
@@ -567,7 +573,7 @@ async function importFileInner(payload) {
   return result;
 }
 
-async function importFileWork({ url, filename, pageUrl, courseId, bytes, mimeType, platform, fetchUrl, resolveHint }) {
+async function importFileWork({ url, filename, pageUrl, courseId, bytes, mimeType, platform, fetchUrl, resolveHint, allowedHost }) {
   const auth = await getAuth();
   // transient: signed-out is not a property of the file — must not burn backoff strikes.
   if (!auth) return { error: "Not signed in. Open the extension popup to sign in.", transient: true };
@@ -583,7 +589,7 @@ async function importFileWork({ url, filename, pageUrl, courseId, bytes, mimeTyp
     // resolveHint and go through the platform resolver.
     if (!bytes && fetchUrl) {
       if (isPrivateTarget(fetchUrl)) return { error: "Refusing to fetch a private/internal address" };
-      const fetched = await resolveViewerFile(fetchUrl, resolveHint);
+      const fetched = await resolveViewerFile(fetchUrl, resolveHint, allowedHost);
       bytes    = fetched.bytes;
       mimeType = mimeType && mimeType !== "application/octet-stream" ? mimeType : fetched.mimeType;
       // Server-declared name (Content-Disposition / final URL) beats link-text guesses.
@@ -963,11 +969,120 @@ async function enumMoodleSW(origin, sesskey) {
   return { lms: "moodle", files, courses: mc.length };
 }
 
+// GENERAL crawler — the server-rendered / unknown-LMS case (Moodle-classic,
+// Blackboard Original, Sakai, itslearning, self-hosted portals, …). No platform
+// API: just the "if the user can click to it, so can we" rule, done safely:
+//   • Same-origin GET navigation only, breadth-first over <a href> links. The SW
+//     fetches — it can't click — so it can NEVER fire a mutating onClick (submit /
+//     start-attempt / delete). This is read-only by construction, which is what
+//     makes a generic crawl safe where an in-page click-crawler would not be.
+//   • Every page's HTML is mined for (a) file links (by extension or by a
+//     download/pluginfile/attachment path) and (b) more same-origin pages to visit.
+//   • A queued "page" whose response is NOT html but a document content-type IS a
+//     file — catches extension-less "clean" download URLs (e.g. /resource/view?id=).
+//   • Bounded by page count AND wall-clock so calendars / pagination can't run away;
+//     a denylist skips auth/mutation/infinite surfaces (logout, edit, search, …).
+// SPA-routed navigation (targets computed in JS, not in the DOM) is out of reach
+// here by design — that's the per-platform API's job (Canvas/D2L/Moodle above).
+async function enumGenericSW(origin, startUrl) {
+  const MAX_PAGES = 150, MAX_FILES = 600, CONCURRENCY = 6, TIME_BUDGET_MS = 60_000;
+  const t0 = Date.now();
+  const files = [];
+  const seenFile = new Set();
+  const addFile = (url) => {
+    if (!url || files.length >= MAX_FILES || seenFile.has(url)) return;
+    if (!url.startsWith(origin + "/")) return;   // same-origin only (SSRF / RAG-poison guard)
+    seenFile.add(url);
+    files.push({ url, filename: null, courseId: null });   // no course structure in the generic case
+  };
+  const DOC_EXT_RE  = /\.(pdf|docx?|pptx?|xlsx?|txt|csv|rtf|odt|odp|epub)(\?|#|$)/i;
+  const FILE_URL_RE = /\/(pluginfile\.php|files?\/download|download|attachment|getfile|servefile|content\/enforced)\b/i;
+  const ASSET_RE    = /\.(css|js|mjs|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|eot|mp4|mp3|wav|mov|zip|json|xml|rss)(\?|#|$)/i;
+  const SKIP_PATH_RE = /\/(logout|sign-?out|log-?in|sign-?in|auth|oauth|account|profile|preferences?|settings|admin|edit|new|create|upload|print|rss|feed|search|calendar|messages?|inbox|mail|notifications?|help|support)\b/i;
+  const SKIP_QS_RE  = /[?&](sort|dir|page|start|offset|order|tsort|do|op|cmd|task|method)=/i;
+  // Mutating actions that legacy server-rendered LMSs expose over GET. NEVER follow
+  // these (file OR page). The SW can only GET — this is the guard against a crawl that
+  // GET-triggers delete/submit/withdraw through a harvested link carrying the live
+  // session. Checked before file/page classification so "/download?action=delete"
+  // can't slip through as a "file". (action=download stays allowed — we match the
+  // destructive verb, not the param name.)
+  const DESTRUCTIVE_RE = /(?:^|[/?&=._-])(delete|remove|destroy|reset|unenrol|unenroll|withdraw|deregister|expel|logout|logoff|sign-?out|submit|purge|revoke|deactivate|disable|drop)/i;
+
+  const norm = (u) => { try { const x = new URL(u); x.hash = ""; return x.toString(); } catch { return null; } };
+
+  // Parse one page: collect file URLs, return the same-origin pages worth visiting.
+  const parse = (html, base) => {
+    const next = [];
+    let m; const attrRe = /(?:href|src|data-url|data-href|data-download-url)\s*=\s*["']([^"'\s>]+)["']/gi;
+    while ((m = attrRe.exec(html))) {
+      const raw = m[1].replace(/&amp;/g, "&");
+      if (/^(javascript:|mailto:|tel:|data:|blob:|#)/i.test(raw)) continue;
+      let abs; try { abs = new URL(raw, base); } catch { continue; }
+      if (abs.origin !== origin) continue;                         // same-origin only
+      const path = abs.pathname;
+      if (DESTRUCTIVE_RE.test(path + abs.search)) continue;        // never GET a mutating link (file OR page)
+      if (DOC_EXT_RE.test(path) || FILE_URL_RE.test(path)) { addFile(abs.toString()); continue; }
+      if (ASSET_RE.test(path)) continue;                           // css/img/media — not a page, not a doc
+      if (SKIP_PATH_RE.test(path) || SKIP_QS_RE.test(abs.search)) continue;
+      next.push(abs.toString());
+    }
+    return next;
+  };
+
+  const visited = new Set();
+  let frontier = [];
+  // Seed by PARSED origin, not a string prefix — startsWith("https://host") would also
+  // accept "https://host.evil.com/…" and seed a cross-origin URL into the frontier.
+  let seed = origin + "/";
+  try { if (startUrl && new URL(startUrl).origin === origin) seed = startUrl; } catch { /* bad startUrl → root */ }
+  for (const s of [seed, origin + "/"]) { const n = norm(s); if (n) frontier.push(n); }
+  let pagesFetched = 0;
+
+  while (frontier.length && visited.size < MAX_PAGES && files.length < MAX_FILES && Date.now() - t0 < TIME_BUDGET_MS) {
+    const batch = [];
+    for (const u of frontier) {
+      if (visited.size >= MAX_PAGES) break;
+      if (visited.has(u)) continue;
+      visited.add(u); batch.push(u);
+    }
+    if (!batch.length) break;
+    const nextFrontier = [];
+    await runPool(batch, CONCURRENCY, async (u) => {
+      if (files.length >= MAX_FILES || Date.now() - t0 >= TIME_BUDGET_MS) return;
+      // redirect:"manual" → a 3xx yields an opaque, un-fetched response (r.ok false),
+      // so the crawl NEVER follows a redirect to another host carrying the live cookie
+      // (SSRF to localhost / 169.254.169.254 / LAN). We only ever read same-origin 2xx.
+      let r; try { r = await fetch(u, { credentials: "include", redirect: "manual" }); } catch { return; }
+      if (!r.ok || r.type === "opaqueredirect") return;
+      const ct = (r.headers.get("content-type") || "").toLowerCase();
+      if (!ct.includes("text/html") && !ct.includes("xhtml")) {
+        // A "page" link that resolves to a document (extension-less download) IS a file.
+        // Classify on the MIME essence, ANCHORED — a substring "xml" would wrongly drop
+        // docx/xlsx/pptx (their MIME is "…openxmlformats…"); json/js/xml/rss/plain/css excluded.
+        const essence = ct.split(";")[0].trim();
+        if (/^(application|text)\//.test(essence)
+            && !/^text\/(css|plain|javascript|xml)$/.test(essence)
+            && !/^application\/(x-)?(javascript|ecmascript|json|xml)$/.test(essence)
+            && !/\+xml$/.test(essence)) {
+          addFile((r.url && r.url.startsWith(origin + "/")) ? r.url : u);
+        }
+        return;
+      }
+      pagesFetched++;
+      let html; try { html = await r.text(); } catch { return; }
+      for (const p of parse(html, r.url || u)) if (!visited.has(p)) nextFrontier.push(p);
+    });
+    frontier = nextFrontier;
+  }
+  return { lms: "generic", files, pages: pagesFetched };
+}
+
 // Dispatch to the right adapter. Throws → caller treats as a retryable enum error.
 async function enumerateSW(lms, origin, tokens = {}) {
-  if (lms === "canvas") return enumCanvasSW(origin);
-  if (lms === "d2l")    return enumD2LSW(origin, tokens.xsrf);
-  if (lms === "moodle") return enumMoodleSW(origin, tokens.sesskey);
+  if (lms === "canvas")  return enumCanvasSW(origin);
+  if (lms === "d2l")     return enumD2LSW(origin, tokens.xsrf);
+  if (lms === "moodle")  return enumMoodleSW(origin, tokens.sesskey);
+  if (lms === "generic") return enumGenericSW(origin, tokens.startUrl);   // server-rendered / unknown LMS
   return { lms: null, files: [] };
 }
 
@@ -976,14 +1091,15 @@ function summarizeSync(r) {
   if (!r) return "Sync failed.";
   switch (r.reason) {
     case "no-content-script": return "Couldn't reach the page — reload the LMS tab, then Sync.";
-    case "no-lms":            return "No supported LMS on this tab. Open your Canvas / D2L / Moodle course area and try again.";
+    case "no-lms":            return "This tab doesn't look like a course site. Open your LMS course area and try again.";
     case "enum-error":        return `Couldn't read your courses${r.detail ? ` (${String(r.detail).slice(0, 60)})` : ""}. Are you logged into the LMS?`;
     case "signed-out":        return "Sign into the extension first.";
     case "autocapture-off":   return "Auto-capture is turned off (see the toggle below).";
     case "already-running":   return "A sync is already running…";
     case "throttled":         return "Already synced recently — files are up to date.";
     case "done": {
-      if (r.total === 0) return `${r.lms}: no files found in your courses.`;
+      const label = r.lms === "generic" ? "This site" : r.lms;
+      if (r.total === 0) return `${label}: no files found on the pages I could reach.`;
       const parts = [];
       if (r.imported > 0) parts.push(`imported ${r.imported}`);
       if (r.skipped > 0)  parts.push(`${r.skipped} already`);
@@ -1042,7 +1158,7 @@ async function runFullSync(tabId, host, { force = false } = {}) {
     const origin = "https://" + host;
     let res;
     try {
-      res = await enumerateSW(ctx.lms, origin, { xsrf: ctx.xsrf, sesskey: ctx.sesskey });
+      res = await enumerateSW(ctx.lms, origin, { xsrf: ctx.xsrf, sesskey: ctx.sesskey, startUrl: ctx.url });
     } catch (e) {
       syncErrorAt.set(host, Date.now());
       return { ok: false, reason: "enum-error", lms: ctx.lms, detail: String((e && e.message) || e) };
@@ -1071,7 +1187,7 @@ async function runFullSync(tabId, host, { force = false } = {}) {
       try {
         // Download in the SW (credentials:"include" → session cookie authorizes the
         // download and follows the 302 to the CDN, which the SW can read).
-        const r = await importFile({ url: f.url, fetchUrl: f.url, filename: f.filename, courseId: f.courseId ?? null, platform: res.lms });
+        const r = await importFile({ url: f.url, fetchUrl: f.url, filename: f.filename, courseId: f.courseId ?? null, platform: res.lms, allowedHost: host });
         if (r?.ok) { if (r.skipped) skipped++; else imported++; }
         else { failed++; lastError = r?.error || lastError; if (!firstFailUrl) firstFailUrl = f.url; if (!r?.transient) await recordFailure(key); }
       } finally {

@@ -22,6 +22,7 @@ import Whiteboard, { PEN_COLORS, PEN_WIDTHS, ERASER_SIZES, DEFAULT_BG } from "..
 import type { Tool } from "../components/Whiteboard";
 import StudyOrb from "../components/StudyOrb";
 import VoiceRoom from "../components/VoiceRoom";
+import RoomPrivateAssistant from "../components/RoomPrivateAssistant";
 import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail, Bot,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
@@ -983,6 +984,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [buddyQAs,           setBuddyQAs]           = useState([]);
   const [buddyStreaming,     setBuddyStreaming]     = useState(false);
   const [courseName,         setCourseName]         = useState("");
+  // Private per-student AI assistant — never broadcast to the room
+  const [showPrivateAssistant, setShowPrivateAssistant] = useState(false);
   // Voice chat (Daily.co)
   const [showVoice,          setShowVoice]          = useState(false);
   const [activeSpeakerName,  setActiveSpeakerName]  = useState<string | null>(null);
@@ -1841,6 +1844,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         </div>
         <div style={{ display:"flex", gap:"6px", alignItems:"center", flexWrap:"wrap" }}>
           {/* Panel toggles */}
+          <button onClick={() => setShowPrivateAssistant(p => !p)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showPrivateAssistant ? "rgba(160,120,220,0.1)" : "none", borderColor: showPrivateAssistant ? "rgba(160,120,220,0.3)" : "rgba(255,255,255,0.09)", color: showPrivateAssistant ? "#a078dc" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Lock size={13} />You</span></button>
           <button onClick={() => setShowBuddy(b => !b)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBuddy ? "rgba(111,179,196,0.1)" : "none", borderColor: showBuddy ? "rgba(111,179,196,0.3)" : "rgba(255,255,255,0.09)", color: showBuddy ? "#6fb3c4" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Bot size={13} />AI</span></button>
           <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><MessageCircle size={13} />Chat</span></button>
           <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(196,154,60,0.1)" : "none", borderColor: showBoard ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "#c49a3c" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Pen size={13} />Board</span></button>
@@ -1991,6 +1995,15 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             <MemberCard key={m.userId} member={m} isMe={m.userId === userId} isSpeaking={activeSpeakerName === m.name} handRaised={!!raisedHands[m.userId]} />
           ))}
         </div>
+      )}
+
+      {/* Private per-student AI assistant — never broadcast, renders only for this student */}
+      {showPrivateAssistant && (
+        <RoomPrivateAssistant
+          courseId={room.course_id}
+          courseName={courseName}
+          onClose={() => setShowPrivateAssistant(false)}
+        />
       )}
 
       {/* AI Study Buddy panel — collapsible, shared Q&A */}

@@ -255,8 +255,22 @@
       if (document.querySelector("body.ic-app, #application.ic-app, #wrapper.ic-Layout-wrapper")) lms = "canvas";
       else if (location.pathname.startsWith("/d2l/") || document.querySelector("d2l-navigation, #d2l_body") || (xsrf && /(^|\.)(brightspace|desire2learn)\.com$/i.test(location.hostname))) lms = "d2l";
       else if (sesskey || document.querySelector("body[class*='moodle'], #page-mymoodle, meta[name='generator'][content*='Moodle']")) lms = "moodle";
+      // Server-rendered / unknown LMS (Blackboard Original, Sakai, itslearning,
+      // self-hosted portals, …): no platform API, so the SW runs a bounded same-
+      // origin GET crawl seeded from this page. Gated on looksLikeLms() so a
+      // random consented site isn't crawled; Drive-owned Classroom stays excluded.
+      else if (looksLikeLms() && !AUTO_EXCLUDED_HOSTS.test(location.hostname)) {
+        // Don't let the generic crawler CLAIM a host that is really one of the three
+        // adapter LMSs whose markers/tokens just haven't rendered yet — that would run
+        // + throttle the generic sync and starve the real adapter for the TTL. Return
+        // null so a later scan gets the proper adapter. Blackboard/Sakai/etc. (no
+        // adapter) still fall through to generic.
+        const fam = detectPlatform(location.hostname);
+        lms = (fam === "canvas" || fam === "d2l" || fam === "brightspace" || fam === "moodle") ? null : "generic";
+      }
     } catch { /* DOM not ready */ }
-    return { lms, xsrf, sesskey };
+    // `url` seeds the generic crawler (harmless/ignored for the API-based adapters).
+    return { lms, xsrf, sesskey, url: location.href };
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -365,7 +379,10 @@
       if (!chrome?.runtime?.sendMessage) return;      // orphaned script
       if (window !== window.top) return;              // top frame only
       if (AUTO_EXCLUDED_HOSTS.test(location.hostname)) return;
-      if (!isSupportedLmsPage()) return;
+      // Engage on the three API-based LMSs (strict markers) OR any LMS-looking page
+      // (server-rendered / unknown → the SW's generic crawl). Consent still gates
+      // whether we actually sync, so a looksLikeLms false-positive just prompts once.
+      if (!isSupportedLmsPage() && !looksLikeLms()) return;
       if (engagedForHost === location.hostname) return;   // once per host per page-load
       // Latch BEFORE the auth check so a signed-out user doesn't re-send
       // GET_AUTH_STATUS (waking the SW) on every scan. Signing in resets this

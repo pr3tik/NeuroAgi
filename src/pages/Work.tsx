@@ -5,6 +5,7 @@ import { useApp } from "../context/AppContext";
 import { Flame } from "lucide-react";
 import { coursesToGpa } from "../lib/gpa";
 import DailyBriefing from "../components/DailyBriefing";
+import SchoolPrompt from "../components/SchoolPrompt";
 
 
 function formatDue(dateStr) {
@@ -425,6 +426,7 @@ export default function Work() {
           maxWidth: isMobile ? "100%" : "812px", margin: "0 auto 56px", width: "100%", boxSizing: "border-box" as const, overflowX: "hidden" as const,
           animation: "workRise 0.6s ease both", animationDelay: "80ms",
         }}>
+          <SchoolPrompt />
           <div style={{
             display: "flex", alignItems: "center", gap: "16px",
             padding: "8px 16px", borderRadius: "9999px",
