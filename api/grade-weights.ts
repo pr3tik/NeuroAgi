@@ -12,6 +12,7 @@
 // no-op for now — returned as persisted:false. Wiring membership through canvasSync is
 // the follow-up that unlocks the write half. Contract: fschoolai_tool_contracts.md §A.
 import { calcRequiredScore } from "../src/lib/whatif.js";
+import { courseFilter } from "../src/lib/courseId.js";
 
 function sbHeaders(key: string) {
   return {
@@ -37,7 +38,7 @@ export default async function handler(req: any, res: any) {
   try {
     // 0. Resolve the course (accept DB uuid or canvas id) → both ids.
     const cr = await fetch(
-      `${sbUrl}/rest/v1/courses?user_id=eq.${u}&or=(id.eq.${encodeURIComponent(String(courseId))},canvas_course_id.eq.${encodeURIComponent(String(courseId))})&select=id,canvas_course_id&limit=1`,
+      `${sbUrl}/rest/v1/courses?user_id=eq.${u}&${courseFilter(courseId)}&select=id,canvas_course_id&limit=1`,
       { headers: H },
     );
     const courseRow = cr.ok ? (await cr.json())?.[0] : null;

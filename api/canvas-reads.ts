@@ -7,6 +7,7 @@
 // weight_achieved, missing) never 400 the query when absent.
 // Contracts: fschoolai_tool_contracts.md §A.
 import { coursesToGpa } from "../src/lib/gpa.js";
+import { courseFilter } from "../src/lib/courseId.js";
 
 function sbHeaders(key: string) {
   return {
@@ -39,15 +40,20 @@ export default async function handler(req: any, res: any) {
 
 async function grades(res: any, sbUrl: string, H: any, userId: string, courseId?: any) {
   const u = encodeURIComponent(userId);
-  const cFilter = courseId != null
-    ? `&or=(id.eq.${encodeURIComponent(String(courseId))},canvas_course_id.eq.${encodeURIComponent(String(courseId))})`
-    : "";
+  const cFilter = courseId != null ? `&${courseFilter(courseId)}` : "";
   const cr = await fetch(`${sbUrl}/rest/v1/courses?user_id=eq.${u}${cFilter}&select=*`, { headers: H });
   if (!cr.ok) return res.status(cr.status).json({ error: `Supabase ${cr.status}` });
   const courseRows = await cr.json();
 
   // assignments.course_id is the DB uuid FK to courses.id → group by it to match courses.id.
-  const ar = await fetch(`${sbUrl}/rest/v1/assignments?user_id=eq.${u}&select=*`, { headers: H });
+  // Scope to the requested course(s) when courseId was given, and cap the row count so a
+  // heavy-history account can't silently truncate under PostgREST's default row cap.
+  const courseIds = (courseRows || []).map((c: any) => c.id).filter(Boolean);
+  let aUrl = `${sbUrl}/rest/v1/assignments?user_id=eq.${u}&select=*&limit=5000`;
+  if (courseId != null && courseIds.length) {
+    aUrl += `&course_id=in.(${courseIds.map((id: any) => encodeURIComponent(String(id))).join(",")})`;
+  }
+  const ar = await fetch(aUrl, { headers: H });
   const asgRows = ar.ok ? await ar.json() : [];
   const byCourse = new Map<string, any[]>();
   for (const a of asgRows) {
@@ -82,9 +88,11 @@ async function upcoming(
   let url = `${sbUrl}/rest/v1/assignments?user_id=eq.${u}`
     + `&due_at=gte.${encodeURIComponent(nowIso)}`
     + `&select=*,courses(name)`
-    + `&order=due_at.asc`;
-  if (withinDays != null && Number(withinDays) > 0) {
-    const horizon = new Date(Date.now() + Number(withinDays) * 86_400_000).toISOString();
+    + `&order=due_at.asc&limit=2000`;
+  // withinDays given (incl. 0) → bound the horizon; 0/negative clamp to a today-only window.
+  if (withinDays != null && Number.isFinite(Number(withinDays))) {
+    const days = Math.max(0, Number(withinDays));
+    const horizon = new Date(Date.now() + days * 86_400_000).toISOString();
     url += `&due_at=lte.${encodeURIComponent(horizon)}`;
   }
   const r = await fetch(url, { headers: H });
