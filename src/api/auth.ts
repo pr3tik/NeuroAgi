@@ -17,6 +17,13 @@ export type Profile = { id: string; name?: string; school?: string };
  *  visible, localized error instead of an infinite spinner — and the console.warn names
  *  the exact step that stalled (signInWithPassword vs migrate vs currentProfile), so a
  *  residual stall is diagnosable from the browser console without extra instrumentation. */
+// The GoTrue /token endpoint (signInWithPassword) is erratically slow on smaller
+// Supabase tiers — measured spikes to ~17s while REST/PostgREST stays <150ms. Give the
+// auth call a budget above that spike so a slow-but-valid login completes instead of
+// failing; DB-backed calls (currentProfile) and the local dev proxy (migrate) stay at
+// the tighter default. This is a client-side tolerance, NOT a fix for the auth latency.
+const SIGNIN_TIMEOUT_MS = 25000;
+
 function withTimeout<T>(label: string, p: PromiseLike<T>, ms = 12000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => {
@@ -44,7 +51,7 @@ export async function currentProfile(): Promise<Profile | null> {
 export async function signIn(email: string, password: string): Promise<Profile> {
   const e = (email || '').toLowerCase().trim();
 
-  let { error } = await withTimeout('signInWithPassword', supabase.auth.signInWithPassword({ email: e, password }));
+  let { error } = await withTimeout('signInWithPassword', supabase.auth.signInWithPassword({ email: e, password }), SIGNIN_TIMEOUT_MS);
 
   if (error) {
     // Legacy account not yet in GoTrue → migrate (verifies the old SHA-256 hash
@@ -54,7 +61,7 @@ export async function signIn(email: string, password: string): Promise<Profile> 
       body: JSON.stringify({ email: e, password }),
     }));
     if (!mig.ok) throw new Error('Incorrect email or password.');
-    ({ error } = await withTimeout('signInWithPassword(retry)', supabase.auth.signInWithPassword({ email: e, password })));
+    ({ error } = await withTimeout('signInWithPassword(retry)', supabase.auth.signInWithPassword({ email: e, password }), SIGNIN_TIMEOUT_MS));
     if (error) throw new Error('Incorrect email or password.');
   }
 
@@ -74,7 +81,7 @@ export async function signUp({ name, email, password }: { name: string; email: s
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Could not create your account.');
 
-  const { error } = await withTimeout('signInWithPassword(signup)', supabase.auth.signInWithPassword({ email: e, password }));
+  const { error } = await withTimeout('signInWithPassword(signup)', supabase.auth.signInWithPassword({ email: e, password }), SIGNIN_TIMEOUT_MS);
   if (error) throw new Error('Account created — please sign in.');
 
   return { id: data.userId, name };
