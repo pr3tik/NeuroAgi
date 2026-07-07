@@ -13,6 +13,23 @@ import { supabase } from './supabase';
 
 export type Profile = { id: string; name?: string; school?: string };
 
+/** Reject if `p` doesn't settle within `ms`. Turns a hung auth/network call into a
+ *  visible, localized error instead of an infinite spinner — and the console.warn names
+ *  the exact step that stalled (signInWithPassword vs migrate vs currentProfile), so a
+ *  residual stall is diagnosable from the browser console without extra instrumentation. */
+function withTimeout<T>(label: string, p: PromiseLike<T>, ms = 12000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => {
+      console.warn(`[auth] "${label}" exceeded ${ms}ms — treating it as a stall`);
+      reject(new Error('That took too long. Check your connection and try again.'));
+    }, ms);
+    Promise.resolve(p).then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
 /** The public.users profile for the current GoTrue session (mapped via auth_id). */
 export async function currentProfile(): Promise<Profile | null> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -27,21 +44,21 @@ export async function currentProfile(): Promise<Profile | null> {
 export async function signIn(email: string, password: string): Promise<Profile> {
   const e = (email || '').toLowerCase().trim();
 
-  let { error } = await supabase.auth.signInWithPassword({ email: e, password });
+  let { error } = await withTimeout('signInWithPassword', supabase.auth.signInWithPassword({ email: e, password }));
 
   if (error) {
     // Legacy account not yet in GoTrue → migrate (verifies the old SHA-256 hash
     // server-side), then retry. Wrong password makes migrate fail too → same error.
-    const mig = await fetch('/api/auth-migrate?action=migrate', {
+    const mig = await withTimeout('migrate', fetch('/api/auth-migrate?action=migrate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: e, password }),
-    });
+    }));
     if (!mig.ok) throw new Error('Incorrect email or password.');
-    ({ error } = await supabase.auth.signInWithPassword({ email: e, password }));
+    ({ error } = await withTimeout('signInWithPassword(retry)', supabase.auth.signInWithPassword({ email: e, password })));
     if (error) throw new Error('Incorrect email or password.');
   }
 
-  const profile = await currentProfile();
+  const profile = await withTimeout('currentProfile', currentProfile());
   if (!profile) throw new Error('Signed in, but no profile was found for this account.');
   return profile;
 }
@@ -50,14 +67,14 @@ export async function signIn(email: string, password: string): Promise<Profile> 
 export async function signUp({ name, email, password }: { name: string; email: string; password: string }): Promise<Profile> {
   const e = (email || '').toLowerCase().trim();
 
-  const res = await fetch('/api/auth-migrate?action=signup', {
+  const res = await withTimeout('signup', fetch('/api/auth-migrate?action=signup', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, email: e, password }),
-  });
+  }));
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Could not create your account.');
 
-  const { error } = await supabase.auth.signInWithPassword({ email: e, password });
+  const { error } = await withTimeout('signInWithPassword(signup)', supabase.auth.signInWithPassword({ email: e, password }));
   if (error) throw new Error('Account created — please sign in.');
 
   return { id: data.userId, name };

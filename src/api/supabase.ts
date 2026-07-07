@@ -19,6 +19,9 @@ export const supabase = createClient(
     //  • flowType: pkce     — the recommended, more secure web OAuth flow
     // persistSession / autoRefreshToken keep their (default) true so the GoTrue
     // session survives reloads exactly as the password flow already relied on.
+    // (We deliberately do NOT override auth.lock — the bundled navigatorLock already
+    // self-heals an orphaned Web Lock by stealing it after lockAcquireTimeout, and a
+    // custom lock that bypasses on contention would break single-flight token refresh.)
     auth: {
       persistSession: true,
       autoRefreshToken: true,
