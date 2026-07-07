@@ -14,9 +14,19 @@
 // Arbiter calls once a candidate is approved.
 import { createClient } from "@supabase/supabase-js";
 
-const supaUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "";
-const supaKey = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? "";
-const db = createClient(supaUrl, supaKey, { db: { schema: "public" } });
+// Lazily construct the Supabase client on FIRST DB use. Building it at module load runs
+// supabase-js's realtime client, which throws "Node.js 20 detected without native
+// WebSocket support" on Node 20 — that broke any importer wanting only deliverSMS (which
+// never touches the DB), e.g. the notify-sms test on CI's Node 20 runner.
+let _db: any = null;
+function db() {
+  if (!_db) {
+    const supaUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "";
+    const supaKey = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? "";
+    _db = createClient(supaUrl, supaKey, { db: { schema: "public" } });
+  }
+  return _db;
+}
 
 export type NotifType =
   | "friend_request"
@@ -42,7 +52,7 @@ export async function deliverInApp(
   opts: NotifPayload = {}
 ): Promise<string | null> {
   const { title = null, body = null, data = null } = opts;
-  const { data: row, error } = await db
+  const { data: row, error } = await db()
     .from("notifications")
     .insert({ user_id: userId, type, title, body, data })
     .select("id")
@@ -70,7 +80,7 @@ export async function deliverDiscord(userId: string, content: string): Promise<b
   const botToken = process.env.DISCORD_BOT_TOKEN;
   if (!botToken) return false;
 
-  const { data: user } = await db
+  const { data: user } = await db()
     .from("users").select("discord_user_id").eq("id", userId).maybeSingle();
   const discordUserId = (user as { discord_user_id?: string } | null)?.discord_user_id;
   if (!discordUserId) return false;
@@ -149,7 +159,7 @@ export async function proposeProactive(
   c: ProactiveCandidate
 ): Promise<"created" | "duplicate" | "error"> {
   const expiresAt = new Date(Date.now() + (c.expiresInHours ?? 14) * 3600_000).toISOString();
-  const { error } = await db.from("proactive_signals").insert({
+  const { error } = await db().from("proactive_signals").insert({
     user_id:       userId,
     agent_source:  c.agentSource,
     type:          c.type,
