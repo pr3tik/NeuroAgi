@@ -624,6 +624,10 @@ export default defineConfig({
     handlerProxy("/api/canvas-reads",     () => import("./api/canvas-reads.js")),
     handlerProxy("/api/grade-weights",    () => import("./api/grade-weights.js")),
     handlerProxy("/api/route-intent",     () => import("./api/route-intent.js")),
+    // Reggie's front door — its tool-use loop calls many api/* tools in-process, so it
+    // needs the union of their env (Supabase + brain + Anthropic via HANDLER_ENV, plus
+    // OpenAI for rag embeddings and Groq for the gateway's cheap fallback).
+    handlerProxy("/api/agent-manager",    () => import("./api/agent-manager.js"), [...HANDLER_ENV, "OPENAI_API_KEY", "GROQ_KEY"]),
     handlerProxy("/api/guest-demo",       () => import("./api/guest-demo.js"),    HANDLER_ENV)],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
   build: {
