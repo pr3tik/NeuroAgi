@@ -637,6 +637,134 @@ function DocDropMockup({ t }: { t: typeof DARK }) {
   );
 }
 
+// ── Features Showcase — replaces 4 standalone feature sections ───────────────
+// Rotating headline + 4 tabs + glassmorphic demo card housing existing mockups.
+// Mockups remount on tab switch (key trick) so their useInView/startedRef resets
+// and animations replay immediately (the card is always in-viewport when visible).
+
+const SHOWCASE_TABS = [
+  { id: "tutor"     as const, label: "AI Tutor",    word: "AI Tutor",    desc: "Grounded in your actual lecture notes — not just the internet." },
+  { id: "recording" as const, label: "Recording",   word: "Recorder",    desc: "Live transcription, always searchable, linked to your notes." },
+  { id: "documents" as const, label: "Documents",   word: "Library",     desc: "PDFs and slides transform into notes and flashcards instantly." },
+  { id: "rooms"     as const, label: "Study Rooms", word: "Study Room",  desc: "Focus together — shared timers, live presence, group AI." },
+];
+
+function FeaturesShowcase({ t, chromaStyle, ghostRef }: {
+  t: typeof DARK;
+  chromaStyle: React.CSSProperties;
+  ghostRef: React.RefObject<HTMLDivElement>;
+}) {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [wordVisible, setWordVisible] = useState(true);
+  const activeTab = SHOWCASE_TABS[activeIdx];
+
+  // Auto-rotate every 3 s — functional updater always uses current idx
+  useEffect(() => {
+    const id = setInterval(() => {
+      setWordVisible(false);
+      setTimeout(() => {
+        setActiveIdx(i => (i + 1) % SHOWCASE_TABS.length);
+        setWordVisible(true);
+      }, 220);
+    }, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  function selectTab(idx: number) {
+    if (idx === activeIdx) return;
+    setWordVisible(false);
+    setTimeout(() => { setActiveIdx(idx); setWordVisible(true); }, 180);
+  }
+
+  return (
+    <section style={{ padding: "100px 20px 80px", textAlign: "center", background: "#ffffff" }}>
+      {/* Ghost sentinel — triggers background wordmark */}
+      <div ref={ghostRef} aria-hidden="true" style={{ height: 0, margin: 0, padding: 0 }} />
+
+      {/* Relocated product tagline */}
+      <Reveal>
+        <h1 style={{ fontSize: "clamp(36px,5.5vw,64px)", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.08, color: t.text, margin: "0 0 20px" }}>
+          <span style={chromaStyle}>Your degree on autopilot.</span>
+        </h1>
+      </Reveal>
+      <Reveal delay={0.06}>
+        <p style={{ fontSize: 18, color: "rgba(0,0,0,0.52)", maxWidth: 440, margin: "0 auto 80px", lineHeight: 1.65 }}>
+          The AI that reads your Canvas, explains your lectures, and keeps you ahead.
+        </p>
+      </Reveal>
+
+      {/* Rotating headline */}
+      <Reveal delay={0.1}>
+        <h2 style={{ fontSize: "clamp(28px,4.2vw,50px)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.1, marginBottom: 36, color: t.text }}>
+          FschoolAI, your{" "}
+          <span style={{
+            ...chromaStyle,
+            display: "inline-block",
+            opacity: wordVisible ? 1 : 0,
+            transform: wordVisible ? "translateY(0)" : "translateY(-10px)",
+            transition: "opacity 0.2s ease, transform 0.2s ease",
+          }}>
+            {activeTab.word}
+          </span>
+        </h2>
+      </Reveal>
+
+      {/* Tab row — horizontally scrollable on mobile */}
+      <Reveal delay={0.14}>
+        <div className="sa-tab-row" style={{
+          display: "flex", gap: 4, overflowX: "auto",
+          WebkitOverflowScrolling: "touch" as any, scrollbarWidth: "none",
+          justifyContent: "center", padding: "0 8px", marginBottom: 12,
+        }}>
+          {SHOWCASE_TABS.map((tab, i) => (
+            <button key={tab.id} onClick={() => selectTab(i)} style={{
+              flexShrink: 0, padding: "8px 20px", borderRadius: 50, border: "none",
+              background: i === activeIdx ? "rgba(0,0,0,0.08)" : "transparent",
+              color: i === activeIdx ? "#000" : "rgba(0,0,0,0.45)",
+              fontWeight: i === activeIdx ? 600 : 500,
+              fontSize: 14, cursor: "pointer", fontFamily: "inherit",
+              transition: "background 0.22s ease, color 0.22s ease",
+              WebkitTapHighlightColor: "transparent",
+            }}>{tab.label}</button>
+          ))}
+        </div>
+      </Reveal>
+
+      {/* Tab description crossfades with the word */}
+      <Reveal delay={0.15}>
+        <p style={{
+          fontSize: 15, color: "rgba(0,0,0,0.50)", maxWidth: 380,
+          margin: "0 auto 40px", lineHeight: 1.6,
+          opacity: wordVisible ? 1 : 0,
+          transition: "opacity 0.2s ease",
+        }}>
+          {activeTab.desc}
+        </p>
+      </Reveal>
+
+      {/* Glassmorphic demo card — gradient border via padding-box / border-box trick */}
+      <Reveal delay={0.18}>
+        <div style={{
+          maxWidth: 460, margin: "0 auto", borderRadius: 26, padding: 2,
+          background: "linear-gradient(white,white) padding-box, linear-gradient(135deg,#b8a0dc,#f0a4bc,#94c4f0,#96e8a8) border-box",
+          border: "1.5px solid transparent",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04)",
+        }}>
+          <div style={{ background: "rgba(255,255,255,0.96)", borderRadius: 24, padding: 8, minHeight: 340, overflow: "hidden" }}>
+            {/* key={activeTab.id} remounts the mockup → resets startedRef → animation replays */}
+            <div key={activeTab.id} style={{ animation: "saFadeIn 0.28s ease both" }}>
+              {activeTab.id === "tutor"     && <TutorMockup     t={t} />}
+              {activeTab.id === "recording" && <RecordingMockup t={t} />}
+              {activeTab.id === "documents" && <DocDropMockup   t={t} />}
+              {activeTab.id === "rooms"     && <StudyRoomMockup t={t} />}
+            </div>
+          </div>
+        </div>
+      </Reveal>
+    </section>
+  );
+}
+
 // ── Auth modal ────────────────────────────────────────────────────────────────
 function AuthModal({ mode, onClose, onEnter, onSwitchMode, onForgotPassword, t }: {
   mode: "login"|"signup"; onClose: () => void;
@@ -772,6 +900,8 @@ export default function Landing({ onEnter }: { onEnter: (args: any) => Promise<v
       <style>{`
         @keyframes heroIn    { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
         @keyframes scrollBob { 0%,100%{opacity:0.3;transform:translateY(0)} 50%{opacity:0.8;transform:translateY(6px)} }
+        @keyframes saFadeIn  { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        .sa-tab-row::-webkit-scrollbar { display:none }
       `}</style>
 
       {/* ── PRODUCT STICKY BAR — slides in when hero scrolls off, like Apple ── */}
@@ -1000,111 +1130,8 @@ export default function Landing({ onEnter }: { onEnter: (args: any) => Promise<v
         </div>
       </section>
 
-      {/* ── AI TUTOR — opens with relocated hero tagline ── */}
-      <section style={{ padding: "100px 20px", textAlign: "center", background: "#ffffff" }}>
-        {/* Ghost sentinel: when this enters view the background wordmark fades in */}
-        <div ref={ghostRef} aria-hidden="true" style={{ height: 0, margin: 0, padding: 0 }} />
-
-        {/* Tagline relocated from hero — leads the product story */}
-        <Reveal>
-          <h1 style={{
-            fontSize: "clamp(36px,5.5vw,64px)", fontWeight: 700,
-            letterSpacing: "-0.03em", lineHeight: 1.08,
-            color: t.text, margin: "0 0 20px",
-          }}>
-            <span style={chromaStyle}>Your degree on autopilot.</span>
-          </h1>
-        </Reveal>
-        <Reveal delay={0.06}>
-          <p style={{
-            fontSize: 18, color: "rgba(0,0,0,0.52)", maxWidth: 440,
-            margin: "0 auto 80px", lineHeight: 1.65,
-          }}>
-            The AI that reads your Canvas, explains your lectures, and keeps you ahead.
-          </p>
-        </Reveal>
-
-        <Reveal><Label t={t}>AI Tutor</Label></Reveal>
-        <Reveal delay={0.05}>
-          <h2 style={{ fontSize: "clamp(32px,5.5vw,58px)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.1, marginBottom: 20 }}>
-            <span style={chromaStyle}>Your tutor who actually<br />knows your course.</span>
-          </h2>
-        </Reveal>
-        <Reveal delay={0.1}>
-          <p style={{ fontSize: 17, color: "rgba(0,0,0,0.58)", maxWidth: 520, margin: "0 auto 56px", lineHeight: 1.65 }}>
-            Answers grounded in your actual lecture notes — not just the internet. Ask anything about your courses and get answers that reference what your professor said.
-          </p>
-        </Reveal>
-        <Reveal delay={0.15}><TutorMockup t={t} /></Reveal>
-      </section>
-
-      {/* ── IN-CLASS RECORDING ── */}
-      <section style={{ padding: "100px 20px", textAlign: "center", background: "#f5f5f7" }}>
-        <Reveal><Label t={t}>In-Class Recording</Label></Reveal>
-        <Reveal delay={0.05}>
-          <h2 style={{ fontSize: "clamp(32px,5.5vw,58px)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.1, marginBottom: 20 }}>
-            <span style={chromaStyle}>Never miss what's<br />said in class.</span>
-          </h2>
-        </Reveal>
-        <Reveal delay={0.1}>
-          <p style={{ fontSize: 17, color: "rgba(0,0,0,0.58)", maxWidth: 520, margin: "0 auto 56px", lineHeight: 1.65 }}>
-            FschoolAI captures and transcribes your lectures in real time. Searchable, always there, linked to your notes.
-          </p>
-        </Reveal>
-        <Reveal delay={0.15}><RecordingMockup t={t} /></Reveal>
-
-        {/* Stat row */}
-        <Reveal delay={0.22}>
-          <div style={{ display: "flex", justifyContent: "center", gap: "clamp(28px,6vw,72px)",
-            flexWrap: "wrap", marginTop: 52 }}>
-            {[
-              { val: "50+", label: "languages" },
-              { val: "Real-time", label: "no post-processing delay" },
-              { val: "Searchable", label: "every lecture, indexed" },
-            ].map(({ val, label }) => (
-              <div key={val} style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "clamp(26px,3.8vw,40px)", fontWeight: 700,
-                  letterSpacing: "-0.02em", lineHeight: 1, marginBottom: 6, color: t.text }}>
-                  {val}
-                </div>
-                <div style={{ fontSize: 13, color: "rgba(0,0,0,0.42)" }}>{label}</div>
-              </div>
-            ))}
-          </div>
-        </Reveal>
-      </section>
-
-      {/* ── DOCUMENTS ── */}
-      <section style={{ padding: "100px 20px", textAlign: "center", background: "#ffffff" }}>
-        <Reveal><Label t={t}>Documents</Label></Reveal>
-        <Reveal delay={0.05}>
-          <h2 style={{ fontSize: "clamp(32px,5.5vw,58px)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.1, marginBottom: 20 }}>
-            <span style={chromaStyle}>Drop a PDF,<br />get study material.</span>
-          </h2>
-        </Reveal>
-        <Reveal delay={0.1}>
-          <p style={{ fontSize: 17, color: "rgba(0,0,0,0.58)", maxWidth: 520, margin: "0 auto 56px", lineHeight: 1.65 }}>
-            Upload any lecture slide, textbook chapter, or handout. FschoolAI extracts the content and turns it into notes, flashcards, and a smart tutor — instantly.
-          </p>
-        </Reveal>
-        <Reveal delay={0.15}><DocDropMockup t={t} /></Reveal>
-      </section>
-
-      {/* ── STUDY ROOMS ── */}
-      <section style={{ padding: "100px 20px", textAlign: "center", background: "#f5f5f7" }}>
-        <Reveal><Label t={t}>Study Rooms</Label></Reveal>
-        <Reveal delay={0.05}>
-          <h2 style={{ fontSize: "clamp(32px,5.5vw,58px)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.1, marginBottom: 20 }}>
-            <span style={chromaStyle}>Study together.<br />Focus better.</span>
-          </h2>
-        </Reveal>
-        <Reveal delay={0.1}>
-          <p style={{ fontSize: 17, color: "rgba(0,0,0,0.58)", maxWidth: 520, margin: "0 auto 56px", lineHeight: 1.65 }}>
-            Create a room, add friends, and study in real time. Shared focus timers, live presence, and an AI buddy for the whole group.
-          </p>
-        </Reveal>
-        <Reveal delay={0.15}><StudyRoomMockup t={t} /></Reveal>
-      </section>
+      {/* ── FEATURES SHOWCASE — replaces 4 standalone sections ── */}
+      <FeaturesShowcase t={t} chromaStyle={chromaStyle} ghostRef={ghostRef} />
 
       {/* ── BY THE NUMBERS ── */}
       <section style={{ padding: "100px 20px", textAlign: "center", background: "#ffffff" }}>
