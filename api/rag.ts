@@ -15,10 +15,23 @@ const EMBED_DIM   = 1536;
 const MAX_CONTEXT_CHARS = 6000;               // cap injected passage text per query
 const EMBED_BATCH = 64;                       // chunks embedded per /embed request (bounded so it never times out)
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY,
-);
+// Lazy client (import-safe): supabase-js's realtime client needs a global WebSocket,
+// absent on Node 20 — building it at module load would crash any importer (e.g. Reggie's
+// in-process tool loop) on Node-20 CI. The proxy defers createClient to first use; every
+// `supabase.from/rpc/...` call-site stays unchanged. (See PRD §19.12 import-safety rule.)
+let _sb: any = null;
+const supabase: any = new Proxy({}, {
+  get(_t, prop) {
+    if (!_sb) {
+      _sb = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY,
+      );
+    }
+    const v = _sb[prop];
+    return typeof v === "function" ? v.bind(_sb) : v;
+  },
+});
 
 // ── OpenAI embeddings ────────────────────────────────────────────────────────
 /** Embed an array of strings → array of 1536-d vectors (order preserved). */
