@@ -160,7 +160,7 @@ function renderStreamingHTML(text) {
 }
 
 /** Render tutor message markdown as safe HTML (no dependency) */
-function renderMessageHTML(text) {
+export function renderMessageHTML(text) {
   let s = text
     .replace(/&/g,  "&amp;")
     .replace(/</g,  "&lt;")
@@ -653,6 +653,48 @@ async function fetchAndDecodeAudio(text, voiceId, speed = 1.0, voiceSettings) {
   };
 }
 
+// ── First-ever-session opening (PRD §5.1, S8): the one message that has to visibly
+// use every S6 intake answer, proving the intake wasn't wasted. Only called when the
+// student has zero prior conversations (checked at the call site) — every later
+// session uses buildSituationGreeting below, unchanged.
+//
+// Never invents specifics we don't actually have (same discipline as the S1 demo
+// honesty fix): only references a real assignment/course if synced data exists;
+// only maps in an intake-based phrasing, never a fabricated topic/week number.
+const WALKTHROUGH_STYLE = {
+  diagram: "a diagram-first walkthrough",
+  talk:    "me talking you through it",
+  read:    "a written breakdown you can read at your own pace",
+  problem: "a practice problem",
+  mix:     "a mix of approaches",
+};
+
+function buildFirstSessionGreeting(assignments, courses, userData) {
+  const name = userData?.name?.split(" ")[0] || "there";
+  const now  = new Date();
+
+  // Broader window than the returning-session greeting (14 days, not 48h) — S8 wants
+  // to reference whatever's genuinely most pressing, not just what's due imminently.
+  const upcoming = (assignments || [])
+    .filter(a => a.dueAt && !a.submission?.submittedAt && new Date(a.dueAt) > now)
+    .sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt));
+  const nextDue = upcoming[0] || null;
+  const daysUntil = nextDue ? Math.max(1, Math.round((+new Date(nextDue.dueAt) - +now) / 86400000)) : null;
+
+  const walkthrough = WALKTHROUGH_STYLE[userData?.learning_style] || "a walkthrough";
+
+  if (nextDue) {
+    const course = courses?.find(c => c.id === nextDue.courseId || c.dbId === nextDue.courseId);
+    const courseLabel = course?.courseCode || course?.name;
+    const subject = courseLabel ? `${courseLabel} — ${nextDue.name}` : nextDue.name;
+    return `${name}, your ${subject} is due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}. Want ${walkthrough}, or a 2-minute readiness check?`;
+  }
+
+  // No synced deadline yet (e.g. skipped Canvas connect) — still personalize with
+  // the intake answer instead of falling back to something generic.
+  return `Hey ${name} — want to start with ${walkthrough} on something you're working on, or a quick 2-minute check-in on where you're at?`;
+}
+
 // ── Situation-aware opening greeting ─────────────────────────────────────────
 function buildSituationGreeting(assignments, courses, userData) {
   const now   = new Date();
@@ -1019,6 +1061,21 @@ const VoiceToggle = ({ muted, onClick, speaking }) => (
   </button>
 );
 
+// ── S9: notification-permission ask copy, tied to the declared study window ─
+// (PRD §5.1 v2.1 — shown once, after the first completed session, never during
+// onboarding). Falls back to a schedule-agnostic line if study_window wasn't
+// answered (skipped in the S6 intake).
+function buildNotificationAskCopy(studyWindow) {
+  const byWindow = {
+    weeknights: "Want me to remind you on weeknights, before things pile up?",
+    latenight:  "Want me to remind you before your late-night sessions?",
+    mornings:   "Want me to remind you in the morning, before your day gets busy?",
+    weekends:   "Want me to remind you on weekends, ahead of the week?",
+    deadline:   "Want me to remind you as deadlines get close?",
+  };
+  return byWindow[studyWindow] || "Want me to remind you before deadlines and study sessions?";
+}
+
 export default function NeuralRing() {
   const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, userId, flashcardMap, syllabus, forceSync, canvasToken } = useApp();
 
@@ -1034,6 +1091,8 @@ export default function NeuralRing() {
   const [livingMind,       setLivingMind]       = useState(null);
   const [preloadedContext, setPreloadedContext] = useState<string | null>(null);
 
+  // ── S9: notification-permission ask (shown once, after first session close) ─
+  const [showNotifAsk, setShowNotifAsk] = useState(false);
 
   // ── Session tracking — for session-close payload + self-write trigger ───────
   const sessionStartedAt  = useRef(null);
@@ -1662,8 +1721,34 @@ export default function NeuralRing() {
       // Reset for next session
       sessionStartedAt.current  = null;
       exchangeCountRef.current  = 0;
+
+      // S9 — one-time notification-permission ask, first completed session only.
+      // Guarded on: browser support, OS-level permission still undecided, and
+      // our own "already asked" flag so it never shows twice (even across tabs).
+      if (
+        typeof Notification !== "undefined" &&
+        Notification.permission === "default" &&
+        !localStorage.getItem("sa_notif_ask_shown")
+      ) {
+        localStorage.setItem("sa_notif_ask_shown", "1");
+        setShowNotifAsk(true);
+      }
     }
   }, [chatOpen, userId, messages]);
+
+  // ── S9 handlers — accept requests the real browser permission; decline just
+  // records that the ask was seen and dismissed. Either way it's a one-shot. ──
+  const acceptNotifAsk = useCallback(async () => {
+    setShowNotifAsk(false);
+    let result = "dismissed";
+    try { result = await Notification.requestPermission(); } catch { /* unsupported */ }
+    updateUserField({ notification_permission: result, notification_asked_at: new Date().toISOString() }).catch(() => {});
+  }, [updateUserField]);
+
+  const dismissNotifAsk = useCallback(() => {
+    setShowNotifAsk(false);
+    updateUserField({ notification_permission: "dismissed", notification_asked_at: new Date().toISOString() }).catch(() => {});
+  }, [updateUserField]);
 
   // Also fire session-close on page unload/refresh so memory saves even without
   // explicitly closing the chat sheet
@@ -1703,8 +1788,9 @@ export default function NeuralRing() {
     historyLoadedRef.current = true;
 
     (async () => {
+      let convos = [];
       if (userId) {
-        const convos = await loadConversations(userId);
+        convos = await loadConversations(userId);
         setConversations(convos);
         if (convos.length > 0) {
           const recent = convos[0];
@@ -1719,7 +1805,12 @@ export default function NeuralRing() {
       }
       // No history → situation-aware greeting (a fresh conversation is created
       // lazily on the first user message, so greeting-only chats aren't saved).
-      setMessages([{ role: "assistant", content: buildSituationGreeting(assignments, courses, userData) }]);
+      // Zero prior conversations = genuinely their first-ever session (S8): use the
+      // intake-personalized opening instead of the generic returning-session ones.
+      const greeting = (userId && convos.length === 0)
+        ? buildFirstSessionGreeting(assignments, courses, userData)
+        : buildSituationGreeting(assignments, courses, userData);
+      setMessages([{ role: "assistant", content: greeting }]);
     })();
   }, [chatOpen, assignments, courses, userData, userId]);
 
@@ -2677,6 +2768,45 @@ export default function NeuralRing() {
           <canvas ref={canvasRef} width={SIZE} height={SIZE} style={{ display: "block", borderRadius: "50%" }} />
         </div>
       </div>
+
+      {/* S9 — notification-permission ask, shown once after the first completed session */}
+      {showNotifAsk && (
+        <div style={{
+          position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
+          zIndex: 9998, width: "calc(100% - 40px)", maxWidth: "380px",
+          padding: "16px 18px", borderRadius: "16px",
+          background: "rgba(16,16,16,0.96)", border: "1px solid rgba(255,255,255,0.12)",
+          boxShadow: "0 18px 50px rgba(0,0,0,0.5)",
+          backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+          fontFamily: "var(--font-sans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif)",
+        }}>
+          <p style={{ color: "#F5F5F5", fontSize: "14px", lineHeight: 1.5, margin: "0 0 14px" }}>
+            {buildNotificationAskCopy(userData?.study_window)}
+          </p>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={acceptNotifAsk}
+              style={{
+                flex: 1, padding: "10px", background: "rgba(255,255,255,0.92)", color: "#111",
+                border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Remind me
+            </button>
+            <button
+              onClick={dismissNotifAsk}
+              style={{
+                flex: 1, padding: "10px", background: "transparent", color: "rgba(255,255,255,0.5)",
+                border: "1px solid rgba(255,255,255,0.14)", borderRadius: "10px", fontSize: "13px",
+                fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Chat sheet */}
       {chatOpen && (

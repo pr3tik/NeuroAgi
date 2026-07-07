@@ -78,6 +78,55 @@ export default async function handler(req, res) {
     return res.status(200).json({ userId, authId: created.user.id });
   }
 
+  // ── oauth-provision ─────────────────────────────────────────────────────────
+  // Called after a Google sign-in redirect. Identity comes from the verified JWT,
+  // never the body. Creates the public.users row a first-time OAuth user lacks
+  // (the ?action=signup path is skipped for social login), or links a legacy row.
+  if (action === "oauth-provision") {
+    const jwt = String(req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (!jwt) return res.status(401).json({ error: "Authorization required" });
+    const { data: userData, error: jwtErr } = await supabase.auth.getUser(jwt);
+    const authUser = userData?.user;
+    if (jwtErr || !authUser) return res.status(401).json({ error: "Invalid session" });
+
+    // Already provisioned → returning Google user.
+    const { data: byAuth } = await supabase
+      .from("users").select("id").eq("auth_id", authUser.id).maybeSingle();
+    if (byAuth) return res.status(200).json({ userId: byAuth.id, isNew: false });
+
+    const email = (authUser.email ?? "").toLowerCase().trim();
+
+    // Email collision with an existing profile.
+    if (email) {
+      const { data: byEmail } = await supabase
+        .from("users").select("id, auth_id").eq("email", email).maybeSingle();
+      if (byEmail) {
+        // Owned by a different GoTrue account (i.e. a password account) → refuse.
+        if (byEmail.auth_id) return res.status(409).json({ error: "account_exists" });
+        // Legacy row with no auth_id → link this Google identity to it.
+        await supabase.from("users")
+          .update({ auth_id: authUser.id, email_verified: true }).eq("id", byEmail.id);
+        return res.status(200).json({ userId: byEmail.id, isNew: false });
+      }
+    }
+
+    // Brand-new Google user → create the profile (Google emails are pre-verified,
+    // so email_verified:true clears the App.tsx verification gate). Roll back the
+    // insert failure the same way signup does is unnecessary here (no auth user was
+    // created by us — GoTrue owns it), so just surface the error.
+    const userId = randomUUID();
+    const name =
+      authUser.user_metadata?.full_name ||
+      authUser.user_metadata?.name || "";
+    const { error: insErr } = await supabase
+      .from("users").insert({ id: userId, name, email, auth_id: authUser.id, email_verified: true });
+    if (insErr) {
+      console.error("[auth-migrate/oauth-provision] profile insert failed:", insErr);
+      return res.status(500).json({ error: "Could not finish sign-in. Please try again." });
+    }
+    return res.status(200).json({ userId, isNew: true });
+  }
+
   // ── migrate (lazy) ──────────────────────────────────────────────────────────
   if (action === "migrate") {
     const { email: rawEmail, password } = req.body ?? {};
@@ -201,5 +250,5 @@ export default async function handler(req, res) {
     return res.status(200).json({ userId: canonical.id, merged: true });
   }
 
-  return res.status(400).json({ error: "Unknown action. Use ?action=signup, ?action=migrate, ?action=reset, or ?action=adopt" });
+  return res.status(400).json({ error: "Unknown action. Use ?action=signup, ?action=oauth-provision, ?action=migrate, ?action=reset, or ?action=adopt" });
 }

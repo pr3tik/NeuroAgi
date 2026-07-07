@@ -12,9 +12,10 @@ import PageDots             from "./components/PageDots";
 import NeuralRing           from "./components/NeuralRing";
 import BottomNav            from "./components/BottomNav";
 import Landing              from "./pages/Landing"; // eager — logged-out entry, shown on first paint
+import PreSignupDemo, { hasSeenPreSignupDemo } from "./pages/PreSignupDemo"; // S0-S2: shown once, before Landing, for brand-new visitors only
 import { useApp }           from "./context/AppContext";
 import { supabase }         from "./api/supabase";
-import { signIn, signUp, adoptIdentity } from "./api/auth";
+import { signIn, signUp, adoptIdentity, completeOAuthLogin } from "./api/auth";
 import { usePageTracking }  from "./hooks/usePageTracking";
 import { awardTokens }      from "./api/tokens";
 import TokenToast           from "./components/TokenToast";
@@ -133,6 +134,11 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
   );
+  // Shown at most once per browser, and only if not already logged in — a
+  // returning visitor (or one who already saw/skipped it) goes straight to Landing.
+  const [showPreSignupDemo, setShowPreSignupDemo] = useState(
+    () => !isLoggedIn && !hasSeenPreSignupDemo()
+  );
   const [showOnboarding,      setShowOnboarding]     = useState(false);
   const [onboardingEmail,     setOnboardingEmail]    = useState("");
   const [onboardingInitName,  setOnboardingInitName] = useState("");
@@ -211,6 +217,46 @@ export default function App() {
   const [resetError,   setResetError]   = useState("");
   const [resetDone,    setResetDone]    = useState(false);
   const [resendSent,   setResendSent]   = useState(false);
+  const [oauthError,   setOauthError]   = useState<string | null>(null);
+
+  // ── Google sign-in return (/?auth=google) ──────────────────────────────────
+  // A first-time Google user has a GoTrue session but no public.users row, so we
+  // provision one (server-side) then route: new users → the onboarding wizard
+  // (Google gives name + email only; they still pick school/Canvas/goals),
+  // returning users → straight into the app. detectSessionInUrl exchanges the PKCE
+  // code during client init, so wait for the SIGNED_IN event before reading it.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("auth") !== "google") return;
+    let running = false, settled = false;
+    const finish = async () => {
+      if (settled || running) return;
+      running = true;
+      try {
+        const r = await completeOAuthLogin();
+        if (!r) { running = false; return; }        // no session yet — wait for the event
+        settled = true;
+        window.history.replaceState({}, "", "/");   // strip ?auth=google&code=
+        if (r.isNew) {
+          setUserId(r.userId);
+          setOnboardingInitName(r.name || "");
+          setShowOnboarding(true);
+        } else {
+          window.location.reload();                 // returning user → boot into the app
+        }
+      } catch (e: any) {
+        settled = true;
+        window.history.replaceState({}, "", "/");
+        setOauthError(e?.message || "Google sign-in failed. Please try again.");
+      } finally {
+        running = false;
+      }
+    };
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "INITIAL_SESSION") finish();
+    });
+    finish();  // fast path if the session was already restored
+    return () => sub.subscription.unsubscribe();
+  }, [setUserId]);
 
   async function resendVerification() {
     if (!userData?.email) return;
@@ -390,6 +436,11 @@ export default function App() {
   // ── Onboarding complete ────────────────────────────────────────────────────
   const handleOnboardingComplete = useCallback(async ({
     preferredName, schoolName, schoolCity, schoolCountry, schoolContinent, token, baseUrl,
+    intake, intakeSkipped,
+  }: {
+    preferredName?: string; schoolName?: string; schoolCity?: string; schoolCountry?: string;
+    schoolContinent?: string; token?: string; baseUrl?: string;
+    intake?: Record<string, string>; intakeSkipped?: string[];
   }) => {
     if (preferredName) localStorage.setItem("fschool_name", preferredName);
     try {
@@ -404,6 +455,22 @@ export default function App() {
       if (schoolContinent) patch.school_continent = schoolContinent;
       await updateUserField(patch);
     } catch {}
+    // Intake answers go in a SEPARATE upsert: until the intake-columns
+    // migration runs, unknown columns fail the whole patch (PGRST204) and
+    // would take name/school down with them. localStorage draft still holds
+    // the answers either way.
+    if ((intake && Object.keys(intake).length > 0) || intakeSkipped?.length) {
+      try {
+        await updateUserField({
+          ...intake,
+          intake_meta: {
+            version: "onboarding-v2.1",
+            skipped: intakeSkipped ?? [],
+            completed_at: new Date().toISOString(),
+          },
+        });
+      } catch { /* column may be absent until the migration runs */ }
+    }
     if (token && baseUrl) {
       try { await saveCanvasCredentials(token, baseUrl); } catch {}
     }
@@ -601,8 +668,24 @@ export default function App() {
     );
   }
 
+  // Fixed toast for a failed Google sign-in (e.g. email already has a password account).
+  const oauthToast = oauthError ? (
+    <div onClick={() => setOauthError(null)}
+      style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 2000,
+        maxWidth: "min(92vw, 420px)", background: "rgba(20,20,24,0.97)", color: "#F5F5F5",
+        border: "1px solid rgba(255,100,90,0.4)", borderRadius: "12px", padding: "12px 16px",
+        fontSize: "13px", lineHeight: "1.5", cursor: "pointer", fontFamily: "inherit",
+        boxShadow: "0 8px 30px rgba(0,0,0,0.45)" }}>
+      {oauthError}
+    </div>
+  ) : null;
+
+  if (!isLoggedIn && showPreSignupDemo) {
+    return (<>{overlays}{oauthToast}<PreSignupDemo onEnter={handleEnter} /></>);
+  }
+
   if (!isLoggedIn) {
-    return (<>{overlays}<Landing onEnter={handleEnter} /></>);
+    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} /></>);
   }
 
   // ── Email verification gate ───────────────────────────────────────────────
