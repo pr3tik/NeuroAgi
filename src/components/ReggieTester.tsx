@@ -3,7 +3,7 @@
 // launcher (bottom-left) so you can chat with the agent-manager loop and see which
 // specialist it routed to + the exact tool calls it made. Gated to local dev, or any
 // deployment via ?reggie=1, so normal users never see it.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context/AppContext";
 
 interface Turn {
@@ -17,12 +17,10 @@ interface Turn {
   error?: boolean;
 }
 
-const enabled = () =>
-  (import.meta as any)?.env?.DEV === true ||
-  (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("reggie"));
-
+// TEMPORARILY always-on so it's easy to find while testing — the "🤖 Reggie β" launcher
+// sits bottom-left on the logged-in app shell. Re-gate behind a dev/feature flag before
+// any public launch (it shouldn't ship to real users long-term).
 export default function ReggieTester() {
-  if (!enabled()) return null;
   return <Panel />;
 }
 
@@ -33,6 +31,12 @@ function Panel() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [loading, setLoading] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Diagnostic: confirms in DevTools that the panel actually mounted (and whether a
+  // userId is present). If you don't see this log, you're on a stale build/branch.
+  useEffect(() => {
+    console.log("[ReggieTester] mounted — look bottom-left for '🤖 Reggie β'. userId:", userId || "(not logged in)");
+  }, [userId]);
 
   const scroll = () => requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; });
 
