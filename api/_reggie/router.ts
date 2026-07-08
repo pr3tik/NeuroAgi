@@ -1,9 +1,8 @@
 // api/_reggie/router.ts — Reggie's intent router: message → one specialist route.
-// Three tiers (cheap → expensive), ported/adapted from feat/optimize's classify_intent:
-//   1. an explicit hint / product action (deterministic map)
-//   2. keyword rules (deterministic, no model call)
-//   3. a Haiku classification over the CLOSED route set (fail-open to tutor)
-// Never returns a route outside the provided set.
+// Three tiers (cheap → precise): explicit hint/action → PRECISE phrase rules → a Haiku
+// classifier over the CLOSED set (with per-route descriptions), fail-open to tutor.
+// The phrase rules are deliberately specific so ambiguous single words ("grade", "plan")
+// don't hijack a route — those fall through to the model, which routes better.
 import { callModel } from "../_gateway.js";
 
 const TASK_HINTS: Record<string, string> = {
@@ -13,23 +12,41 @@ const TASK_HINTS: Record<string, string> = {
   digest_lecture: "content_synthesizer", flashcards: "content_synthesizer", quiz: "content_synthesizer", summarize: "content_synthesizer", content: "content_synthesizer",
   find_resources: "resource_curator", resources: "resource_curator",
   start_assignment: "writing_coach", essay: "writing_coach", writing: "writing_coach",
-  office_hours: "question_coach", questions: "question_coach",
+  office_hours: "question_coach", questions: "question_coach", tokens: "tutor", points: "tutor",
 };
 
-const KEYWORD_TASKS: Array<[string[], string]> = [
-  [["exam", "weekly", "next week", "plan", "briefing", "today", "schedule", "deadline", "due"], "planner"],
-  [["grade", "what-if", "what if", "my score", "final grade", "gpa", "weighted", "projected"], "insight_explainer"],
-  [["summarize", "summary", "lecture", "flashcard", "quiz", "digest", "concept map", "framework"], "content_synthesizer"],
-  [["resource", "video", "podcast", "article", "reading list"], "resource_curator"],
-  [["essay", "paper", "draft", "outline", "scaffold", "thesis"], "writing_coach"],
-  [["office hour", "professor", "ask my teacher", "question to ask"], "question_coach"],
+// Ordered, PRECISE rules — first match wins. A rule fires only if its route is available.
+const KEYWORD_RULES: Array<[RegExp, string]> = [
+  // question_coach — grading the student's OWN answers / practice (must beat generic "grade")
+  [/\b(grade|check|mark|evaluate|score)\b[^.?!]*\b(my|these|this|the)\b[^.?!]*\b(answer|answers|response|work|attempt|essay|solution)\b|\bam i (right|correct)\b|\bhow did i do\b|\bgrade (my|these|this)\b/i, "question_coach"],
+  // insight_explainer — what-if scenarios & grade standing/weighting
+  [/\bwhat[-\s]?if\b|\bif i (get|score|drop|skip|move|only)\b|\bprojected grade\b|\bgrade[-\s]?weight|weighted grade|\bhow (is|are|'?s) my grades?\b|\bwhat('?s| is| are)?\s+(my\s+)?grades?\b|\bmy grades?\b|\bmy gpa\b|\bfinal grade\b|\bhow am i doing\b|do i need (on|to)\b/i, "insight_explainer"],
+  // planner — deadlines & dated study plans
+  [/\bstudy plan\b|\bplan (for|my|a)\b|study schedule|what'?s due|due (this|next|soon|today)|\bdeadlines?\b|prioriti[sz]e|daily briefing|what should i (do|work on|study|focus on)( first| next| today| this week)?/i, "planner"],
+  // content_synthesizer — study aids
+  [/\bquiz me\b|\b(make|create|generate|build)\b[^.?!]{0,20}\b(quiz|practice|flashcards?)\b|practice questions?\b|\bflashcards?\b|concept map|mind ?map|\bsummari[sz]e\b|study guide/i, "content_synthesizer"],
+  // writing_coach
+  [/\bessay\b|\boutline\b|\bthesis\b|\brough draft\b|\bmy paper\b|\bargument\b|revise my|help me write/i, "writing_coach"],
+  // resource_curator
+  [/what (resources|materials?|readings?)\b|reading list|what should i read|point me to/i, "resource_curator"],
+  // tokens / gamification (tutor holds token_summary)
+  [/how many (points|tokens)|\bmy (points|tokens|tier)\b|what tier|token balance/i, "tutor"],
 ];
+
+const ROUTE_DESC: Record<string, string> = {
+  tutor: "general questions, explanations, points/tokens, or anything not covered by another specialist",
+  insight_explainer: "the student's grades, projected grade, grade weighting, GPA, and what-if scenarios (dropping a topic, moving an exam, hypothetical scores)",
+  planner: "what's due, deadlines, prioritizing work, and building dated study plans for an exam",
+  content_synthesizer: "making study materials from their content — quizzes, flashcards, summaries, concept maps",
+  question_coach: "quizzing the student and grading THEIR practice answers with feedback",
+  writing_coach: "essays and writing — outlining, argument structure, revision (never writing the submission for them)",
+  resource_curator: "pointing the student to the most relevant material they already have",
+};
 
 /** Map an explicit product action / hint to a route, or null if not recognized. */
 export function hintToRoute(hint?: string | null): string | null {
   if (!hint) return null;
-  const n = String(hint).trim().toLowerCase();
-  return TASK_HINTS[n] ?? null;
+  return TASK_HINTS[String(hint).trim().toLowerCase()] ?? null;
 }
 
 export async function classifyIntent(message: string, routes: string[], hint?: string | null): Promise<string> {
@@ -41,19 +58,19 @@ export async function classifyIntent(message: string, routes: string[], hint?: s
   const hinted = hintToRoute(hint);
   if (hinted && set.has(hinted)) return hinted;
 
-  // 2. keyword rules
-  const lower = String(message || "").toLowerCase();
-  for (const [needles, route] of KEYWORD_TASKS) {
-    if (set.has(route) && needles.some((n) => lower.includes(n))) return route;
+  // 2. precise phrase rules
+  const msg = String(message || "");
+  for (const [re, route] of KEYWORD_RULES) {
+    if (set.has(route) && re.test(msg)) return route;
   }
 
-  // 3. model classification over the closed set — fail-open
+  // 3. model classification over the closed set, with descriptions — fail-open
   try {
+    const menu = routes.map((r) => `- ${r}: ${ROUTE_DESC[r] ?? ""}`).join("\n");
     const prompt =
-      `Route the student's message to exactly ONE specialist. Reply with ONLY the label, nothing else.\n` +
-      `Labels: ${routes.join(", ")}\n` +
-      `Message: ${JSON.stringify(String(message).slice(0, 300))}`;
-    const r = await callModel({ task: "classify", messages: [{ role: "user", content: prompt }], max_tokens: 12, metadata: { tool: "reggie.route" } });
+      `Route the student's message to exactly ONE specialist. Reply with ONLY the label, nothing else.\n\n${menu}\n\n` +
+      `Message: ${JSON.stringify(msg.slice(0, 400))}`;
+    const r = await callModel({ task: "classify", messages: [{ role: "user", content: prompt }], max_tokens: 16, metadata: { tool: "reggie.route" } });
     if (r.ok) {
       const pick = String(r.content || "").trim().toLowerCase().replace(/[^a-z_]/g, "");
       if (set.has(pick)) return pick;

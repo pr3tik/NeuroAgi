@@ -21,6 +21,7 @@ export default async function handler(req: any, res: any) {
   const {
     action = "ask", userId, message,
     courseId = null, assignmentId = null, brainPersonId = null, hint = null,
+    history = [],
   } = req.body ?? {};
 
   if (!userId) return res.status(400).json({ error: "userId is required" });
@@ -47,6 +48,7 @@ export default async function handler(req: any, res: any) {
   try {
     const result = await runReggie({
       specialist, userMessage: message, brainContext,
+      history: Array.isArray(history) ? history : [],
       ctx: { userId, courseId, assignmentId },
     });
     return res.status(200).json({

@@ -39,6 +39,37 @@ async function call(handler: any, opts: any, label: string): Promise<any> {
   return body;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Resolve a course REFERENCE the student gave in words — a course NAME ("BIO 101",
+// "Organic Chemistry") or a course CODE — to the canonical DB course id the handlers
+// need. If the reference is already an id (uuid) or a purely-numeric Canvas id, it's
+// passed straight through (no lookup), so callers that already have an id are unaffected.
+// Falls back to the raw value on no-match/lookup-failure so the handler can still try
+// (and produce its own clear error) rather than the loop silently doing nothing.
+export async function resolveCourse(userId: string, course: any): Promise<any> {
+  if (course === undefined || course === null || course === "") return null;
+  const raw = String(course).trim();
+  if (UUID_RE.test(raw) || /^\d+$/.test(raw)) return raw;   // already an id → don't look up
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
+  if (!url || !key) return raw;
+  try {
+    const r = await fetch(`${url}/rest/v1/courses?user_id=eq.${encodeURIComponent(userId)}&select=id,canvas_course_id,course_code,name`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    });
+    if (!r.ok) return raw;
+    const rows: any[] = await r.json();
+    const lc = raw.toLowerCase();
+    const hit =
+      rows.find((c) => (c.course_code || "").toLowerCase() === lc || (c.name || "").toLowerCase() === lc) ||       // exact code/name
+      rows.find((c) => (c.name || "").toLowerCase().includes(lc) || (c.course_code || "").toLowerCase().includes(lc)); // partial
+    return hit ? hit.id : raw;
+  } catch {
+    return raw;
+  }
+}
+
 export const TOOLS: ReggieTool[] = [
   // ── A. Canvas / academic data ────────────────────────────────────────────────
   {
@@ -47,10 +78,10 @@ export const TOOLS: ReggieTool[] = [
       "Get the student's per-course grade standing (current/final %, per-assignment scores + weights) and GPA from synced Canvas data. Call to answer 'how am I doing in X', 'what are my grades', 'my GPA'.",
     input_schema: {
       type: "object",
-      properties: { courseId: { type: ["string", "number", "null"], description: "Optional: one course (DB uuid or Canvas id). Omit for all courses." } },
+      properties: { course: { type: ["string", "number", "null"], description: "Optional: one course by NAME, code, or id (e.g. 'BIO 101'). Omit for all courses." } },
       required: [],
     },
-    invoke: (a, ctx) => call(canvasReads, { body: { action: "grades", userId: ctx.userId, courseId: a.courseId ?? ctx.courseId ?? null } }, "canvas_get_grades"),
+    invoke: async (a, ctx) => call(canvasReads, { body: { action: "grades", userId: ctx.userId, courseId: await resolveCourse(ctx.userId, a.course ?? a.courseId ?? ctx.courseId) } }, "canvas_get_grades"),
   },
   {
     name: "canvas_get_upcoming",
@@ -72,10 +103,10 @@ export const TOOLS: ReggieTool[] = [
       "Get a course's grade-category weights and a points-based projected grade. Call when the student asks how their grade is weighted or what their projected grade is.",
     input_schema: {
       type: "object",
-      properties: { courseId: { type: ["string", "number"], description: "Course DB uuid or Canvas id." } },
-      required: ["courseId"],
+      properties: { course: { type: ["string", "number"], description: "Course by NAME, code, or id (e.g. 'BIO 101')." } },
+      required: ["course"],
     },
-    invoke: (a, ctx) => call(gradeWeights, { body: { userId: ctx.userId, courseId: a.courseId } }, "compute_grade_weights"),
+    invoke: async (a, ctx) => call(gradeWeights, { body: { userId: ctx.userId, courseId: await resolveCourse(ctx.userId, a.course ?? a.courseId ?? ctx.courseId) } }, "compute_grade_weights"),
   },
 
   // ── B. RAG / retrieval ─────────────────────────────────────────────────────────
@@ -87,12 +118,12 @@ export const TOOLS: ReggieTool[] = [
       type: "object",
       properties: {
         query: { type: "string", description: "What to look up in the student's materials." },
-        courseId: { type: ["string", "null"], description: "Optional course filter (DB uuid)." },
+        course: { type: ["string", "null"], description: "Optional course filter by NAME, code, or id." },
         maxSections: { type: "integer", description: "Max passages to return (default 4)." },
       },
       required: ["query"],
     },
-    invoke: (a, ctx) => call(rag, { query: { action: "query" }, body: { userId: ctx.userId, query: a.query, courseId: a.courseId ?? ctx.courseId ?? null, maxSections: a.maxSections ?? 4 } }, "rag_search"),
+    invoke: async (a, ctx) => call(rag, { query: { action: "query" }, body: { userId: ctx.userId, query: a.query, courseId: await resolveCourse(ctx.userId, a.course ?? a.courseId ?? ctx.courseId), maxSections: a.maxSections ?? 4 } }, "rag_search"),
   },
 
   // ── D. Generation ────────────────────────────────────────────────────────────
@@ -103,15 +134,15 @@ export const TOOLS: ReggieTool[] = [
     input_schema: {
       type: "object",
       properties: {
-        text: { type: "string", description: "Raw source text (use this OR documentId OR courseId)." },
+        text: { type: "string", description: "Raw source text (use this OR documentId OR course)." },
         documentId: { type: "string" },
-        courseId: { type: ["string", "integer"] },
+        course: { type: ["string", "integer"], description: "Course by NAME, code, or id." },
         count: { type: "integer", description: "Number of questions (default 5, max 20)." },
         difficulty: { enum: ["easy", "medium", "hard"] },
       },
       required: [],
     },
-    invoke: (a, ctx) => call(exam, { body: { action: "generate_quiz", userId: ctx.userId, text: a.text, documentId: a.documentId, courseId: a.courseId ?? ctx.courseId, count: a.count, difficulty: a.difficulty } }, "generate_quiz"),
+    invoke: async (a, ctx) => call(exam, { body: { action: "generate_quiz", userId: ctx.userId, text: a.text, documentId: a.documentId, courseId: await resolveCourse(ctx.userId, a.course ?? a.courseId ?? ctx.courseId), count: a.count, difficulty: a.difficulty } }, "generate_quiz"),
   },
   {
     name: "evaluate_answers",
@@ -145,14 +176,14 @@ export const TOOLS: ReggieTool[] = [
     input_schema: {
       type: "object",
       properties: {
-        courseId: { type: ["string", "integer"] },
+        course: { type: ["string", "integer"], description: "Course by NAME, code, or id." },
         examDate: { type: "string", description: "Exam date, YYYY-MM-DD." },
         topics: { type: "array", items: { type: "string" } },
         dailyMinutes: { type: "integer" },
       },
-      required: ["courseId", "examDate"],
+      required: ["course", "examDate"],
     },
-    invoke: (a, ctx) => call(exam, { body: { action: "generate_plan", userId: ctx.userId, courseId: a.courseId ?? ctx.courseId, examDate: a.examDate, topics: a.topics, dailyMinutes: a.dailyMinutes } }, "generate_study_plan"),
+    invoke: async (a, ctx) => call(exam, { body: { action: "generate_plan", userId: ctx.userId, courseId: await resolveCourse(ctx.userId, a.course ?? a.courseId ?? ctx.courseId), examDate: a.examDate, topics: a.topics, dailyMinutes: a.dailyMinutes } }, "generate_study_plan"),
   },
   {
     name: "generate_framework",
@@ -167,8 +198,8 @@ export const TOOLS: ReggieTool[] = [
   {
     name: "list_flashcards",
     description: "Load the student's saved flashcards for a course. Call to review existing cards.",
-    input_schema: { type: "object", properties: { courseId: { type: ["string", "integer"] } }, required: ["courseId"] },
-    invoke: (a, ctx) => call(flashcards, { body: { action: "load", userId: ctx.userId, courseId: a.courseId ?? ctx.courseId } }, "list_flashcards"),
+    input_schema: { type: "object", properties: { course: { type: ["string", "integer"], description: "Course by NAME, code, or id." } }, required: ["course"] },
+    invoke: async (a, ctx) => call(flashcards, { body: { action: "load", userId: ctx.userId, courseId: await resolveCourse(ctx.userId, a.course ?? a.courseId ?? ctx.courseId) } }, "list_flashcards"),
   },
   {
     name: "save_flashcards",
@@ -176,12 +207,12 @@ export const TOOLS: ReggieTool[] = [
     input_schema: {
       type: "object",
       properties: {
-        courseId: { type: ["string", "integer"] },
+        course: { type: ["string", "integer"], description: "Course by NAME, code, or id." },
         cards: { type: "array", minItems: 1, items: { type: "object", properties: { question: { type: "string" }, answer: { type: "string" } }, required: ["question", "answer"] } },
       },
-      required: ["courseId", "cards"],
+      required: ["course", "cards"],
     },
-    invoke: (a, ctx) => call(flashcards, { body: { action: "save", userId: ctx.userId, courseId: a.courseId ?? ctx.courseId, cards: a.cards } }, "save_flashcards"),
+    invoke: async (a, ctx) => call(flashcards, { body: { action: "save", userId: ctx.userId, courseId: await resolveCourse(ctx.userId, a.course ?? a.courseId ?? ctx.courseId), cards: a.cards } }, "save_flashcards"),
   },
   {
     name: "summarize_text",

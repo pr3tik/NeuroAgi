@@ -44,6 +44,10 @@ function Panel() {
     const message = input.trim();
     if (!message || loading) return;
     if (!userId) { setTurns((t) => [...t, { role: "reggie", text: "Not logged in — Reggie needs a real userId (log in first).", error: true }]); return; }
+    // Prior turns become conversation memory (text only; skip error bubbles).
+    const history = turns
+      .filter((t) => !t.error)
+      .map((t) => ({ role: t.role === "you" ? "user" : "assistant", content: t.text }));
     setInput("");
     setTurns((t) => [...t, { role: "you", text: message }]);
     setLoading(true);
@@ -52,7 +56,7 @@ function Panel() {
       const res = await fetch("/api/agent-manager", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, message }),
+        body: JSON.stringify({ userId, message, history }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body?.ok === false) {
@@ -99,7 +103,7 @@ function Panel() {
       <div ref={listRef} style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
         {turns.length === 0 && (
           <div style={{ color: C.dim, fontSize: 13, lineHeight: 1.5 }}>
-            Ask Reggie something and watch which specialist it routes to and which tools it calls. Each message is an independent turn (Reggie is single-turn today).<br /><br />
+            Ask Reggie something and watch which specialist it routes to and which tools it calls. It remembers this conversation (use "clear" to reset).<br /><br />
             Try: <em>"how am I doing in my courses and what should I study?"</em>, <em>"quiz me on chapter 3"</em>, <em>"plan my week"</em>, <em>"what if I move my exam up a week"</em>.
             {!userId && <div style={{ color: C.err, marginTop: 10 }}>⚠ Not logged in — log in first (Reggie needs a real userId).</div>}
           </div>

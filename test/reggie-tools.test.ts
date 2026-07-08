@@ -114,6 +114,17 @@ describe("Reggie tool registry", () => {
     });
   }
 
+  it("resolveCourse maps a course NAME/code to its id and passes real ids through", async () => {
+    stubFetch();
+    const { resolveCourse } = await reg();
+    expect(await resolveCourse("u1", "Bio")).toBe("c-uuid");                                   // exact name
+    expect(await resolveCourse("u1", "BIO")).toBe("c-uuid");                                   // exact code (case-insensitive)
+    expect(await resolveCourse("u1", "bi")).toBe("c-uuid");                                    // partial name
+    expect(await resolveCourse("u1", "111")).toBe("111");                                      // numeric Canvas id → pass-through
+    expect(await resolveCourse("u1", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBe("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"); // uuid → pass-through
+    expect(await resolveCourse("u1", "No Such Course")).toBe("No Such Course");                // no match → raw fallback
+  });
+
   it("a failing handler surfaces as a thrown tool error (loop turns it into is_error)", async () => {
     // Supabase 500 on the users existence check → canvas_get_grades should throw, not hang.
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => "" })));

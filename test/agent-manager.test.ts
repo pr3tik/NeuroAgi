@@ -45,6 +45,13 @@ describe("agent-manager (Reggie front door)", () => {
     expect(passed.ctx.userId).toBe("u1");
   });
 
+  it("passes conversation history through to the loop", async () => {
+    const h = await load(); const res = makeRes();
+    const history = [{ role: "user", content: "explain kinetics" }, { role: "assistant", content: "reaction rates" }];
+    await h({ method: "POST", body: { userId: "u1", message: "and thermo?", history } }, res);
+    expect(runReggie.mock.calls[0][0].history).toEqual(history);
+  });
+
   it("routes an explicit product action straight to its specialist (no classification)", async () => {
     const h = await load(); const res = makeRes();
     await h({ method: "POST", body: { action: "weekly_plan", userId: "u1", message: "plan my week" } }, res);

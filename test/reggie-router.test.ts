@@ -29,6 +29,11 @@ describe("reggie router", () => {
     expect(await classifyIntent("what's due this week", ROUTES)).toBe("planner");
     expect(await classifyIntent("make me a quiz on chapter 3", ROUTES)).toBe("content_synthesizer");
     expect(await classifyIntent("help me outline my essay", ROUTES)).toBe("writing_coach");
+    // precise-rule regressions: specific phrases must NOT be hijacked by generic words
+    expect(await classifyIntent("grade my answers to this quiz", ROUTES)).toBe("question_coach"); // "grade" ≠ insight_explainer
+    expect(await classifyIntent("what if I drop kinetics from my plan?", ROUTES)).toBe("insight_explainer"); // "what if" beats "plan"
+    expect(await classifyIntent("how many points do I have?", ROUTES)).toBe("tutor"); // tokens → tutor (holds token_summary)
+    expect(await classifyIntent("how am I doing in my courses?", ROUTES)).toBe("insight_explainer");
     expect(spy).not.toHaveBeenCalled();
   });
 
