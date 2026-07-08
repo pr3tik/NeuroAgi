@@ -86,16 +86,17 @@ export const TOOLS: ReggieTool[] = [
   {
     name: "canvas_get_upcoming",
     description:
-      "List the student's upcoming unsubmitted assignments, soonest first. Call for 'what's due', 'what should I work on next', deadline questions.",
+      "List the student's assignments by window. status:'upcoming' (default) = future due, soonest first ('what's due', 'what's next'). status:'overdue' = PAST-DUE and unsubmitted, i.e. what they're BEHIND on ('what's overdue', 'what am I late on', 'what did I miss'). status:'all' = everything. Use 'overdue' for any past-due/behind/late question.",
     input_schema: {
       type: "object",
       properties: {
-        withinDays: { type: "integer", description: "Only assignments due within N days from now (omit for all future)." },
-        includeSubmitted: { type: "boolean", description: "Include already-submitted work (default false)." },
+        status: { enum: ["upcoming", "overdue", "all"], description: "Which window (default 'upcoming'). Use 'overdue' for past-due/behind/late questions." },
+        withinDays: { type: "integer", description: "Bound the window to N days (future for upcoming, past for overdue). Omit for no bound." },
+        includeSubmitted: { type: "boolean", description: "Include already-submitted work (default false; ignored for overdue)." },
       },
       required: [],
     },
-    invoke: (a, ctx) => call(canvasReads, { body: { action: "upcoming", userId: ctx.userId, withinDays: a.withinDays, includeSubmitted: !!a.includeSubmitted } }, "canvas_get_upcoming"),
+    invoke: (a, ctx) => call(canvasReads, { body: { action: "upcoming", userId: ctx.userId, status: a.status, withinDays: a.withinDays, includeSubmitted: !!a.includeSubmitted } }, "canvas_get_upcoming"),
   },
   {
     name: "compute_grade_weights",
