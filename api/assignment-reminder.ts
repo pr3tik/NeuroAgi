@@ -71,12 +71,19 @@ export default async function handler(req, res) {
         limit: "1000",
         offset: String(offset),
       });
+      // PostgREST errors come back as an OBJECT ({code,message}), not an array — the old
+      // code treated that as "no users" and reported success. Surface it: the live schema
+      // has NO users.phone column (42703), so SMS reminders need a migration to ever fire.
+      if (page && !Array.isArray(page) && page.code) {
+        console.error("[assignment-reminder] users query failed:", page.code, page.message);
+        return res.status(500).json({ sent: 0, error: `users query failed: ${page.message ?? page.code}` });
+      }
       if (!Array.isArray(page) || page.length === 0) break;
       users.push(...page);
       if (page.length < 1000) break;
     }
 
-    if (!Array.isArray(users) || !users.length) {
+    if (!users.length) {
       return res.status(200).json({ sent: 0, message: "No users with phone numbers" });
     }
 

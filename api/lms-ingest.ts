@@ -369,7 +369,10 @@ export default async function handler(req: any, res: any) {
     // so the internal /api/extract call hits the unprotected custom domain, not
     // the deployment-protected VERCEL_URL.
     const host  = req.headers["x-forwarded-host"] || req.headers.host;
-    const proto = req.headers["x-forwarded-proto"] || "https";
+    // Default https ONLY for real hosts — the vite dev server sets no x-forwarded-proto,
+    // and https://localhost:5173 makes the internal /api/extract self-call "fetch failed".
+    const proto = req.headers["x-forwarded-proto"]
+      || (/^(localhost|127\.)/i.test(String(host ?? "")) ? "http" : "https");
     const baseUrl = host ? `${proto}://${host}` : null;
     const result = await ingestLmsFile({ userId, courseId, file, baseUrl });
     return res.status(result.status).json(result.json);

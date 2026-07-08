@@ -56,7 +56,9 @@ export default async function handler(req, res) {
   try {
     // ── 1. Fetch user from FschoolAI ──────────────────────────────────────────
     const userRes = await fetch(
-      `${supabaseUrl}/rest/v1/users?id=eq.${userId}&select=id,name,email,school,gpa,brain_person_id,created_at&limit=1`,
+      // NOTE: users has NO created_at column (live schema) — selecting it 42703'd the
+      // whole query and broke linking in prod ("user fetch failed"). Don't re-add it.
+      `${supabaseUrl}/rest/v1/users?id=eq.${userId}&select=id,name,email,school,gpa,brain_person_id&limit=1`,
       { headers: sbHeaders }
     );
     if (!userRes.ok) return res.status(200).json({ ok: false, reason: "user fetch failed" });
@@ -100,7 +102,7 @@ export default async function handler(req, res) {
           created_at:   new Date().toISOString(),
           metadata: {
             fschoolai_user_id: userId,
-            signup_date:       user.created_at,
+            signup_date:       null,   // users table has no created_at to source this from
             linked_at:         new Date().toISOString(),
           },
         }),
