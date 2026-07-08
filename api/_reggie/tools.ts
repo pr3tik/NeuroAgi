@@ -243,6 +243,23 @@ export const TOOLS: ReggieTool[] = [
     input_schema: { type: "object", properties: {}, required: [] },
     invoke: (_a, ctx) => call(tokenEngine, { method: "GET", query: { action: "summary", userId: ctx.userId } }, "token_summary"),
   },
+
+  // ── F. app navigation ──────────────────────────────────────────────────────────
+  {
+    name: "navigate",
+    description:
+      "Take the student to a page in the app. Call when they want to GO somewhere or START an activity — study/flashcards/review, their courses/Canvas, assignments, the leaderboard, the toolkit, their profile, or the home dashboard. For the study page you can set a course + mode. Give a one-line confirmation alongside calling this.",
+    input_schema: {
+      type: "object",
+      properties: {
+        page: { enum: ["work", "canvas", "assignment", "study", "courses", "identity", "leaderboard", "toolkit"], description: "Destination page (work = home dashboard)." },
+        course: { type: ["string", "null"], description: "Optional course name/code to open on the study page." },
+        mode: { enum: ["flashcards", "quiz", "review", "notes"], description: "Optional study mode for the study page." },
+      },
+      required: ["page"],
+    },
+    invoke: async (a) => ({ ok: true, page: a.page, course: a.course ?? null, mode: a.mode ?? null }),
+  },
 ];
 
 export const REGISTRY: Record<string, ReggieTool> = Object.fromEntries(TOOLS.map((t) => [t.name, t]));

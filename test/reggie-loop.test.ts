@@ -160,6 +160,9 @@ describe("reggie tool-use loop", () => {
     ] })).toEqual({ type: "quiz", data: { cards: [{ q: "What fixes CO2?", a: "the Calvin cycle", options: null, type: "short_answer" }] } });
     expect(renderableWidget("summarize_text", { summary: "x" })).toBeNull();     // not renderable
     expect(renderableWidget("generate_quiz", { quizQuestions: [] })).toBeNull(); // no usable cards
+    // navigate → an action widget the client executes
+    expect(renderableWidget("navigate", { page: "study", course: "bio", mode: "quiz" }))
+      .toEqual({ type: "navigate", data: { page: "study", course: "bio", mode: "quiz" } });
   });
 
   it("runReggieStream falls back to a blocking turn when a stream can't be opened", async () => {

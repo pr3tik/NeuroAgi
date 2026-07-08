@@ -83,6 +83,7 @@ const CASES: Record<string, { args: any; check: (r: any) => void }> = {
   summarize_text: { args: { text: "a long reading about cells that should be summarized" }, check: (r) => { expect(typeof r.summary).toBe("string"); } },
   what_if_plan: { args: { basePlan: { examDate: "2026-08-10", sessions: [{ date: "2026-08-01", topic: "Kinetics", activities: ["read"], estimatedMinutes: 60 }] }, changes: { dropTopics: ["Kinetics"] } }, check: (r) => { expect(r.readiness).toBeGreaterThanOrEqual(0); expect(Array.isArray(r.deltas)).toBe(true); } },
   token_summary: { args: {}, check: (r) => { expect(r).toBeDefined(); expect(typeof r).toBe("object"); } },
+  navigate: { args: { page: "study", mode: "flashcards" }, check: (r) => { expect(r.ok).toBe(true); expect(r.page).toBe("study"); expect(r.mode).toBe("flashcards"); } },
 };
 
 describe("Reggie tool registry", () => {
