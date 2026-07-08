@@ -2037,6 +2037,7 @@ export default function NeuralRing() {
     abortCtrlRef.current = new AbortController();
     const voice = voiceModeRef.current;
     let streamed = "", toolNote = "", finalOut = "", errMsg = null;
+    let widgets: Array<{ type: string; data: any }> = [];
     const paint = () => setStreamingMsg([toolNote, voice ? "" : streamed].filter(Boolean).join("\n\n"));
     try {
       await streamReggie(
@@ -2046,7 +2047,7 @@ export default function NeuralRing() {
           onReset:      ()  => { streamed = ""; paint(); },
           onToolCall:   (n) => { toolNote = `🔧 ${reggieToolLabel(n)}…`; paint(); },
           onToolResult: ()  => { /* keep the note until the next token/reset */ },
-          onDone:       (r) => { finalOut = r.output || ""; },
+          onDone:       (r) => { finalOut = r.output || ""; widgets = r.widgets || []; },
           onError:      (m) => { errMsg = m; },
         },
         abortCtrlRef.current?.signal,
@@ -2067,13 +2068,23 @@ export default function NeuralRing() {
       return;
     }
     const out = stripAgentJSON(finalOut) || stripAgentJSON(streamed) || "I couldn't put an answer together — try rephrasing?";
+    // If a tool produced an interactive quiz, attach it so it renders as InlineQuiz cards.
+    const quizCards = (widgets.find(w => w.type === "quiz")?.data?.cards) ?? null;
     logChat(userId, "assistant", out, null, currentConvIdRef.current);
     if (voice) {
       lastSpokenTextRef.current = out;
       await speakAndType(out);                                          // TTS + typewriter commits the bubble
+      if (quizCards) setMessages(m => [...m, { role: "assistant", content: "Here's your quiz:", quiz: quizCards }]);
       if (!micDenied) await startAutoListen();
     } else {
-      setMessages(m => [...m, { role: "assistant", content: out }]);    // commit the streamed answer
+      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}) }]);
+    }
+    // Living-mind self-write parity with the classic tutor: every 6th exchange.
+    exchangeCountRef.current += 1;
+    if (exchangeCountRef.current % 6 === 0) {
+      const recent = [...messages, { role: "user", content: text }, { role: "assistant", content: out }].slice(-8);
+      fetch("/api/self-write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId, recentMessages: recent }) })
+        .then(r => (r.ok ? r.json() : null)).then(d => { if (d?.updated && d?.patch) setLivingMind(d.patch); }).catch(() => {});
     }
   };
 
