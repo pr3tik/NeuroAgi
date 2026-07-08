@@ -893,6 +893,17 @@ export default function NeuralRing() {
   const [muted,        setMuted]        = useState(() => {
     try { return localStorage.getItem("fschool_muted") === "1"; } catch { return false; }
   });
+  // ── Reggie mode (beta): route the tutor through the agent-manager loop (router +
+  //    tools + brain) instead of the direct Claude/Groq path. Off by default; toggled
+  //    from the chat header; persisted. Fully reversible — off === original behavior.
+  const [reggieMode,   setReggieMode]   = useState(() => {
+    try { return localStorage.getItem("fschool_reggie_mode") === "1"; } catch { return false; }
+  });
+  const reggieModeRef = useRef(reggieMode);
+  useEffect(() => {
+    reggieModeRef.current = reggieMode;
+    try { localStorage.setItem("fschool_reggie_mode", reggieMode ? "1" : "0"); } catch {}
+  }, [reggieMode]);
   const [speaking,     setSpeaking]     = useState(false);
   const [streamingMsg, setStreamingMsg] = useState("");
   const typeTimerRef = useRef(null);
@@ -2068,7 +2079,8 @@ export default function NeuralRing() {
 
     try {
       // ── Visualization routing — send to Claude artifact builder ───────────
-      if (isVizRequest(userMsg.content)) {
+      // (skipped in Reggie mode — Reggie answers as text, no artifact builder)
+      if (isVizRequest(userMsg.content) && !reggieModeRef.current) {
         const aType = detectArtifactType(userMsg.content);
         const raw = await fetch("/api/claude", {
           method:  "POST",
@@ -2095,7 +2107,9 @@ export default function NeuralRing() {
       // RAG source material is query-specific, so it's fetched per message here.
       let ragContext = null;
       abortCtrlRef.current = new AbortController();
-      const ragFetch = fetch("/api/rag?action=query", {
+      // In Reggie mode the agent does its own retrieval (rag_search tool), so skip this
+      // separate fetch + context injection entirely.
+      const ragFetch = reggieModeRef.current ? Promise.resolve() : fetch("/api/rag?action=query", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, query: userMsg.content, rerank: false }),
@@ -2117,7 +2131,7 @@ export default function NeuralRing() {
       // keeping it generous costs nothing in the normal (fast) case but stops a
       // slightly-slow query from dropping the file's grounding (the "no SOURCE MATERIAL"
       // bug). Lower caps trade reliable grounding for a worst-case bound that rarely helps.
-      if (!voiceModeRef.current) {
+      if (!voiceModeRef.current && !reggieModeRef.current) {
         await Promise.race([ragFetch, new Promise(r => setTimeout(r, 4000))]);
       }
 
@@ -2162,7 +2176,30 @@ export default function NeuralRing() {
 
       let voiceTTSDone = null; // resolves when all sentence-chunked TTS finishes
 
-      if (voiceModeRef.current && !muted) {
+      if (reggieModeRef.current) {
+        // ── Reggie path: the agent-manager loop (router → specialist → tools →
+        //    brain context) produces the answer. It does its own retrieval/tools, so
+        //    the viz/rag/context injection above and the streaming voice pipeline are
+        //    skipped; the answer text flows through the same display + TTS tail below
+        //    (Reggie emits no voice/quiz/nav tags, so those parsers are no-ops).
+        const history = messages
+          .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+          .map(m => ({ role: m.role, content: m.content }));
+        const rr = await fetch("/api/agent-manager", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, message: text, history }),
+          signal:  abortCtrlRef.current?.signal,
+        });
+        if (!rr.ok) {
+          let msg = `Reggie ${rr.status}`;
+          try { msg = (await rr.json())?.error || msg; } catch {}
+          throw new Error(msg);
+        }
+        const rb = await rr.json();
+        if (rb?.ok === false) throw new Error(rb?.error || "Reggie failed");
+        raw = rb.output || "";
+      } else if (voiceModeRef.current && !muted) {
         // ── Streaming voice: sentence-chunked TTS pipeline ───────────────────
         // Each sentence is sent to TTS the moment Claude generates it,
         // so audio starts before the full response arrives.
@@ -2632,6 +2669,23 @@ export default function NeuralRing() {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 6h16M4 12h16M4 18h10" />
                   </svg>
+                </button>
+
+                {/* Reggie mode toggle (beta) — swaps the tutor brain to the agent loop */}
+                <button
+                  onClick={() => setReggieMode(v => !v)}
+                  title={reggieMode ? "Reggie mode ON — using the agent loop (tools + brain). Tap to switch back to the classic tutor." : "Reggie mode OFF — classic tutor. Tap to route through Reggie (tools + brain)."}
+                  aria-label="Toggle Reggie mode"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5, padding: "0 10px", height: 32, flexShrink: 0,
+                    borderRadius: 20, cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
+                    fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase",
+                    background: reggieMode ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.06)",
+                    border: `1px solid ${reggieMode ? "rgba(196,154,60,0.5)" : "rgba(255,255,255,0.12)"}`,
+                    color: reggieMode ? "#C49A3C" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  🤖 Reggie
                 </button>
 
                 {/* Voice toggle */}
