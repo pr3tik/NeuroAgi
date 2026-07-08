@@ -31,12 +31,12 @@ function base(persona: string, brainContext?: string | null): string {
 export const SPECIALISTS: Record<string, Specialist> = {
   tutor: {
     key: "tutor", title: "General tutor", task: "tutor",
-    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "summarize_text", "list_flashcards"],
+    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "summarize_text", "list_flashcards", "token_summary"],
     system: (o) => base("Answer the student's question clearly and help them understand it, pulling from their uploaded materials (rag_search) and Canvas data when relevant.", o.brainContext),
   },
   insight_explainer: {
     key: "insight_explainer", title: "Grades & what-if", task: "tutor",
-    tools: ["canvas_get_grades", "compute_grade_weights", "what_if_plan", "canvas_get_upcoming"],
+    tools: ["canvas_get_grades", "compute_grade_weights", "what_if_plan", "canvas_get_upcoming", "token_summary"],
     system: (o) => base("Explain the student's grade standing and run what-if scenarios. Fetch real grades/weights BEFORE any math, and show the numbers you used.", o.brainContext),
   },
   planner: {
