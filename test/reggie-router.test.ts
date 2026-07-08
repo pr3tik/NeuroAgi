@@ -34,6 +34,8 @@ describe("reggie router", () => {
     expect(await classifyIntent("what if I drop kinetics from my plan?", ROUTES)).toBe("insight_explainer"); // "what if" beats "plan"
     expect(await classifyIntent("how many points do I have?", ROUTES)).toBe("tutor"); // tokens → tutor (holds token_summary)
     expect(await classifyIntent("how am I doing in my courses?", ROUTES)).toBe("insight_explainer");
+    expect(await classifyIntent("what's overdue?", ROUTES)).toBe("planner");            // past-due → planner
+    expect(await classifyIntent("what am I behind on?", ROUTES)).toBe("planner");
     expect(spy).not.toHaveBeenCalled();
   });
 

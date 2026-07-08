@@ -121,6 +121,64 @@ describe("canvas-reads handler", () => {
     expect(String(call[0])).toContain("due_at=lte.");
   });
 
+  it("upcoming (default) queries ONLY the future window — regression: overdue must not be the only thing reachable", async () => {
+    const fn = stubFetch({ assignments: [] });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "upcoming", userId: "u1" } }, res);
+    const call = fn.mock.calls.find((c: any[]) => String(c[0]).includes("/rest/v1/assignments"))!;
+    expect(String(call[0])).toContain("due_at=gte.");
+    expect(String(call[0])).toContain("order=due_at.asc");
+    expect(res.body.status).toBe("upcoming");
+  });
+
+  it("overdue: queries PAST-due work (due_at<now, most-recent first) — this is what surfaces real past-due items", async () => {
+    const fn = stubFetch({ assignments: [] });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "upcoming", userId: "u1", status: "overdue" } }, res);
+    const u = String(fn.mock.calls.find((c: any[]) => String(c[0]).includes("/rest/v1/assignments"))![0]);
+    expect(u).toContain("due_at=lt.");          // PAST due
+    expect(u).toContain("order=due_at.desc");   // most recently due first
+    expect(u).not.toContain("due_at=gte.");     // NOT the future window
+    expect(res.body.status).toBe("overdue");
+  });
+
+  it("action:'overdue' is an alias for status:'overdue'", async () => {
+    const fn = stubFetch({ assignments: [] });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "overdue", userId: "u1" } }, res);
+    const u = String(fn.mock.calls.find((c: any[]) => String(c[0]).includes("/rest/v1/assignments"))![0]);
+    expect(u).toContain("due_at=lt.");
+    expect(res.body.status).toBe("overdue");
+  });
+
+  it("overdue: returns past-due UNSUBMITTED work and always drops submitted (even with includeSubmitted)", async () => {
+    stubFetch({ assignments: [
+      { id: "a1", course_id: "c1", title: "Weekly Challenge hand in", due_at: "2020-01-01T00:00:00Z", submitted_at: null,                    courses: { name: "eom guidance" } },
+      { id: "a2", course_id: "c1", title: "Late but turned in",       due_at: "2020-01-02T00:00:00Z", submitted_at: "2020-02-01T00:00:00Z", courses: { name: "eom guidance" } },
+    ] });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "upcoming", userId: "u1", status: "overdue", includeSubmitted: true } }, res);
+    expect(res.body.assignments.map((a: any) => a.name)).toEqual(["Weekly Challenge hand in"]);
+  });
+
+  it("overdue with withinDays bounds the PAST horizon (due_at >= now-N days)", async () => {
+    const fn = stubFetch({ assignments: [] });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "upcoming", userId: "u1", status: "overdue", withinDays: 30 } }, res);
+    const u = String(fn.mock.calls.find((c: any[]) => String(c[0]).includes("/rest/v1/assignments"))![0]);
+    expect(u).toContain("due_at=lt.");    // upper bound = now
+    expect(u).toContain("due_at=gte.");   // lower bound = now - 30d
+  });
+
+  it("status:'all' applies no due_at window", async () => {
+    const fn = stubFetch({ assignments: [] });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "upcoming", userId: "u1", status: "all" } }, res);
+    const u = String(fn.mock.calls.find((c: any[]) => String(c[0]).includes("/rest/v1/assignments"))![0]);
+    expect(u).not.toContain("due_at=");
+    expect(res.body.status).toBe("all");
+  });
+
   it("unknown action → 400", async () => {
     stubFetch();
     const h = await load(); const res = makeRes();

@@ -21,8 +21,8 @@ const KEYWORD_RULES: Array<[RegExp, string]> = [
   [/\b(grade|check|mark|evaluate|score)\b[^.?!]*\b(my|these|this|the)\b[^.?!]*\b(answer|answers|response|work|attempt|essay|solution)\b|\bam i (right|correct)\b|\bhow did i do\b|\bgrade (my|these|this)\b/i, "question_coach"],
   // insight_explainer — what-if scenarios & grade standing/weighting
   [/\bwhat[-\s]?if\b|\bif i (get|score|drop|skip|move|only)\b|\bprojected grade\b|\bgrade[-\s]?weight|weighted grade|\bhow (is|are|'?s) my grades?\b|\bwhat('?s| is| are)?\s+(my\s+)?grades?\b|\bmy grades?\b|\bmy gpa\b|\bfinal grade\b|\bhow am i doing\b|do i need (on|to)\b/i, "insight_explainer"],
-  // planner — deadlines & dated study plans
-  [/\bstudy plan\b|\bplan (for|my|a)\b|study schedule|what'?s due|due (this|next|soon|today)|\bdeadlines?\b|prioriti[sz]e|daily briefing|what should i (do|work on|study|focus on)( first| next| today| this week)?/i, "planner"],
+  // planner — deadlines, dated study plans, and overdue/past-due work
+  [/\bstudy plan\b|\bplan (for|my|a)\b|study schedule|what'?s due|due (this|next|soon|today)|\bdeadlines?\b|\boverdue\b|past[-\s]?due|\bbehind\b|\blate\b|what did i miss|missing assignments?|prioriti[sz]e|daily briefing|what should i (do|work on|study|focus on)( first| next| today| this week)?/i, "planner"],
   // content_synthesizer — study aids
   [/\bquiz me\b|\b(make|create|generate|build)\b[^.?!]{0,20}\b(quiz|practice|flashcards?)\b|practice questions?\b|\bflashcards?\b|concept map|mind ?map|\bsummari[sz]e\b|study guide/i, "content_synthesizer"],
   // writing_coach
