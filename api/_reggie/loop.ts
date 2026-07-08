@@ -19,12 +19,33 @@ import type { Specialist } from "./specialists.js";
 
 export interface ReggieEvent { type: string; [k: string]: any; }
 export interface ToolCallTrace { name: string; input: any; ok: boolean; preview: string; }
-export interface ReggieResult { output: string; route: string; trace: ToolCallTrace[]; steps: number; budgetExhausted: boolean; }
+export interface RenderableWidget { type: string; data: any; }
+export interface ReggieResult { output: string; route: string; trace: ToolCallTrace[]; steps: number; budgetExhausted: boolean; widgets: RenderableWidget[]; }
 export interface HistoryTurn { role: "user" | "assistant"; content: string; }
 
 const MAX_STEPS = 6;
 const MAX_TOOL_RESULT_CHARS = 20000;
 const MAX_HISTORY_TURNS = 10;
+
+// Tools whose result the CLIENT can render as interactive UI (not just text). When one
+// runs, the loop surfaces a widget alongside the answer so the tutor can show, e.g., the
+// interactive quiz cards instead of a JSON blob. Extends the classic tutor's in-chat UI
+// to Reggie without marker-parsing.
+const RENDERABLE: Record<string, (out: any) => RenderableWidget | null> = {
+  generate_quiz: (out) => {
+    const src = out?.quizQuestions ?? out?.questions ?? [];
+    const cards = (Array.isArray(src) ? src : [])
+      .map((q: any) => ({ q: q.question ?? q.q ?? "", a: q.answer ?? q.a ?? "", options: q.options ?? null, type: q.type ?? null }))
+      .filter((c: any) => c.q && c.a);
+    return cards.length ? { type: "quiz", data: { cards } } : null;
+  },
+};
+
+/** Map a tool's raw output to a renderable client widget, or null if it isn't one. */
+export function renderableWidget(name: string, out: any): RenderableWidget | null {
+  const mk = RENDERABLE[name];
+  try { return mk ? mk(out) : null; } catch { return null; }
+}
 
 // Sanitize prior conversation turns into a valid Anthropic message prefix: text-only,
 // must start with a user turn, roles must alternate (consecutive same-role turns are
@@ -53,7 +74,7 @@ function buildMessages(userMessage: string, history?: HistoryTurn[]): any[] {
 // A tool that throws becomes an is_error result (recoverable), never crashes the turn.
 // Records each call in `trace` and emits tool_call / tool_result progress events.
 async function runTools(
-  toolUses: any[], ctx: ToolContext, trace: ToolCallTrace[], emit?: (e: ReggieEvent) => void,
+  toolUses: any[], ctx: ToolContext, trace: ToolCallTrace[], emit?: (e: ReggieEvent) => void, widgets?: RenderableWidget[],
 ): Promise<any[]> {
   const results: any[] = [];
   for (const tu of toolUses) {
@@ -64,6 +85,7 @@ async function runTools(
       const tool = REGISTRY[tu.name];
       if (!tool) throw new Error(`unknown tool: ${tu.name}`);
       const out = await tool.invoke(tu.input ?? {}, ctx);
+      if (widgets) { const w = renderableWidget(tu.name, out); if (w) widgets.push(w); }
       content = JSON.stringify(out ?? null);
       if (content.length > MAX_TOOL_RESULT_CHARS) content = content.slice(0, MAX_TOOL_RESULT_CHARS) + "…[truncated]";
     } catch (e: any) {
@@ -94,6 +116,7 @@ export async function runReggie(opts: RunOpts): Promise<ReggieResult> {
   const tools = toolSpecs(specialist.tools);
   const messages = buildMessages(userMessage, history);
   const trace: ToolCallTrace[] = [];
+  const widgets: RenderableWidget[] = [];
   emit?.({ type: "route", route: specialist.key });
 
   for (let step = 1; step <= maxSteps; step++) {
@@ -105,20 +128,20 @@ export async function runReggie(opts: RunOpts): Promise<ReggieResult> {
 
     if (r.stop_reason !== "tool_use") {
       emit?.({ type: "final", output: r.content });
-      return { output: r.content, route: specialist.key, trace, steps: step, budgetExhausted: false };
+      return { output: r.content, route: specialist.key, trace, steps: step, budgetExhausted: false, widgets };
     }
 
     messages.push({ role: "assistant", content: r.contentBlocks });
     const toolUses = (r.contentBlocks || []).filter((b: any) => b?.type === "tool_use");
-    const results = await runTools(toolUses, ctx, trace, emit);
+    const results = await runTools(toolUses, ctx, trace, emit, widgets);
     messages.push({ role: "user", content: results });
   }
 
-  return forceFinalBlocking(specialist, ctx, messages, trace, maxSteps, emit);
+  return forceFinalBlocking(specialist, ctx, messages, trace, widgets, maxSteps, emit);
 }
 
 async function forceFinalBlocking(
-  specialist: Specialist, ctx: ToolContext, messages: any[], trace: ToolCallTrace[], maxSteps: number, emit?: (e: ReggieEvent) => void,
+  specialist: Specialist, ctx: ToolContext, messages: any[], trace: ToolCallTrace[], widgets: RenderableWidget[], maxSteps: number, emit?: (e: ReggieEvent) => void,
 ): Promise<ReggieResult> {
   const fin = await callModel({
     task: specialist.task,
@@ -130,7 +153,7 @@ async function forceFinalBlocking(
   emit?.({ type: "final", output });
   return {
     output: output || "I ran out of tool budget before finishing — could you narrow the question?",
-    route: specialist.key, trace, steps: maxSteps, budgetExhausted: true,
+    route: specialist.key, trace, steps: maxSteps, budgetExhausted: true, widgets,
   };
 }
 
@@ -145,6 +168,7 @@ export async function runReggieStream(opts: RunOpts): Promise<ReggieResult> {
   const tools = toolSpecs(specialist.tools);
   const messages = buildMessages(userMessage, history);
   const trace: ToolCallTrace[] = [];
+  const widgets: RenderableWidget[] = [];
   emit?.({ type: "route", route: specialist.key });
 
   for (let step = 1; step <= maxSteps; step++) {
@@ -153,13 +177,13 @@ export async function runReggieStream(opts: RunOpts): Promise<ReggieResult> {
 
     if (turn.stop_reason !== "tool_use") {
       emit?.({ type: "final", output: turn.text });
-      return { output: turn.text, route: specialist.key, trace, steps: step, budgetExhausted: false };
+      return { output: turn.text, route: specialist.key, trace, steps: step, budgetExhausted: false, widgets };
     }
 
     messages.push({ role: "assistant", content: turn.contentBlocks });
     const toolUses = (turn.contentBlocks || []).filter((b: any) => b?.type === "tool_use");
     emit?.({ type: "reset" });                                   // discard the pre-tool preamble on the client
-    const results = await runTools(toolUses, ctx, trace, emit);
+    const results = await runTools(toolUses, ctx, trace, emit, widgets);
     messages.push({ role: "user", content: results });
   }
 
@@ -169,7 +193,7 @@ export async function runReggieStream(opts: RunOpts): Promise<ReggieResult> {
   const fin = await streamTurn({ task: specialist.task, system: finSystem, messages, max_tokens: 2000, metadata: { tool: "reggie", route: specialist.key, user_id: ctx.userId, final: true } }, emit);
   const output = fin.text || "I ran out of tool budget before finishing — could you narrow the question?";
   emit?.({ type: "final", output });
-  return { output, route: specialist.key, trace, steps: maxSteps, budgetExhausted: true };
+  return { output, route: specialist.key, trace, steps: maxSteps, budgetExhausted: true, widgets };
 }
 
 // One streamed model turn: open a stream and parse it (emitting token deltas); if the

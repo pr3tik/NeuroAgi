@@ -66,6 +66,7 @@ export default async function handler(req: any, res: any) {
       });
       send("done", {
         ok: true, route: result.route, output: result.output, toolCalls: result.trace,
+        widgets: result.widgets ?? [],
         steps: result.steps, budgetExhausted: result.budgetExhausted, brainContextUsed: !!brainContext,
       });
     } catch (e: any) {
@@ -87,6 +88,7 @@ export default async function handler(req: any, res: any) {
       route: result.route,
       output: result.output,
       toolCalls: result.trace,
+      widgets: result.widgets ?? [],
       steps: result.steps,
       budgetExhausted: result.budgetExhausted,
       brainContextUsed: !!brainContext,

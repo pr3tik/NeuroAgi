@@ -4,11 +4,13 @@
 // `reset` fires when a streamed pre-tool preamble should be cleared. Shared by the
 // tutor (NeuralRing) and the beta test panel so both behave identically.
 
+export interface ReggieWidget { type: string; data: any; }
 export interface ReggieDone {
   ok: boolean;
   route: string;
   output: string;
   toolCalls: Array<{ name: string; input?: any; ok: boolean; preview: string }>;
+  widgets?: ReggieWidget[];
   steps: number;
   budgetExhausted: boolean;
   brainContextUsed: boolean;

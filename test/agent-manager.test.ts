@@ -37,7 +37,7 @@ beforeEach(() => {
     emit?.({ type: "tool_result", name: "canvas_get_grades", ok: true });
     emit?.({ type: "token", text: "there" });
     emit?.({ type: "final", output: "hi there" });     // must be suppressed in favor of `done`
-    return { output: "hi there", route: specialist.key, trace: [{ name: "canvas_get_grades", input: {}, ok: true, preview: "" }], steps: 2, budgetExhausted: false };
+    return { output: "hi there", route: specialist.key, trace: [{ name: "canvas_get_grades", input: {}, ok: true, preview: "" }], widgets: [{ type: "quiz", data: { cards: [{ q: "Q", a: "A" }] } }], steps: 2, budgetExhausted: false };
   });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -79,6 +79,7 @@ describe("agent-manager (Reggie front door)", () => {
     expect(text).not.toContain("event: final");            // superseded by done
     expect(text).toContain('"output":"hi there"');
     expect(text).toContain('"brainContextUsed":true');
+    expect(text).toContain('"type":"quiz"');               // renderable widget flows through `done`
     expect(res.ended).toBe(true);
     // it used the streaming loop, not the blocking one
     expect(runReggieStream).toHaveBeenCalledTimes(1);

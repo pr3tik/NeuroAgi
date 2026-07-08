@@ -149,6 +149,17 @@ describe("reggie tool-use loop", () => {
     expect(r.output).toBe("Your readiness looks solid.");
     expect(r.trace[0]).toMatchObject({ name: "what_if_plan", ok: true });
     expect(r.budgetExhausted).toBe(false);
+    expect(r.widgets).toEqual([]);   // what_if_plan isn't a renderable widget
+  });
+
+  it("renderableWidget maps generate_quiz output to interactive quiz cards (and nothing else)", async () => {
+    const { renderableWidget } = await import("../api/_reggie/loop.ts");
+    expect(renderableWidget("generate_quiz", { quizQuestions: [
+      { question: "What fixes CO2?", answer: "the Calvin cycle", type: "short_answer", options: null },
+      { question: "No answer", answer: "" },   // dropped — incomplete
+    ] })).toEqual({ type: "quiz", data: { cards: [{ q: "What fixes CO2?", a: "the Calvin cycle", options: null, type: "short_answer" }] } });
+    expect(renderableWidget("summarize_text", { summary: "x" })).toBeNull();     // not renderable
+    expect(renderableWidget("generate_quiz", { quizQuestions: [] })).toBeNull(); // no usable cards
   });
 
   it("runReggieStream falls back to a blocking turn when a stream can't be opened", async () => {
