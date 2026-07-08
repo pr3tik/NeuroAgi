@@ -66,6 +66,44 @@ describe("reggie tool-use loop", () => {
     await expect(runReggie({ specialist, userMessage: "x", ctx: { userId: "u1" } })).rejects.toThrow();
   });
 
+  it("seeds prior conversation turns as history before the current message", async () => {
+    let sent: any = null;
+    vi.stubGlobal("fetch", vi.fn(async (_url: any, init: any) => {
+      sent = JSON.parse(init?.body ?? "{}");
+      return anthropic([{ type: "text", text: "sure" }], "end_turn");
+    }));
+    const runReggie = await load();
+    await runReggie({
+      specialist, userMessage: "and what about thermochemistry?",
+      history: [
+        { role: "user", content: "explain kinetics" },
+        { role: "assistant", content: "Kinetics is about reaction rates." },
+      ],
+      ctx: { userId: "u1" },
+    });
+    const wire = JSON.stringify(sent.messages);
+    expect(wire).toContain("explain kinetics");
+    expect(wire).toContain("Kinetics is about reaction rates");
+    expect(wire).toContain("and what about thermochemistry");
+    // the prior turns must precede the new user message
+    expect(wire.indexOf("explain kinetics")).toBeLessThan(wire.indexOf("and what about thermochemistry"));
+  });
+
+  it("drops malformed history (leading assistant / blank turns) and still opens on a user turn", async () => {
+    let sent: any = null;
+    vi.stubGlobal("fetch", vi.fn(async (_url: any, init: any) => {
+      sent = JSON.parse(init?.body ?? "{}");
+      return anthropic([{ type: "text", text: "ok" }], "end_turn");
+    }));
+    const runReggie = await load();
+    await runReggie({
+      specialist, userMessage: "hello",
+      history: [{ role: "assistant", content: "orphan" }, { role: "user", content: "  " }] as any,
+      ctx: { userId: "u1" },
+    });
+    expect(sent.messages[0].role).toBe("user"); // never opens on assistant / blank
+  });
+
   it("emits route/tool_call/tool_result/final progress events", async () => {
     scripted([
       () => anthropic([{ type: "tool_use", id: "tu1", name: "what_if_plan", input: { basePlan, changes: {} } }], "tool_use"),

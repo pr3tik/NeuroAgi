@@ -16,19 +16,41 @@ export interface ReggieResult { output: string; route: string; trace: ToolCallTr
 
 const MAX_STEPS = 6;
 const MAX_TOOL_RESULT_CHARS = 20000;
+const MAX_HISTORY_TURNS = 10;
+
+export interface HistoryTurn { role: "user" | "assistant"; content: string; }
+
+// Sanitize prior conversation turns into a valid Anthropic message prefix: text-only,
+// must start with a user turn, roles must alternate (consecutive same-role turns are
+// collapsed to the latest), capped to the most recent MAX_HISTORY_TURNS.
+function normalizeHistory(history?: HistoryTurn[]): any[] {
+  const out: any[] = [];
+  for (const m of history || []) {
+    if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
+    const content = typeof m.content === "string" ? m.content.trim() : "";
+    if (!content) continue;
+    if (out.length === 0 && m.role !== "user") continue;                 // must open on a user turn
+    if (out.length && out[out.length - 1].role === m.role) { out[out.length - 1] = { role: m.role, content }; continue; }
+    out.push({ role: m.role, content });
+  }
+  return out.slice(-MAX_HISTORY_TURNS);
+}
 
 export async function runReggie(opts: {
   specialist: Specialist;
   userMessage: string;
   brainContext?: string | null;
   ctx: ToolContext;
+  history?: HistoryTurn[];
   emit?: (e: ReggieEvent) => void;
   maxSteps?: number;
 }): Promise<ReggieResult> {
-  const { specialist, userMessage, brainContext = null, ctx, emit, maxSteps = MAX_STEPS } = opts;
+  const { specialist, userMessage, brainContext = null, ctx, history, emit, maxSteps = MAX_STEPS } = opts;
   const system = specialist.system({ brainContext });
   const tools = toolSpecs(specialist.tools);
-  const messages: any[] = [{ role: "user", content: String(userMessage) }];
+  const prior = normalizeHistory(history);
+  if (prior.length && prior[prior.length - 1].role === "user") prior.pop();   // current message will supply the user turn
+  const messages: any[] = [...prior, { role: "user", content: String(userMessage) }];
   const trace: ToolCallTrace[] = [];
   emit?.({ type: "route", route: specialist.key });
 

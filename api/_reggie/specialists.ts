@@ -41,8 +41,8 @@ export const SPECIALISTS: Record<string, Specialist> = {
   },
   planner: {
     key: "planner", title: "Planning & deadlines", task: "tutor",
-    tools: ["canvas_get_upcoming", "canvas_get_grades", "generate_study_plan"],
-    system: (o) => base("Help the student plan: what's due, what to prioritize, and dated study plans for exams — based on their REAL upcoming work.", o.brainContext),
+    tools: ["canvas_get_upcoming", "canvas_get_grades", "generate_study_plan", "what_if_plan"],
+    system: (o) => base("Help the student plan: what's due, what to prioritize, dated study plans for exams (based on their REAL upcoming work), and what-if tweaks to an existing plan (drop a topic, move the exam, change daily minutes) via what_if_plan.", o.brainContext),
   },
   content_synthesizer: {
     key: "content_synthesizer", title: "Study materials", task: "tutor",
