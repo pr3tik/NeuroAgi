@@ -31,7 +31,7 @@ function base(persona: string, brainContext?: string | null): string {
 export const SPECIALISTS: Record<string, Specialist> = {
   tutor: {
     key: "tutor", title: "General tutor", task: "tutor",
-    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "summarize_text", "list_flashcards", "token_summary"],
+    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "summarize_text", "list_flashcards", "token_summary", "navigate"],
     system: (o) => base("Answer the student's question clearly and help them understand it, pulling from their uploaded materials (rag_search) and Canvas data when relevant.", o.brainContext),
   },
   insight_explainer: {
@@ -41,12 +41,12 @@ export const SPECIALISTS: Record<string, Specialist> = {
   },
   planner: {
     key: "planner", title: "Planning & deadlines", task: "tutor",
-    tools: ["canvas_get_upcoming", "canvas_get_grades", "generate_study_plan", "what_if_plan"],
+    tools: ["canvas_get_upcoming", "canvas_get_grades", "generate_study_plan", "what_if_plan", "navigate"],
     system: (o) => base("Help the student plan: what's due, what they're OVERDUE/behind on (call canvas_get_upcoming with status:'overdue'), what to prioritize, dated study plans for exams (based on their REAL upcoming work), and what-if tweaks to an existing plan (drop a topic, move the exam, change daily minutes) via what_if_plan.", o.brainContext),
   },
   content_synthesizer: {
     key: "content_synthesizer", title: "Study materials", task: "tutor",
-    tools: ["rag_search", "generate_quiz", "list_flashcards", "save_flashcards", "summarize_text", "generate_framework"],
+    tools: ["rag_search", "generate_quiz", "list_flashcards", "save_flashcards", "summarize_text", "generate_framework", "navigate"],
     system: (o) => base("Turn the student's materials into study aids — quizzes, flashcards, summaries, concept maps — grounded in their actual course content (rag_search).", o.brainContext),
   },
   question_coach: {
@@ -61,7 +61,7 @@ export const SPECIALISTS: Record<string, Specialist> = {
   },
   resource_curator: {
     key: "resource_curator", title: "Resources", task: "tutor",
-    tools: ["rag_search"],
+    tools: ["rag_search", "navigate"],
     system: (o) => base("Point the student to the most relevant material they already have for their question, and suggest what to study next.", o.brainContext),
   },
 };

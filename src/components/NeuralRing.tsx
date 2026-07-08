@@ -2070,6 +2070,8 @@ export default function NeuralRing() {
     const out = stripAgentJSON(finalOut) || stripAgentJSON(streamed) || "I couldn't put an answer together — try rephrasing?";
     // If a tool produced an interactive quiz, attach it so it renders as InlineQuiz cards.
     const quizCards = (widgets.find(w => w.type === "quiz")?.data?.cards) ?? null;
+    // If Reggie chose to navigate, carry out the page change (+ optional study config).
+    const nav = widgets.find(w => w.type === "navigate")?.data ?? null;
     logChat(userId, "assistant", out, null, currentConvIdRef.current);
     if (voice) {
       lastSpokenTextRef.current = out;
@@ -2078,6 +2080,10 @@ export default function NeuralRing() {
       if (!micDenied) await startAutoListen();
     } else {
       setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}) }]);
+    }
+    if (nav?.page) {
+      if (nav.course || nav.mode) setStudyConfig({ course: nav.course ?? null, mode: nav.mode ?? "flashcards" });
+      setTimeout(() => setPendingNav({ page: nav.page }), 500);
     }
     // Living-mind self-write parity with the classic tutor: every 6th exchange.
     exchangeCountRef.current += 1;

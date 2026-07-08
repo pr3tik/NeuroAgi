@@ -39,6 +39,7 @@ const RENDERABLE: Record<string, (out: any) => RenderableWidget | null> = {
       .filter((c: any) => c.q && c.a);
     return cards.length ? { type: "quiz", data: { cards } } : null;
   },
+  navigate: (out) => (out?.page ? { type: "navigate", data: { page: out.page, course: out.course ?? null, mode: out.mode ?? null } } : null),
 };
 
 /** Map a tool's raw output to a renderable client widget, or null if it isn't one. */
