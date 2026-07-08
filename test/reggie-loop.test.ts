@@ -114,4 +114,53 @@ describe("reggie tool-use loop", () => {
     await runReggie({ specialist, userMessage: "x", ctx: { userId: "u1" }, emit: (e) => events.push(e.type) });
     expect(events).toEqual(expect.arrayContaining(["route", "tool_call", "tool_result", "final"]));
   });
+
+  // ── Streaming loop (runReggieStream) ────────────────────────────────────────
+  const enc = new TextEncoder();
+  const sse = (frames: any[]) => new ReadableStream<Uint8Array>({
+    start(c) { for (const f of frames) c.enqueue(enc.encode(`event: ${f.type}\ndata: ${JSON.stringify(f)}\n\n`)); c.close(); },
+  });
+  const streamOk = (body: ReadableStream<Uint8Array>) => ({ ok: true, status: 200, body });
+  async function loadStream() { vi.resetModules(); return (await import("../api/_reggie/loop.ts")).runReggieStream; }
+
+  it("runReggieStream streams tokens, runs a tool, then streams the final answer", async () => {
+    const toolTurn = sse([
+      { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu1", name: "what_if_plan" } },
+      { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({ basePlan, changes: { dropTopics: ["Kinetics"] } }) } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "tool_use" } },
+      { type: "message_stop" },
+    ]);
+    const finalTurn = sse([
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Your readiness " } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "looks solid." } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "end_turn" } },
+    ]);
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => (++n === 1 ? streamOk(toolTurn) : streamOk(finalTurn))));
+    const runReggieStream = await loadStream();
+    const events: any[] = [];
+    const r = await runReggieStream({ specialist, userMessage: "what if I drop kinetics", ctx: { userId: "u1" }, emit: (e) => events.push(e) });
+    const types = events.map((e) => e.type);
+    expect(types).toEqual(expect.arrayContaining(["route", "token", "tool_call", "tool_result", "reset", "final"]));
+    expect(events.filter((e) => e.type === "token").map((e) => e.text).join("")).toContain("readiness");
+    expect(r.output).toBe("Your readiness looks solid.");
+    expect(r.trace[0]).toMatchObject({ name: "what_if_plan", ok: true });
+    expect(r.budgetExhausted).toBe(false);
+  });
+
+  it("runReggieStream falls back to a blocking turn when a stream can't be opened", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: any, init: any) => {
+      const b = JSON.parse(init?.body ?? "{}");
+      if (b.stream) return { ok: false, status: 400, json: async () => ({}), text: async () => '{"error":{"message":"no stream"}}' };
+      return anthropic([{ type: "text", text: "blocking fallback answer" }], "end_turn");
+    }));
+    const runReggieStream = await loadStream();
+    const events: any[] = [];
+    const r = await runReggieStream({ specialist, userMessage: "hi", ctx: { userId: "u1" }, emit: (e) => events.push(e) });
+    expect(r.output).toBe("blocking fallback answer");
+    expect(events.some((e) => e.type === "token" && e.text.includes("blocking fallback"))).toBe(true);
+  });
 });

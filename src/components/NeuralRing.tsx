@@ -20,6 +20,7 @@ import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
 import { ensureTutorReply } from "../lib/tutorReply";
+import { streamReggie } from "../lib/reggieStream";
 import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play } from "lucide-react";
 import ArtifactPanel   from "./ArtifactPanel";
 
@@ -65,6 +66,17 @@ const NAV_OVERRIDE_KEYWORDS = [
   "quiz me", "quiz on", "quiz about", "test me on", "test me about",
   "ask me questions", "ask me about", "flashcard me", "drill me",
 ];
+
+// Friendly "what Reggie is doing" labels for the live tool-progress line (Reggie mode).
+const REGGIE_TOOL_LABELS = {
+  canvas_get_grades: "checking your grades", canvas_get_upcoming: "checking what's due",
+  compute_grade_weights: "computing grade weights", rag_search: "searching your materials",
+  generate_quiz: "building a quiz", evaluate_answers: "grading your answers",
+  generate_study_plan: "building a study plan", generate_framework: "mapping the concepts",
+  list_flashcards: "loading your flashcards", save_flashcards: "saving flashcards",
+  summarize_text: "summarizing", what_if_plan: "running the what-if", token_summary: "checking your points",
+};
+const reggieToolLabel = (n) => REGGIE_TOOL_LABELS[n] || (n || "").replace(/_/g, " ");
 
 function isVizRequest(text) {
   const lower = text.toLowerCase();
@@ -2014,6 +2026,57 @@ export default function NeuralRing() {
     }
   };
 
+  // ── Reggie-mode turn: stream /api/agent-manager (live tokens + tool progress) ──
+  // Text mode streams the answer token-by-token into the streaming bubble; voice mode
+  // shows the tool-progress line while working, then speaks the answer. Self-contained
+  // (does not use the classic viz/rag/Claude tail).
+  const runReggieTurn = async (text) => {
+    const history = messages
+      .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .map(m => ({ role: m.role, content: m.content }));
+    abortCtrlRef.current = new AbortController();
+    const voice = voiceModeRef.current;
+    let streamed = "", toolNote = "", finalOut = "", errMsg = null;
+    const paint = () => setStreamingMsg([toolNote, voice ? "" : streamed].filter(Boolean).join("\n\n"));
+    try {
+      await streamReggie(
+        { userId, message: text, history },
+        {
+          onToken:      (d) => { streamed += d; toolNote = ""; paint(); },
+          onReset:      ()  => { streamed = ""; paint(); },
+          onToolCall:   (n) => { toolNote = `🔧 ${reggieToolLabel(n)}…`; paint(); },
+          onToolResult: ()  => { /* keep the note until the next token/reset */ },
+          onDone:       (r) => { finalOut = r.output || ""; },
+          onError:      (m) => { errMsg = m; },
+        },
+        abortCtrlRef.current?.signal,
+      );
+    } catch (e) {
+      if (e?.name === "AbortError") { setLoading(false); setStreamingMsg(""); return; }
+      errMsg = e?.message || "request failed";
+    }
+    setLoading(false);
+    setStreamingMsg("");
+    if (errMsg) {
+      // If the stream was cut off after some text arrived, keep that partial answer
+      // (it's real and useful) rather than throwing it away for a canned failure.
+      const partial = stripAgentJSON(streamed);
+      const content = partial || "Something went wrong. Try again.";
+      logChat(userId, "assistant", content, null, currentConvIdRef.current);
+      setMessages(m => [...m, { role: "assistant", content }]);
+      return;
+    }
+    const out = stripAgentJSON(finalOut) || stripAgentJSON(streamed) || "I couldn't put an answer together — try rephrasing?";
+    logChat(userId, "assistant", out, null, currentConvIdRef.current);
+    if (voice) {
+      lastSpokenTextRef.current = out;
+      await speakAndType(out);                                          // TTS + typewriter commits the bubble
+      if (!micDenied) await startAutoListen();
+    } else {
+      setMessages(m => [...m, { role: "assistant", content: out }]);    // commit the streamed answer
+    }
+  };
+
   const sendMessage = async (overrideText?) => {
     const text = overrideText ?? input.trim();
     if (!text || loading) return;
@@ -2078,6 +2141,9 @@ export default function NeuralRing() {
     }
 
     try {
+      // ── Reggie mode: stream the agent loop (tokens + tool progress) and return ──
+      if (reggieModeRef.current) { await runReggieTurn(text); return; }
+
       // ── Visualization routing — send to Claude artifact builder ───────────
       // (skipped in Reggie mode — Reggie answers as text, no artifact builder)
       if (isVizRequest(userMsg.content) && !reggieModeRef.current) {
@@ -2176,30 +2242,7 @@ export default function NeuralRing() {
 
       let voiceTTSDone = null; // resolves when all sentence-chunked TTS finishes
 
-      if (reggieModeRef.current) {
-        // ── Reggie path: the agent-manager loop (router → specialist → tools →
-        //    brain context) produces the answer. It does its own retrieval/tools, so
-        //    the viz/rag/context injection above and the streaming voice pipeline are
-        //    skipped; the answer text flows through the same display + TTS tail below
-        //    (Reggie emits no voice/quiz/nav tags, so those parsers are no-ops).
-        const history = messages
-          .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
-          .map(m => ({ role: m.role, content: m.content }));
-        const rr = await fetch("/api/agent-manager", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId, message: text, history }),
-          signal:  abortCtrlRef.current?.signal,
-        });
-        if (!rr.ok) {
-          let msg = `Reggie ${rr.status}`;
-          try { msg = (await rr.json())?.error || msg; } catch {}
-          throw new Error(msg);
-        }
-        const rb = await rr.json();
-        if (rb?.ok === false) throw new Error(rb?.error || "Reggie failed");
-        raw = rb.output || "";
-      } else if (voiceModeRef.current && !muted) {
+      if (voiceModeRef.current && !muted) {
         // ── Streaming voice: sentence-chunked TTS pipeline ───────────────────
         // Each sentence is sent to TTS the moment Claude generates it,
         // so audio starts before the full response arrives.
