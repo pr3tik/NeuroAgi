@@ -9,7 +9,7 @@
 // shim can't stream today, so it's wired at the HTTP edge later.)
 import { classifyIntent, hintToRoute } from "./_reggie/router.js";
 import { SPECIALISTS, ROUTES } from "./_reggie/specialists.js";
-import { runReggie } from "./_reggie/loop.js";
+import { runReggie, runReggieStream } from "./_reggie/loop.js";
 import tutorContext from "./tutor-context.js";
 import { callApi } from "./_reggie/callApi.js";
 
@@ -23,6 +23,7 @@ export default async function handler(req: any, res: any) {
     courseId = null, assignmentId = null, brainPersonId = null, hint = null,
     history = [],
   } = req.body ?? {};
+  const wantStream = !!(req.body?.stream || req.query?.stream);
 
   if (!userId) return res.status(400).json({ error: "userId is required" });
   if (!message || !String(message).trim()) return res.status(400).json({ error: "message is required" });
@@ -44,11 +45,41 @@ export default async function handler(req: any, res: any) {
   else route = await classifyIntent(message, ROUTES, hint);
   const specialist = SPECIALISTS[route] ?? SPECIALISTS.tutor;
 
-  // 3. Run the tool-use loop (blocking).
+  const hist = Array.isArray(history) ? history : [];
+
+  // 3a. Streaming (SSE): stream tokens + tool-call progress as the loop runs.
+  if (wantStream) {
+    res.statusCode = 200;
+    res.setHeader?.("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader?.("Cache-Control", "no-cache, no-transform");
+    res.setHeader?.("Connection", "keep-alive");
+    res.setHeader?.("X-Accel-Buffering", "no");        // disable proxy buffering (nginx/vercel)
+    res.flushHeaders?.();
+    const send = (event: string, data: any) => {
+      try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+    };
+    try {
+      const result = await runReggieStream({
+        specialist, userMessage: message, brainContext, history: hist,
+        ctx: { userId, courseId, assignmentId },
+        emit: (e) => { if (e.type !== "final") send(e.type, e); },   // `final` is superseded by `done`
+      });
+      send("done", {
+        ok: true, route: result.route, output: result.output, toolCalls: result.trace,
+        steps: result.steps, budgetExhausted: result.budgetExhausted, brainContextUsed: !!brainContext,
+      });
+    } catch (e: any) {
+      send("error", { error: e?.message ?? "Reggie failed" });
+    } finally {
+      try { res.end(); } catch { /* already closed */ }
+    }
+    return;
+  }
+
+  // 3b. Blocking: return the final answer + tool-call trace as one JSON body.
   try {
     const result = await runReggie({
-      specialist, userMessage: message, brainContext,
-      history: Array.isArray(history) ? history : [],
+      specialist, userMessage: message, brainContext, history: hist,
       ctx: { userId, courseId, assignmentId },
     });
     return res.status(200).json({

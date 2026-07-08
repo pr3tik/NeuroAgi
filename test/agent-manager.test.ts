@@ -6,8 +6,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { makeRes } from "./helpers";
 
-const { runReggie } = vi.hoisted(() => ({ runReggie: vi.fn() }));
-vi.mock("../api/_reggie/loop.js", () => ({ runReggie }));
+const { runReggie, runReggieStream } = vi.hoisted(() => ({ runReggie: vi.fn(), runReggieStream: vi.fn() }));
+vi.mock("../api/_reggie/loop.js", () => ({ runReggie, runReggieStream }));
+
+// SSE-capturing fake res (makeRes has no write/flushHeaders).
+function makeSSERes() {
+  const res: any = { statusCode: 200, headers: {}, written: [] as string[], ended: false };
+  res.setHeader = (k: string, v: any) => { res.headers[k] = v; };
+  res.status = (c: number) => { res.statusCode = c; return res; };
+  res.json = (o: any) => { res.body = o; return res; };
+  res.write = (s: any) => { res.written.push(String(s)); return true; };
+  res.end = (o?: any) => { if (o !== undefined) res.written.push(String(o)); res.ended = true; return res; };
+  res.flushHeaders = () => {};
+  return res;
+}
 // tutor-context stubbed as a fake (req,res) handler so callApi captures a brain context.
 vi.mock("../api/tutor-context.js", () => ({ default: async (_req: any, res: any) => res.status(200).json({ context: "BRAIN CTX" }) }));
 
@@ -17,6 +29,16 @@ beforeEach(() => {
     output: `answered by ${specialist.key}`, route: specialist.key,
     trace: [{ name: "x", input: {}, ok: true, preview: "" }], steps: 1, budgetExhausted: false,
   }));
+  runReggieStream.mockReset();
+  runReggieStream.mockImplementation(async ({ specialist, emit }: any) => {
+    emit?.({ type: "route", route: specialist.key });
+    emit?.({ type: "token", text: "hi " });
+    emit?.({ type: "tool_call", name: "canvas_get_grades", input: {} });
+    emit?.({ type: "tool_result", name: "canvas_get_grades", ok: true });
+    emit?.({ type: "token", text: "there" });
+    emit?.({ type: "final", output: "hi there" });     // must be suppressed in favor of `done`
+    return { output: "hi there", route: specialist.key, trace: [{ name: "canvas_get_grades", input: {}, ok: true, preview: "" }], steps: 2, budgetExhausted: false };
+  });
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -43,6 +65,24 @@ describe("agent-manager (Reggie front door)", () => {
     const passed = runReggie.mock.calls[0][0];
     expect(passed.brainContext).toBe("BRAIN CTX");
     expect(passed.ctx.userId).toBe("u1");
+  });
+
+  it("streams SSE (route/token/tool_call/tool_result/done) when stream:true, suppressing the loop's own final", async () => {
+    const h = await load();
+    const res = makeSSERes();
+    await h({ method: "POST", body: { userId: "u1", message: "what's my grade in bio", stream: true } }, res);
+    const text = res.written.join("");
+    expect(String(res.headers["Content-Type"])).toMatch(/event-stream/);
+    for (const ev of ["event: route", "event: token", "event: tool_call", "event: tool_result", "event: done"]) {
+      expect(text).toContain(ev);
+    }
+    expect(text).not.toContain("event: final");            // superseded by done
+    expect(text).toContain('"output":"hi there"');
+    expect(text).toContain('"brainContextUsed":true');
+    expect(res.ended).toBe(true);
+    // it used the streaming loop, not the blocking one
+    expect(runReggieStream).toHaveBeenCalledTimes(1);
+    expect(runReggie).not.toHaveBeenCalled();
   });
 
   it("passes conversation history through to the loop", async () => {

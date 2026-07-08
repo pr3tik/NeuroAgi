@@ -5,6 +5,7 @@
 // deployment via ?reggie=1, so normal users never see it.
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context/AppContext";
+import { streamReggie } from "../lib/reggieStream";
 
 interface Turn {
   role: "you" | "reggie";
@@ -13,8 +14,9 @@ interface Turn {
   steps?: number;
   budgetExhausted?: boolean;
   brainContextUsed?: boolean;
-  toolCalls?: Array<{ name: string; ok: boolean; preview: string; input?: any }>;
+  toolCalls?: Array<{ name: string; ok: boolean; preview: string; input?: any; pending?: boolean }>;
   error?: boolean;
+  streaming?: boolean;
 }
 
 // TEMPORARILY always-on so it's easy to find while testing — the "🤖 Reggie β" launcher
@@ -49,27 +51,38 @@ function Panel() {
       .filter((t) => !t.error)
       .map((t) => ({ role: t.role === "you" ? "user" : "assistant", content: t.text }));
     setInput("");
-    setTurns((t) => [...t, { role: "you", text: message }]);
+    setTurns((t) => [...t, { role: "you", text: message }, { role: "reggie", text: "", streaming: true, toolCalls: [] }]);
     setLoading(true);
     scroll();
+    // Patch the in-flight (last) reggie turn as stream events arrive.
+    const patch = (fn: (t: Turn) => Turn) => setTurns((ts) => {
+      const c = [...ts];
+      for (let i = c.length - 1; i >= 0; i--) { if (c[i].role === "reggie") { c[i] = fn(c[i]); break; } }
+      return c;
+    });
     try {
-      const res = await fetch("/api/agent-manager", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, message, history }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || body?.ok === false) {
-        setTurns((t) => [...t, { role: "reggie", text: body?.error || `HTTP ${res.status}`, error: true }]);
-      } else {
-        setTurns((t) => [...t, {
-          role: "reggie", text: body.output || "(empty answer)",
-          route: body.route, steps: body.steps, budgetExhausted: body.budgetExhausted,
-          brainContextUsed: body.brainContextUsed, toolCalls: body.toolCalls || [],
-        }]);
-      }
+      await streamReggie(
+        { userId, message, history },
+        {
+          onRoute:      (route) => patch((t) => ({ ...t, route })),
+          onToken:      (d) => { patch((t) => ({ ...t, text: (t.text || "") + d })); scroll(); },
+          onReset:      () => patch((t) => ({ ...t, text: "" })),
+          onToolCall:   (name, input) => { patch((t) => ({ ...t, toolCalls: [...(t.toolCalls || []), { name, input, ok: true, preview: "running…", pending: true }] })); scroll(); },
+          onToolResult: (name, ok) => patch((t) => {
+            const tc = [...(t.toolCalls || [])];
+            for (let i = tc.length - 1; i >= 0; i--) { if (tc[i].name === name && tc[i].pending) { tc[i] = { ...tc[i], ok, pending: false }; break; } }
+            return { ...t, toolCalls: tc };
+          }),
+          onDone:       (r) => patch((t) => ({
+            ...t, streaming: false, text: r.output || t.text || "(empty answer)",
+            route: r.route, steps: r.steps, budgetExhausted: r.budgetExhausted,
+            brainContextUsed: r.brainContextUsed, toolCalls: r.toolCalls?.length ? r.toolCalls : t.toolCalls,
+          })),
+          onError:      (m) => patch((t) => ({ ...t, streaming: false, error: !t.text, text: t.text ? `${t.text}\n\n⚠ ${m}` : m })),
+        },
+      );
     } catch (e: any) {
-      setTurns((t) => [...t, { role: "reggie", text: e?.message || "request failed", error: true }]);
+      patch((t) => ({ ...t, streaming: false, error: true, text: e?.message || "request failed" }));
     } finally {
       setLoading(false);
       scroll();
@@ -117,15 +130,15 @@ function Panel() {
               {t.budgetExhausted && <span style={{ color: C.err, marginLeft: 6 }}>· budget hit</span>}
             </div>
             <div style={{ background: t.role === "you" ? "#2a3350" : (t.error ? "rgba(255,107,90,0.12)" : C.panel), border: C.border, borderRadius: 10, padding: "8px 11px", fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", color: t.error ? C.err : C.text }}>
-              {t.text}
+              {t.text}{t.streaming ? " ▍" : ""}
             </div>
             {t.toolCalls && t.toolCalls.length > 0 && (
-              <details style={{ marginTop: 4 }}>
+              <details style={{ marginTop: 4 }} open={t.streaming}>
                 <summary style={{ fontSize: 11, color: C.dim, cursor: "pointer" }}>{t.toolCalls.length} tool call{t.toolCalls.length > 1 ? "s" : ""}</summary>
                 <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 4 }}>
                   {t.toolCalls.map((tc, j) => (
                     <div key={j} style={{ fontSize: 11, fontFamily: "ui-monospace, monospace", background: "rgba(255,255,255,0.04)", borderRadius: 6, padding: "5px 7px" }}>
-                      <span style={{ color: tc.ok ? C.ok : C.err }}>{tc.ok ? "✓" : "✗"}</span>{" "}
+                      <span style={{ color: tc.pending ? C.accent : tc.ok ? C.ok : C.err }}>{tc.pending ? "⋯" : tc.ok ? "✓" : "✗"}</span>{" "}
                       <span style={{ color: C.accent }}>{tc.name}</span>
                       {tc.input && Object.keys(tc.input).length > 0 && <span style={{ color: C.dim }}> {JSON.stringify(tc.input).slice(0, 80)}</span>}
                       <div style={{ color: C.dim, marginTop: 2 }}>{String(tc.preview).slice(0, 160)}</div>
@@ -136,7 +149,9 @@ function Panel() {
             )}
           </div>
         ))}
-        {loading && <div style={{ color: C.dim, fontSize: 13 }}>Reggie is thinking… (routing → tools → answer)</div>}
+        {loading && !turns.some((t) => t.streaming && (t.text || (t.toolCalls?.length))) && (
+          <div style={{ color: C.dim, fontSize: 13 }}>Reggie is routing…</div>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, padding: 10, borderTop: C.border }}>
