@@ -175,8 +175,11 @@ export default async function handler(req, res) {
     if (!userId || !token || !password) return res.status(400).json({ error: "userId, token and password required" });
 
     const { data: profile } = await supabase
-      .from("users").select("id, email, auth_id, email_verify_token").eq("id", userId).maybeSingle();
-    if (!profile || !profile.email_verify_token || profile.email_verify_token !== token) {
+      .from("users").select("id, email, auth_id, reset_token, reset_token_expires_at").eq("id", userId).maybeSingle();
+    if (!profile || !profile.reset_token || profile.reset_token !== token) {
+      return res.status(401).json({ error: "Invalid or expired reset link." });
+    }
+    if (profile.reset_token_expires_at && Date.now() > new Date(profile.reset_token_expires_at).getTime()) {
       return res.status(401).json({ error: "Invalid or expired reset link." });
     }
 
@@ -199,7 +202,7 @@ export default async function handler(req, res) {
     }
 
     // Burn the one-time token.
-    await supabase.from("users").update({ email_verify_token: null }).eq("id", userId);
+    await supabase.from("users").update({ reset_token: null, reset_token_expires_at: null }).eq("id", userId);
     return res.status(200).json({ ok: true });
   }
 
