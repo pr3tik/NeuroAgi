@@ -9,3 +9,9 @@ export async function apiFetch(path: string, body: object) {
   if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
   return res.json();
 }
+
+export async function apiGet(path: string) {
+  const res = await fetch(`${BASE_URL}${path}`);
+  if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
+  return res.json();
+}

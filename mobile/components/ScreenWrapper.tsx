@@ -9,7 +9,7 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { useSwipeNav } from "../navigation/useSwipeNav";
-import PageDots from "./PageDots";
+import Header from "./Header";
 import { PageKey } from "../navigation/navConfig";
 import { lastDirection } from "../navigation/transitionStore";
 
@@ -55,6 +55,10 @@ export default function ScreenWrapper({ page, children }: Props) {
       <Animated.View style={[{ flex: 1 }, animStyle]}>
         <GestureDetector gesture={horizontalGesture}>
           <View style={styles.container}>
+            {/* Matches App.tsx's <header className="app-header"> — page label,
+                token/tier pill, notification bell, and the page-dots nav map
+                all live up here on web, not in a bottom footer. */}
+            <Header page={page} />
             <View style={styles.content}>
               {children}
               {/* Thin edge strips for vertical (up/down) nav — kept off the main
@@ -69,9 +73,6 @@ export default function ScreenWrapper({ page, children }: Props) {
                 <View style={styles.bottomEdge} />
               </GestureDetector>
             </View>
-            <View style={styles.footer}>
-              <PageDots current={page} />
-            </View>
           </View>
         </GestureDetector>
       </Animated.View>
@@ -83,7 +84,6 @@ const styles = StyleSheet.create({
   safe:      { flex: 1, backgroundColor: "#0f0f0f" },
   container: { flex: 1, padding: 20 },
   content:   { flex: 1, position: "relative" },
-  footer:    { alignItems: "center", paddingVertical: 12 },
   topEdge:    { position: "absolute", top: 0, left: 0, right: 0, height: EDGE_STRIP },
   bottomEdge: { position: "absolute", bottom: 0, left: 0, right: 0, height: EDGE_STRIP },
 });
