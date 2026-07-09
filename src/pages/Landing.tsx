@@ -3,6 +3,7 @@
 // --sk-body-text-color: rgb(29,29,31)  --sk-fill: #fff  --sk-fill-secondary: #fafafc
 // --sk-fill-tertiary: #f5f5f7  --sk-glyph-gray-secondary: rgb(110,110,115)
 
+import WaitlistModal from "../components/WaitlistModal";
 import React, { useState, useEffect, useRef } from "react";
 
 // ── naroai.co + Apple hybrid design tokens ────────────────────────────────────
@@ -2617,10 +2618,26 @@ const FAQ_DATA = [
   { q: "What's the Founding Card?", a: "A physical NFC titanium card for the first 1,000 members — it holds your AI identity, student number, and lifetime Pro access. See the Card page." },
 ];
 
+// Waitlist mode (default ON): new-signup CTAs open the waitlist instead of account
+// creation. Escape hatches: VITE_WAITLIST_MODE=0 restores open signup, and an invite
+// link (/?invite=<waitlist id> — sent by /api/waitlist?action=invite) bypasses the
+// gate for that visitor. "Sign in" stays available for existing accounts either way.
+function waitlistModeActive(): boolean {
+  if ((import.meta as any)?.env?.VITE_WAITLIST_MODE === "0") return false;
+  try { if (new URLSearchParams(window.location.search).has("invite")) return false; } catch { /* SSR-safe */ }
+  return true;
+}
+
 export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: (args: any) => Promise<void>; initialAuthMode?: "login" | "signup" | null }) {
   // Light-primary — no toggle. DARK tokens used directly in the card-preview section.
   const t = LIGHT;
-  const [authMode, setAuthMode] = useState<"login"|"signup"|null>(initialAuthMode);
+  const waitlistMode = waitlistModeActive();
+  // In waitlist mode a seeded "signup" (from the pre-signup demo) opens the waitlist too.
+  const [authMode, setAuthMode] = useState<"login"|"signup"|null>(
+    waitlistMode && initialAuthMode === "signup" ? null : initialAuthMode,
+  );
+  const [waitlistOpen, setWaitlistOpen] = useState(waitlistMode && initialAuthMode === "signup");
+  const requestSignup = () => (waitlistMode ? setWaitlistOpen(true) : setAuthMode("signup"));
   const [forgotStatus, setForgotStatus] = useState<"sent"|"error"|null>(null);
   const [scrollY, setScrollY] = useState(0);
   const [faqOpen, setFaqOpen] = useState<number|null>(null);
@@ -2840,7 +2857,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
             onMouseEnter={e => (e.currentTarget.style.color = "#000")}
             onMouseLeave={e => (e.currentTarget.style.color = "#737373")}
           >Log in</button>
-          <button onClick={() => setAuthMode("signup")}
+          <button onClick={requestSignup}
             style={{ background: "none", border: "none", padding: "5px 12px", fontSize: 13,
               fontWeight: 400, color: "#0066cc", cursor: "pointer", fontFamily: FONT,
               transition: "color 0.15s" }}
@@ -2961,7 +2978,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
       <ThreeMoments t={t} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
-      <PremiumCTA onSignup={() => setAuthMode("signup")} onLogin={() => setAuthMode("login")} />
+      <PremiumCTA onSignup={requestSignup} onLogin={() => setAuthMode("login")} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
       {/* ── FAQ — clean solid tile ── */}
@@ -3012,6 +3029,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
       </footer>
 
       {/* ── AUTH + BANNER ── */}
+      <WaitlistModal open={waitlistOpen} onClose={() => setWaitlistOpen(false)} />
       {authMode && (
         <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onEnter={onEnter}
           onSwitchMode={m => setAuthMode(m as any)} onForgotPassword={handleForgotPassword} t={t} />
