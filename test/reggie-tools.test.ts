@@ -40,6 +40,9 @@ const LLM_JSON = JSON.stringify({
   sessions: [{ date: "2026-08-01", topic: "Cells", activities: ["read"], estimatedMinutes: 60 }],
   nodes: [{ id: "n1", label: "A" }],
   edges: [{ from: "n1", to: "n1", relation: "self" }],
+  questions: [{ id: "q1", gap: "weak on X", question: "Could you walk me through X?", priority: "high", linked_assignment: null }],
+  assessment: "Clear thesis, choppy transitions.",
+  tip: "Vary sentence openings.",
 });
 
 function stubFetch() {
@@ -49,12 +52,26 @@ function stubFetch() {
     if (u.includes("api.anthropic.com")) return R({ content: [{ type: "text", text: LLM_JSON }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
     if (u.includes("api.openai.com/v1/embeddings")) return R({ data: [{ embedding: new Array(1536).fill(0) }] });
     if (u.includes("api.openai.com")) return R({ choices: [{ message: { content: "[]" } }] });
-    if (u.includes("/rest/v1/users")) return R([{ id: "u1" }]);
+    if (u.includes("/rest/v1/users")) return R([{ id: "u1", canvas_token: "ctok", canvas_base_url: "https://canvas.test/api/v1" }]);
     if (u.includes("/rest/v1/courses")) return R([{ id: "c-uuid", canvas_course_id: "111", course_code: "BIO", name: "Bio", current_score: 90, final_score: null }]);
     if (u.includes("/rest/v1/assignments")) return R([{ id: "a1", course_id: "c-uuid", title: "HW1", score: 9, points_possible: 10, weight: null, weight_achieved: null, due_at: "2999-01-01T00:00:00Z", submitted_at: null, missing: false, courses: { name: "Bio" } }]);
     if (u.includes("/rest/v1/canvas_data")) return R([{ payload: [{ courseId: "111", groups: [{ name: "Exams", weight: 100 }] }] }]);
     if (u.includes("/rest/v1/files")) return R([{ content_text: "photosynthesis lecture notes about the Calvin cycle" }]);
     if (u.includes("/rest/v1/flashcards_v2")) return R([{ id: "f1", question: "q", answer: "a", created_at: "2026-01-01" }]);
+    // Live-Canvas REST (canvasLive.ts) — host normalized from canvas_base_url above.
+    if (u.includes("canvas.test/api/v1/announcements")) return R([{ context_code: "course_111", title: "Midterm moved", posted_at: "2026-07-01", message: "<p>Now on Friday</p>" }]);
+    if (u.includes("canvas.test/api/v1/courses/111/modules")) return R([{ name: "Week 1", state: "active", items: [{ title: "Intro", type: "Page" }] }]);
+    if (u.includes("canvas.test/api/v1/courses/111/pages/")) return R({ title: "Week 1 notes", updated_at: "2026-07-01", body: "<h1>Notes</h1><p>Cells divide.</p>" });
+    if (u.includes("canvas.test/api/v1/courses/111/pages")) return R([{ url: "week-1-notes", title: "Week 1 notes", updated_at: "2026-07-01" }]);
+    if (u.includes("canvas.test/api/v1/courses/111/quizzes")) return R([{ id: 9, title: "Quiz 1", due_at: "2026-08-01", points_possible: 10, quiz_type: "assignment", question_count: 5 }]);
+    if (u.includes("/submissions/self")) return R({ score: 8, grade: "B+", submitted_at: "2026-06-01", late: false, missing: false, submission_comments: [{ author_name: "Prof", comment: "Good work", created_at: "2026-06-02" }], rubric_assessment: { crit1: { points: 4, comments: "solid" } } });
+    if (u.includes("canvas.test/api/v1/conversations/")) return R({ subject: "Extension", messages: [{ author_id: 1, body: "Sure, Friday works", created_at: "2026-06-01" }] });
+    if (u.includes("canvas.test/api/v1/conversations")) return R([{ id: 5, subject: "Extension", last_message: "Sure, Friday works", last_message_at: "2026-06-01", workflow_state: "read" }]);
+    if (u.includes("canvas.test/api/v1/courses/111/files")) return R([{ id: 3, display_name: "slides.pdf", size: 1000, "content-type": "application/pdf", updated_at: "2026-06-01" }]);
+    if (u.includes("canvas.test/api/v1/courses")) return R([{ id: 222, name: "Old Course", course_code: "OLD101", enrollments: [{ computed_final_score: 88, computed_final_grade: "A-" }] }]);
+    // writing-tracker self-calls (via originHeaders default host)
+    if (u.includes("/api/claude")) return R({ content: LLM_JSON });
+    if (u.includes("/api/brain-")) return R({ ok: false });
     return R([]);
   });
   vi.stubGlobal("fetch", fn);
@@ -84,6 +101,18 @@ const CASES: Record<string, { args: any; check: (r: any) => void }> = {
   what_if_plan: { args: { basePlan: { examDate: "2026-08-10", sessions: [{ date: "2026-08-01", topic: "Kinetics", activities: ["read"], estimatedMinutes: 60 }] }, changes: { dropTopics: ["Kinetics"] } }, check: (r) => { expect(r.readiness).toBeGreaterThanOrEqual(0); expect(Array.isArray(r.deltas)).toBe(true); } },
   token_summary: { args: {}, check: (r) => { expect(r).toBeDefined(); expect(typeof r).toBe("object"); } },
   navigate: { args: { page: "study", mode: "flashcards" }, check: (r) => { expect(r.ok).toBe(true); expect(r.page).toBe("study"); expect(r.mode).toBe("flashcards"); } },
+  canvas_announcements: { args: {}, check: (r) => { expect(r.announcements[0].title).toBe("Midterm moved"); expect(r.announcements[0].message).toContain("Friday"); } },
+  canvas_modules: { args: { course: "BIO" }, check: (r) => { expect(r.modules[0].name).toBe("Week 1"); expect(r.modules[0].items[0].title).toBe("Intro"); } },
+  canvas_pages: { args: { course: "Bio", pageSlug: "week-1-notes" }, check: (r) => { expect(r.page.title).toBe("Week 1 notes"); expect(r.page.body).toContain("Cells divide"); expect(r.page.body).not.toContain("<p>"); } },
+  canvas_quizzes: { args: { course: "111" }, check: (r) => { expect(r.quizzes[0].title).toBe("Quiz 1"); expect(r.quizzes[0].questionCount).toBe(5); } },
+  canvas_submission_feedback: { args: { course: "BIO", assignmentId: 777 }, check: (r) => { expect(r.submission.grade).toBe("B+"); expect(r.submission.comments[0].comment).toBe("Good work"); expect(r.submission.rubric[0].points).toBe(4); } },
+  canvas_inbox: { args: {}, check: (r) => { expect(r.conversations[0].subject).toBe("Extension"); } },
+  canvas_course_files: { args: { course: "BIO" }, check: (r) => { expect(r.files[0].name).toBe("slides.pdf"); } },
+  canvas_past_courses: { args: {}, check: (r) => { expect(r.pastCourses[0].finalScore).toBe(88); expect(r.pastCourses[0].code).toBe("OLD101"); } },
+  office_hours_prep: { args: { course: "BIO" }, check: (r) => { expect(Array.isArray(r.questions)).toBe(true); expect(r.questions[0].question).toContain("walk me through"); } },
+  office_hours_capture: { args: { sessionNotes: "we covered eigenvalues; still fuzzy on proofs" }, check: (r) => { expect(r.ok).toBe(true); } },
+  writing_analyze: { args: { text: "The cell divides. It is a process. The process has stages and each stage matters for the outcome of division." }, check: (r) => { expect(r.metrics).toBeDefined(); expect(typeof r.assessment).toBe("string"); } },
+  delete_flashcards: { args: { cardId: "f1" }, check: (r) => { expect(r.ok).toBe(true); } },
 };
 
 describe("Reggie tool registry", () => {

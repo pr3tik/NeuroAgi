@@ -6,9 +6,9 @@ export interface ApiResult { status: number; body: any; }
 
 export async function callApi(
   handler: (req: any, res: any) => any,
-  opts: { method?: string; body?: any; query?: any } = {},
+  opts: { method?: string; body?: any; query?: any; headers?: Record<string, string> } = {},
 ): Promise<ApiResult> {
-  const { method = "POST", body = {}, query = {} } = opts;
+  const { method = "POST", body = {}, query = {}, headers = {} } = opts;
   return await new Promise<ApiResult>((resolve) => {
     let settled = false;
     const done = (status: number, b: any) => {
@@ -28,7 +28,9 @@ export async function callApi(
         return res;
       },
     };
-    const req: any = { method, body, query, headers: {} };
+    // headers matter for handlers that derive a public base URL from host /
+    // x-forwarded-* (e.g. writing-tracker's /api/claude self-call).
+    const req: any = { method, body, query, headers };
     try {
       Promise.resolve(handler(req, res)).catch((e: any) => done(500, { error: e?.message ?? "handler threw" }));
     } catch (e: any) {

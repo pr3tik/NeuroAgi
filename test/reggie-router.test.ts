@@ -36,6 +36,11 @@ describe("reggie router", () => {
     expect(await classifyIntent("how am I doing in my courses?", ROUTES)).toBe("insight_explainer");
     expect(await classifyIntent("what's overdue?", ROUTES)).toBe("planner");            // past-due → planner
     expect(await classifyIntent("what am I behind on?", ROUTES)).toBe("planner");
+    // new-tool routes (live Canvas + coaching)
+    expect(await classifyIntent("analyze my essay draft please", ROUTES)).toBe("writing_coach");
+    expect(await classifyIntent("what feedback did I get on my lab report?", ROUTES)).toBe("insight_explainer");
+    expect(await classifyIntent("help me prep for office hours", ROUTES)).toBe("question_coach");
+    expect(await classifyIntent("did my prof post any announcements?", ROUTES)).toBe("tutor");
     expect(spy).not.toHaveBeenCalled();
   });
 

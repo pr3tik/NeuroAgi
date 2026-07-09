@@ -47,6 +47,12 @@ export default async function handler(req: any, res: any) {
 
   const hist = Array.isArray(history) ? history : [];
 
+  // Public origin of THIS request — forwarded to tools whose handlers self-call other
+  // endpoints via the host header (writing-tracker -> /api/claude). Falls back to prod.
+  const oHost = String(req.headers?.["x-forwarded-host"] || req.headers?.host || "fschoolai.com");
+  const oProto = String(req.headers?.["x-forwarded-proto"] || (/^(localhost|127\.)/i.test(oHost) ? "http" : "https"));
+  const origin = { host: oHost, proto: oProto };
+
   // 3a. Streaming (SSE): stream tokens + tool-call progress as the loop runs.
   if (wantStream) {
     res.statusCode = 200;
@@ -61,7 +67,7 @@ export default async function handler(req: any, res: any) {
     try {
       const result = await runReggieStream({
         specialist, userMessage: message, brainContext, history: hist,
-        ctx: { userId, courseId, assignmentId },
+        ctx: { userId, courseId, assignmentId, origin },
         emit: (e) => { if (e.type !== "final") send(e.type, e); },   // `final` is superseded by `done`
       });
       send("done", {
@@ -81,7 +87,7 @@ export default async function handler(req: any, res: any) {
   try {
     const result = await runReggie({
       specialist, userMessage: message, brainContext, history: hist,
-      ctx: { userId, courseId, assignmentId },
+      ctx: { userId, courseId, assignmentId, origin },
     });
     return res.status(200).json({
       ok: true,
