@@ -137,6 +137,11 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
   );
+  // ReggieTester / UniBrainTester are dev-only diagnostic sandboxes (see their own
+  // console.log("...look bottom-left...") debug messages) — genuinely useful for
+  // exercising the new Reggie backend directly, but they shouldn't render for every
+  // real session. Opt in via: localStorage.setItem("fschool_devtools", "1").
+  const showDevTools = () => { try { return localStorage.getItem("fschool_devtools") === "1"; } catch { return false; } };
   // Shown at most once per browser, and only if not already logged in — a
   // returning visitor (or one who already saw/skipped it) goes straight to Landing.
   const [showPreSignupDemo, setShowPreSignupDemo] = useState(
@@ -964,9 +969,9 @@ export default function App() {
         </main>
       </div>
 
-      <NeuralRing />
-      <ReggieTester />
-      <UniBrainTester />
+      <NeuralRing currentPage={currentPage} />
+      {showDevTools() && <ReggieTester />}
+      {showDevTools() && <UniBrainTester />}
       {navMode === "tabs" && (
         <BottomNav
           currentPage={currentPage}

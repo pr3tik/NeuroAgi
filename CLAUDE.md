@@ -70,6 +70,15 @@ To test a specific model locally: `ANTHROPIC_MODEL_OCR=claude-sonnet-4-6 npm run
   security;` and rely on the service key server-side. Don't add RLS policies unless asked.
 - **PostgREST schema cache:** after a migration adds a table/column, if you hit `PGRST204/PGRST205`,
   run `notify pgrst, 'reload schema';`.
+- **Changing a Postgres function's return type:** `CREATE OR REPLACE FUNCTION` cannot change an
+  existing function's return type (e.g. `void` → `returns table(...)`) — it errors, but that error
+  can be easy to miss, and unlike most DDL mistakes, the *old* function keeps running afterward
+  (so side effects still look correct, only the return value doesn't reflect the update). If a
+  migration changes a function's return type, always `drop function if exists ...` first, then
+  `create function ...` — never `create or replace` across a return-type change. To check what a
+  function's current live return type actually is (bypassing any doubt about whether a migration
+  applied): `select pg_get_function_result(p.oid) from pg_proc p join pg_namespace n on
+  n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'the_function_name';`
 - **`claudeTutor()` returns a `string`** (`data.content ?? ""`), not an object — call sites use the
   return value directly. (This was a real bug source: `(await claudeTutor())?.content` → undefined.)
 - **`sanitizeApiMessages()`** (`src/lib/chatMessages.ts`) must wrap message arrays sent to Claude —

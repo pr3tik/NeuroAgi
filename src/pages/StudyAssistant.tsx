@@ -208,7 +208,7 @@ function AssistantBubble({ text, sources }: { text: string; sources?: { title: s
           flexShrink: 0,
         }} />
         <span style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "0.5px", fontWeight: 600 }}>
-          STUDY ASSISTANT
+          REGGIE
         </span>
       </div>
 
@@ -509,7 +509,7 @@ export default function StudyAssistant() {
       }
 
       const system = [
-        "You are the Study Assistant — the student's private, main academic tutor. You know this student across sessions: their patterns, work habits, and any study materials they've uploaded.",
+        "You are Reggie — the student's private, main academic tutor. You know this student across sessions: their patterns, work habits, and any study materials they've uploaded.",
         "Only help with the student's own enrolled courses, university curriculum, and their own imported materials, or general study skills — politely decline or redirect clearly off-topic, non-academic requests.",
         "Be concise, clear, and academically rigorous. Avoid unnecessary filler. Answer in 2-4 sentences unless the student asks for more detail.",
         hasSources
@@ -673,7 +673,7 @@ export default function StudyAssistant() {
                 fontSize: "22px", fontWeight: 600,
                 color: "var(--text-primary)", letterSpacing: "-0.4px", marginBottom: "4px",
               }}>
-                Study Assistant
+                Reggie
               </h2>
               <p style={{ fontSize: "13px", color: "var(--text-dim)", lineHeight: 1.5 }}>
                 Ask anything from your imported materials

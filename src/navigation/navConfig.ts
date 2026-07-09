@@ -37,5 +37,5 @@ export const LABEL = {
   leaderboard: "Leaderboard",
   spaces:      "Spaces",
   connections: "Connections",
-  studyAssistant: "Study Assistant",
+  studyAssistant: "Reggie AI",
 };

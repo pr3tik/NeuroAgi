@@ -405,16 +405,21 @@ function buildFirstSessionGreeting(assignments, courses, userData) {
 
   const walkthrough = WALKTHROUGH_STYLE[userData?.learning_style] || "a walkthrough";
 
+  // First-person self-introduction — this is the ONE moment Reggie names itself,
+  // matching the onboarding doc's "Meet Reggie" beat (Step 2: introduces itself,
+  // already knows the student's courses/deadlines, doesn't ask them to explain).
+  const intro = "I'm Reggie.";
+
   if (nextDue) {
     const course = courses?.find(c => c.id === nextDue.courseId || c.dbId === nextDue.courseId);
     const courseLabel = course?.courseCode || course?.name;
     const subject = courseLabel ? `${courseLabel} — ${nextDue.name}` : nextDue.name;
-    return `${name}, your ${subject} is due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}. Want ${walkthrough}, or a 2-minute readiness check?`;
+    return `${intro} ${name}, your ${subject} is due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}. Want ${walkthrough}, or a 2-minute readiness check?`;
   }
 
   // No synced deadline yet (e.g. skipped Canvas connect) — still personalize with
   // the intake answer instead of falling back to something generic.
-  return `Hey ${name} — want to start with ${walkthrough} on something you're working on, or a quick 2-minute check-in on where you're at?`;
+  return `${intro} Hey ${name} — want to start with ${walkthrough} on something you're working on, or a quick 2-minute check-in on where you're at?`;
 }
 
 // ── Situation-aware opening greeting ─────────────────────────────────────────
@@ -802,7 +807,7 @@ function buildNotificationAskCopy(studyWindow) {
   return byWindow[studyWindow] || "Want me to remind you before deadlines and study sessions?";
 }
 
-export default function NeuralRing() {
+export default function NeuralRing({ currentPage }: { currentPage?: string } = {}) {
   const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, userId, flashcardMap, syllabus, forceSync, canvasToken } = useApp();
 
   const courseOptions = courses.length
@@ -2682,6 +2687,11 @@ export default function NeuralRing() {
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
+  // On the dedicated Reggie page itself, the launcher/sidebar has nothing to add —
+  // the student is already in the full Reggie experience. Guard placed after all
+  // hooks above (never before) to keep hook-call order stable across renders.
+  if (currentPage === "studyAssistant") return null;
+
   return createPortal(
     <>
       {/* Floating ring */}
@@ -2802,11 +2812,14 @@ export default function NeuralRing() {
               {!maximized && <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.18)" }} />}
             </div>
 
-            {/* Header */}
+            {/* Header — flexWrap so an overflowing button row wraps onto a second line
+                instead of being clipped by this panel's overflow:"hidden" (was the actual
+                cause of Close looking "missing" at narrow/non-maximized widths — it wasn't
+                missing, it was clipped off-canvas). */}
             <div style={{ padding: "10px 20px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", rowGap: "8px" }}>
                 <div style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.18), rgba(255,255,255,0.04))", border: "1px solid rgba(255,255,255,0.12)" }} />
-                <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ minWidth: 0, flex: "1 1 100px", overflow: "hidden" }}>
                   {editingName ? (
                     <input
                       ref={ringNameInputRef}
@@ -2818,39 +2831,30 @@ export default function NeuralRing() {
                         background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.18)",
                         borderRadius: "6px", padding: "3px 9px", color: "var(--text-primary)",
                         fontSize: "17px", fontWeight: "600", letterSpacing: "-0.2px",
-                        outline: "none", fontFamily: "inherit", width: "160px",
+                        outline: "none", fontFamily: "inherit", width: "160px", maxWidth: "100%",
                       }}
                     />
                   ) : (
                     <p
                       onClick={() => { setRingNameInput(ringName); setEditingName(true); setTimeout(() => ringNameInputRef.current?.focus(), 0); }}
-                      style={{ color: "var(--text-primary)", fontSize: "17px", fontWeight: "600", letterSpacing: "-0.2px", cursor: "text" }}
+                      style={{
+                        color: "var(--text-primary)", fontSize: "17px", fontWeight: "600", letterSpacing: "-0.2px", cursor: "text",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
                       title="Tap to rename"
                     >
-                      {ringName || "Name your agent"}
+                      {ringName || "Reggie"}
                     </p>
                   )}
-                  <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "1px", letterSpacing: "0.4px" }}>
-                    Academic AI · Always on{speaking ? " · Speaking…" : ""}
+                  <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "1px", letterSpacing: "0.4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    Always on{speaking ? " · Speaking…" : ""}
                   </p>
                 </div>
 
-                {/* New chat */}
-                <button
-                  onClick={startNewChat}
-                  title="New chat"
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    width: 32, height: 32, flexShrink: 0, borderRadius: "50%",
-                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-                    cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
-
+                {/* Action buttons — grouped so they wrap together as a unit, pushed right.
+                    "New chat" lives in the history panel's own header (below), not here —
+                    was a redundant duplicate control taking up header space. */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto" }}>
                 {/* History */}
                 <button
                   onClick={() => setHistoryOpen(true)}
@@ -2906,6 +2910,25 @@ export default function NeuralRing() {
                   </svg>
                 </button>
 
+                {/* Open the dedicated full Reggie page — distinct from the in-place
+                    Maximize button above (which just resizes this same floating panel).
+                    This one navigates to the full-screen Reggie experience. */}
+                <button
+                  onClick={() => { setPendingNav({ page: "studyAssistant" }); setChatOpen(false); }}
+                  title="Open full Reggie page"
+                  aria-label="Open full Reggie page"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 32, height: 32, flexShrink: 0, borderRadius: "50%",
+                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+                    cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" />
+                  </svg>
+                </button>
+
                 {/* Close — the window is non-modal (no backdrop), so this is the
                     primary way to dismiss it on desktop. */}
                 <button
@@ -2923,6 +2946,7 @@ export default function NeuralRing() {
                     <path d="M18 6 6 18M6 6l12 12" />
                   </svg>
                 </button>
+                </div>
               </div>
             </div>
 
