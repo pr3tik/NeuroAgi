@@ -1,25 +1,44 @@
 // src/pages/Landing.tsx — FschoolAI app landing page.
-// Design system: matches src/FschoolAILanding.jsx (Safreen's card page) exactly.
-// Black/white Apple-minimal. SF Pro/Inter. Pure CSS + IntersectionObserver animations.
+// Design system: Apple.com iOS exact — css vars from apple.com/iphone applied verbatim.
+// --sk-body-text-color: rgb(29,29,31)  --sk-fill: #fff  --sk-fill-secondary: #fafafc
+// --sk-fill-tertiary: #f5f5f7  --sk-glyph-gray-secondary: rgb(110,110,115)
 
 import React, { useState, useEffect, useRef } from "react";
 
-// ── Theme tokens ───────────────────────────────────────────────────────────────
+// ── Apple.com exact design tokens (from --sk-* CSS variables on apple.com) ────
+// Primary text:  rgb(29,29,31)  = #1d1d1f  ← Apple's characteristic near-black
+// Secondary:     rgb(110,110,115) = #6e6e73
+// Tertiary:      rgb(134,134,139) = #86868b
+// Fill:          rgb(255,255,255) = #ffffff
+// Fill-secondary: rgb(250,250,252) = #fafafc
+// Fill-tertiary: rgb(245,245,247) = #f5f5f7  ← Apple's alt-row background
+// Border:        rgba(0,0,0,0.08) = --sk-fill-gray-quaternary-alpha
 const DARK = {
   bg: "#000", bg2: "#080808",
   text: "#fff", textMuted: "rgba(255,255,255,0.45)", textFaint: "rgba(255,255,255,0.3)",
-  border: "rgba(255,255,255,0.06)", navBg: "rgba(0,0,0,0.72)", label: "#666",
+  border: "rgba(255,255,255,0.06)", navBg: "rgba(0,0,0,0.72)", label: "#6e6e73",
   cardBg: "#1a1a1a", cardBorder: "#2a2a2a", cardInner: "#1e1e1e", cardInnerBorder: "#2e2e2e",
   userBubble: "#2a2a2a",
 };
 const LIGHT = {
-  bg: "#fefefe", bg2: "#f9f9f7",
-  text: "#000", textMuted: "rgba(0,0,0,0.55)", textFaint: "rgba(0,0,0,0.35)",
-  border: "rgba(0,0,0,0.08)", navBg: "rgba(254,254,254,0.88)", label: "#888",
-  cardBg: "#fff", cardBorder: "#e0e0e0", cardInner: "#f7f7f5", cardInnerBorder: "#ebebeb",
-  userBubble: "#e8e8e8",
+  bg:              "#ffffff",        // --sk-fill
+  bg2:             "#f5f5f7",        // --sk-fill-tertiary  (Apple's alt row)
+  bgSoft:          "#fafafc",        // --sk-fill-secondary
+  text:            "#1d1d1f",        // --sk-glyph-gray  (NOT pure black)
+  textMuted:       "#6e6e73",        // --sk-glyph-gray-secondary
+  textFaint:       "#86868b",        // --sk-glyph-gray-tertiary
+  border:          "rgba(0,0,0,0.08)", // --sk-fill-gray-quaternary-alpha
+  borderStrong:    "rgba(0,0,0,0.16)", // --sk-fill-gray-tertiary-alpha ×2
+  navBg:           "rgba(255,255,255,0.82)",
+  label:           "#6e6e73",        // --sk-glyph-gray-secondary
+  cardBg:          "#ffffff",
+  cardBorder:      "rgba(0,0,0,0.08)",
+  cardInner:       "#f5f5f7",        // --sk-fill-tertiary
+  cardInnerBorder: "rgba(0,0,0,0.08)",
+  userBubble:      "#e8e8ed",        // --sk-fill-gray-quaternary
 };
-const FONT = "'SF Pro Display','SF Pro Text','Inter',-apple-system,BlinkMacSystemFont,sans-serif";
+// Apple's exact font stack — SF Pro Display for display sizes, SF Pro Text for body
+const FONT = '"SF Pro Display","SF Pro Text","SF Pro Icons","Helvetica Neue",Helvetica,Arial,sans-serif';
 
 // ── Hooks ──────────────────────────────────────────────────────────────────────
 function useInView(threshold = 0.15) {
@@ -618,7 +637,7 @@ function DocDropMockup({ t }: { t: typeof DARK }) {
             {NOTES.map((note, i) => (
               <div key={i} style={{ ...fade(phase >= 5 + i), display: "flex", gap: 8, alignItems: "flex-start" }}>
                 <span style={{ color: t.textFaint, fontSize: 14, lineHeight: 1.4, flexShrink: 0 }}>–</span>
-                <span style={{ fontSize: 13, color: "rgba(0,0,0,0.58)", lineHeight: 1.55 }}>{note}</span>
+                <span style={{ fontSize: 13, color: "#6e6e73", lineHeight: 1.55 }}>{note}</span>
               </div>
             ))}
           </div>
@@ -684,12 +703,12 @@ function FeaturesShowcase({ t, chromaStyle, ghostRef }: {
       {/* Features intro — distinct from the hero, introduces the product surfaces */}
       <Reveal>
         <h1 style={{ fontSize: "clamp(36px,5.5vw,64px)", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.08, color: t.text, margin: "0 0 20px" }}>
-          <span style={chromaStyle}>Four tools.</span>
+          <span>Four tools.</span>
           <span style={{ color: t.text }}> One intelligence.</span>
         </h1>
       </Reveal>
       <Reveal delay={0.06}>
-        <p style={{ fontSize: 18, color: "rgba(0,0,0,0.52)", maxWidth: 480, margin: "0 auto 80px", lineHeight: 1.65 }}>
+        <p style={{ fontSize: 18, color: "#6e6e73", maxWidth: 480, margin: "0 auto 80px", lineHeight: 1.65 }}>
           Purpose-built for the way students actually learn — grounded in your courses, not the internet.
         </p>
       </Reveal>
@@ -699,7 +718,7 @@ function FeaturesShowcase({ t, chromaStyle, ghostRef }: {
         <h2 style={{ fontSize: "clamp(28px,4.2vw,50px)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.1, marginBottom: 36, color: t.text }}>
           FschoolAI, your{" "}
           <span style={{
-            ...chromaStyle,
+            color: "#6e6e73",
             display: "inline-block",
             opacity: wordVisible ? 1 : 0,
             transform: wordVisible ? "translateY(0)" : "translateY(-10px)",
@@ -734,7 +753,7 @@ function FeaturesShowcase({ t, chromaStyle, ghostRef }: {
       {/* Tab description crossfades with the word */}
       <Reveal delay={0.15}>
         <p style={{
-          fontSize: 15, color: "rgba(0,0,0,0.50)", maxWidth: 380,
+          fontSize: 15, color: "#6e6e73", maxWidth: 380,
           margin: "0 auto 40px", lineHeight: 1.6,
           opacity: wordVisible ? 1 : 0,
           transition: "opacity 0.2s ease",
@@ -806,11 +825,11 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
   return (
     <section style={{ padding: "100px 20px", textAlign: "center", background: "#f5f5f7" }}>
       <Reveal>
-        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(0,0,0,0.32)", marginBottom: 16 }}>Integrations</p>
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: "#86868b", marginBottom: 16 }}>Integrations</p>
         <h2 style={{ fontSize: "clamp(28px,4.5vw,50px)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.1, color: t.text, margin: "0 0 16px" }}>
           Connects to everything<br />you already use.
         </h2>
-        <p style={{ fontSize: 16, color: "rgba(0,0,0,0.50)", maxWidth: 380, margin: "0 auto 56px", lineHeight: 1.6 }}>
+        <p style={{ fontSize: 16, color: "#6e6e73", maxWidth: 380, margin: "0 auto 56px", lineHeight: 1.6 }}>
           Canvas, YouTube, Google Drive, Microsoft Teams, Discord — your whole academic world, in one place.
         </p>
       </Reveal>
@@ -877,7 +896,7 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
                         {item.icon}
                       </div>
                     </div>
-                    <p style={{ fontSize: 9, fontWeight: 600, color: "rgba(0,0,0,0.42)", letterSpacing: "0.02em", marginTop: 6, whiteSpace: "nowrap", textAlign: "center" }}>{item.name}</p>
+                    <p style={{ fontSize: 9, fontWeight: 600, color: "#86868b", letterSpacing: "0.02em", marginTop: 6, whiteSpace: "nowrap", textAlign: "center" }}>{item.name}</p>
                   </div>
                 </div>
               );
@@ -962,7 +981,7 @@ function LiveTranscript() {
 function ThreeMoments({ t }: { t: typeof DARK }) {
   const rows = [
     {
-      bg: "#ffffff", flip: false,
+      bg: "#ffffff", flip: false,       // --sk-fill
       label: "During lecture",
       stat: "Real-time",
       statSub: "transcription — live as it happens",
@@ -975,7 +994,7 @@ function ThreeMoments({ t }: { t: typeof DARK }) {
       ),
     },
     {
-      bg: "#f5f5f7", flip: true,
+      bg: "#fafafc", flip: true,         // --sk-fill-secondary
       label: "After class",
       stat: "47",
       statSub: "key concepts extracted per lecture on average",
@@ -1079,7 +1098,7 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
     <section style={{
       // Colour-to-colour gradient: no transparent overlays — they create banding.
       // top 120px: ecosystem gray → dark  |  bottom 120px: dark → white
-      background: "linear-gradient(180deg, #f5f5f7 0%, #0a0a0c 120px, #0a0a0c calc(100% - 120px), #ffffff 100%)",
+      background: "#fafafc",
       padding: "100px 20px 80px",
       position: "relative",
       overflow: "hidden",
@@ -1094,13 +1113,12 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
 
       <Reveal style={{ textAlign: "center", marginBottom: 56 }}>
         <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase",
-          color: "rgba(255,255,255,0.3)", marginBottom: 16 }}>Knowledge Graph</p>
+          color: "#86868b", marginBottom: 16 }}>Knowledge Graph</p>
         <h2 style={{ fontSize: "clamp(28px,4.5vw,52px)", fontWeight: 700, letterSpacing: "-0.03em",
-          lineHeight: 1.05, color: "#f5f5f7", margin: "0 0 16px" }}>
-          Your academic world,{" "}
-          <span style={{ ...chromaStyle }}>connected.</span>
+          lineHeight: 1.05, color: "#1d1d1f", margin: "0 0 16px" }}>
+          Your academic world, connected.
         </h2>
-        <p style={{ fontSize: 16, color: "rgba(255,255,255,0.45)", maxWidth: 440,
+        <p style={{ fontSize: 16, color: "#6e6e73", maxWidth: 440,
           margin: "0 auto", lineHeight: 1.6 }}>
           FschoolAI builds a living map of your courses, lectures, notes and deadlines —
           so every answer is grounded in your actual world.
@@ -1206,7 +1224,7 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
                 {node.sub && (
                   <text x={node.x} y={node.y + node.r + 27}
                     textAnchor="middle" fontSize={8}
-                    fill="rgba(255,255,255,0.35)"
+                    fill="rgba(0,0,0,0.40)"
                     fontFamily="inherit"
                   >{node.sub}</text>
                 )}
@@ -1234,7 +1252,7 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
             }}>
               <div style={{ fontSize: 22, marginBottom: 10 }}>{icon}</div>
               <p style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.88)", marginBottom: 6 }}>{title}</p>
-              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.40)", lineHeight: 1.6 }}>{body}</p>
+              <p style={{ fontSize: 13, color: "#6e6e73", lineHeight: 1.6 }}>{body}</p>
             </div>
           ))}
         </div>
@@ -1372,10 +1390,12 @@ export default function Landing({ onEnter }: { onEnter: (args: any) => Promise<v
   }
 
   return (
-    <div style={{ background: t.bg, color: t.text, fontFamily: FONT, minHeight: "100vh",
-      overflowX: "hidden", transition: "background 0.3s ease, color 0.3s ease" }}>
+    <div style={{ background: "#ffffff", color: "#1d1d1f", fontFamily: FONT, minHeight: "100vh",
+      overflowX: "hidden", WebkitFontSmoothing: "antialiased" as any }}>
 
       <style>{`
+        /* Apple.com exact typography base — matches html{font-size:106.25%} on apple.com */
+        :root { --sk-body-text-color:#1d1d1f; --sk-fill:#fff; --sk-fill-secondary:#fafafc; --sk-fill-tertiary:#f5f5f7; }
         @keyframes heroIn      { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
         @keyframes scrollBob   { 0%,100%{opacity:0.3;transform:translateY(0)} 50%{opacity:0.8;transform:translateY(6px)} }
         @keyframes saFadeIn    { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
@@ -1451,15 +1471,15 @@ export default function Landing({ onEnter }: { onEnter: (args: any) => Promise<v
       }}>
         <p style={{
           fontSize: 12, fontWeight: 400, letterSpacing: "0.01em",
-          color: "rgba(0,0,0,0.52)", margin: 0, textAlign: "center",
+          color: "#6e6e73", margin: 0, textAlign: "center",
         }}>
           Founding members receive{" "}
-          <span style={{ ...chromaStyle, fontWeight: 600 }}>
+          <span style={{ fontWeight: 600, color: "#1d1d1f" }}>
             Lifetime Pro&nbsp;· guaranteed founding number&nbsp;· express delivery
           </span>
           {" "}—{" "}
           <a href="/card#order" style={{
-            color: "rgba(0,0,0,0.52)", textDecoration: "none",
+            color: "#6e6e73", textDecoration: "none",
             borderBottom: "1px solid rgba(0,0,0,0.22)", paddingBottom: 1,
             transition: "color 0.12s, border-color 0.12s",
           }}
@@ -1489,7 +1509,7 @@ export default function Landing({ onEnter }: { onEnter: (args: any) => Promise<v
         {/* Center — hidden on mobile via CSS */}
         <div className="apple-nav-links">
           {[{ label:"Card", href:"/card" }, { label:"Features", href:"#features" }, { label:"Pricing", href:"#pricing" }, { label:"Blog", href:"/blog" }].map(({ label, href }) => (
-            <a key={label} href={href} style={{ fontSize: 13, fontWeight: 400, color: "rgba(0,0,0,0.56)", textDecoration: "none", letterSpacing: "-0.01em", transition: "color 0.15s" }}
+            <a key={label} href={href} style={{ fontSize: 13, fontWeight: 400, color: "#6e6e73", textDecoration: "none", letterSpacing: "-0.01em", transition: "color 0.15s" }}
               onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.color = "#000")}
               onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(0,0,0,0.56)")}
             >{label}</a>
@@ -1499,7 +1519,7 @@ export default function Landing({ onEnter }: { onEnter: (args: any) => Promise<v
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 4, justifyContent: "flex-end" }}>
           <button onClick={() => setAuthMode("login")}
             style={{ background: "none", border: "none", padding: "5px 12px", fontSize: 12,
-              fontWeight: 500, color: "rgba(0,0,0,0.48)", cursor: "pointer", fontFamily: FONT,
+              fontWeight: 500, color: "#6e6e73", cursor: "pointer", fontFamily: FONT,
               transition: "color 0.15s" }}
             onMouseEnter={e => (e.currentTarget.style.color = "#000")}
             onMouseLeave={e => (e.currentTarget.style.color = "rgba(0,0,0,0.48)")}
@@ -1514,66 +1534,51 @@ export default function Landing({ onEnter }: { onEnter: (args: any) => Promise<v
         </div>
       </nav>
 
-      {/* ── HERO — full-bleed dark scene, no box, Apple spring entrance ── */}
+      {/* ── HERO — full-bleed LIGHT scene, iOS white theme ── */}
       <section style={{
-        background: "linear-gradient(180deg, #1c1c1e 0%, #141416 60%, #0e0e10 100%)",
+        background: "#ffffff",
         minHeight: "100dvh", display: "flex", flexDirection: "column",
         alignItems: "center", paddingTop: "clamp(120px,18vw,160px)",
         overflow: "hidden", position: "relative",
       }}>
-        {/* Ambient radial highlight */}
-        <div aria-hidden="true" style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: "80%", height: 400, background: "radial-gradient(ellipse 70% 50% at 50% 0%, rgba(255,255,255,0.04) 0%, transparent 100%)", pointerEvents: "none" }} />
-
         {/* Text */}
         <div style={{ textAlign: "center", padding: "0 20px", position: "relative", zIndex: 1 }}>
-          <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "rgba(255,255,255,0.45)", marginBottom: 16, letterSpacing: "0.18em", animation: "appleLabel 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s both" }}>
+          <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "#86868b", marginBottom: 16, letterSpacing: "0.18em", animation: "appleLabel 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s both" }}>
             Founding Card &nbsp;·&nbsp; 1,000 only
           </p>
-          <h1 style={{ fontSize: "clamp(32px,6.5vw,68px)", fontWeight: 700, letterSpacing: "-0.035em", lineHeight: 1.0, color: "#f5f5f7", margin: "0 0 14px", animation: "appleTitle 0.9s cubic-bezier(0.16,1,0.3,1) 0.22s both" }}>
+          <h1 style={{ fontSize: "clamp(32px,6.5vw,68px)", fontWeight: 700, letterSpacing: "-0.035em", lineHeight: 1.0, color: "#1d1d1f", margin: "0 0 14px", animation: "appleTitle 0.9s cubic-bezier(0.16,1,0.3,1) 0.22s both" }}>
             Your degree on autopilot.
           </h1>
-          <p style={{ fontSize: "clamp(15px,2.4vw,19px)", fontWeight: 400, color: "rgba(255,255,255,0.58)", lineHeight: 1.5, margin: "0 auto 32px", maxWidth: 440, animation: "appleSub 0.85s cubic-bezier(0.16,1,0.3,1) 0.38s both" }}>
+          <p style={{ fontSize: "clamp(15px,2.4vw,19px)", fontWeight: 400, color: "#6e6e73", lineHeight: 1.5, margin: "0 auto 32px", maxWidth: 440, animation: "appleSub 0.85s cubic-bezier(0.16,1,0.3,1) 0.38s both" }}>
             5 colorways. Titanium Black. The intelligence of FschoolAI, in a card.
           </p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", animation: "appleCta 0.8s cubic-bezier(0.16,1,0.3,1) 0.52s both" }}>
-            <a href="/card" style={{ background: "rgba(255,255,255,0.90)", color: "#141416", textDecoration: "none", borderRadius: 50, padding: "10px 24px", fontSize: 14, fontWeight: 500, display: "inline-flex", alignItems: "center", fontFamily: FONT, letterSpacing: "-0.01em", transition: "background 0.15s" }}
-              onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.background = "#fff")}
-              onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.90)")}
+            <a href="/card" style={{ background: "#1d1d1f", color: "#ffffff", textDecoration: "none", borderRadius: 50, padding: "10px 24px", fontSize: 14, fontWeight: 500, display: "inline-flex", alignItems: "center", fontFamily: FONT, letterSpacing: "-0.01em", transition: "opacity 0.15s" }}
+              onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = "0.80")}
+              onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = "1")}
             >Learn more</a>
-            <a href="/card#order" style={{ background: "transparent", color: "rgba(255,255,255,0.85)", textDecoration: "none", borderRadius: 50, border: "1px solid rgba(255,255,255,0.28)", padding: "10px 24px", fontSize: 14, fontWeight: 500, display: "inline-flex", alignItems: "center", fontFamily: FONT, letterSpacing: "-0.01em", transition: "border-color 0.15s, color 0.15s" }}
-              onMouseEnter={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.borderColor = "rgba(255,255,255,0.7)"; a.style.color = "#fff"; }}
-              onMouseLeave={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.borderColor = "rgba(255,255,255,0.28)"; a.style.color = "rgba(255,255,255,0.85)"; }}
+            <a href="/card#order" style={{ background: "transparent", color: "#1d1d1f", textDecoration: "none", borderRadius: 50, border: "1px solid rgba(0,0,0,0.16)", padding: "10px 24px", fontSize: 14, fontWeight: 500, display: "inline-flex", alignItems: "center", fontFamily: FONT, letterSpacing: "-0.01em", transition: "border-color 0.15s" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "#1d1d1f"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "rgba(0,0,0,0.16)"; }}
             >Apply for your card</a>
           </div>
         </div>
 
-        {/* Fan — dark-bg, capped at native 959 px so no upscale blur on desktop.
-            Centered via margin:auto; no transform hacks. */}
-        <div style={{ width: "100%", marginTop: 20, lineHeight: 0, overflow: "hidden", animation: "appleCards 1.1s cubic-bezier(0.16,1,0.3,1) 0.6s both", flex: 1, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-          <img src="/cards/herodesktop.png" alt="FschoolAI Founding Cards — 5 colorways"
+        {/* Fan — light-bg version, floats on the white hero */}
+        <div style={{ width: "100%", marginTop: 20, lineHeight: 0, overflow: "hidden", flex: 1, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <img src="/cards/herodesktop_light.png" alt="FschoolAI Founding Cards — 5 colorways"
             style={{
               display: "block",
               width: "min(100%, 959px)",
               height: "auto",
               margin: "0 auto",
-              // Entrance spring → then perpetual gentle float
               animation: "appleCards 1.1s cubic-bezier(0.16,1,0.3,1) 0.6s both, cardFloat 5s ease-in-out 1.8s infinite",
-              // Top: fade in from dark bg. Bottom: dissolves into the next section (no sharp PNG edge).
-              maskImage: "linear-gradient(to bottom, transparent 0%, black 10%, black 70%, transparent 98%)",
-              WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 10%, black 70%, transparent 98%)",
+              maskImage: "linear-gradient(to bottom, transparent 0%, black 8%, black 60%, transparent 90%)",
+              WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 8%, black 60%, transparent 90%)",
+              maskComposite: "intersect", WebkitMaskComposite: "source-in",
             }}
           />
         </div>
-
-        {/* Micro edge-blend — only softens the very last 40px where the dark bg
-            meets the white section. Doesn't reach the reflection. */}
-        <div aria-hidden="true" style={{
-          position: "absolute", bottom: 0, left: 0, right: 0,
-          height: 40,
-          background: "linear-gradient(to bottom, transparent 0%, #ffffff 100%)",
-          pointerEvents: "none",
-          zIndex: 2,
-        }} />
       </section>
 
       {/* ── FEATURES SHOWCASE — replaces 4 standalone sections ── */}
@@ -1595,7 +1600,7 @@ export default function Landing({ onEnter }: { onEnter: (args: any) => Promise<v
           <Reveal style={{ textAlign: "center", marginBottom: 52 }}>
             <Label t={t}>FAQ</Label>
             <h2 style={{ fontSize: "clamp(32px,5vw,52px)", fontWeight: 700, letterSpacing: "-0.025em" }}>
-              <span style={chromaStyle}>Questions answered.</span>
+              Questions answered.
             </h2>
           </Reveal>
           {FAQ_DATA.map((item, i) => (
