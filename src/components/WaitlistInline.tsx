@@ -48,18 +48,18 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
   }
 
   return (
-    <div style={{ marginTop: inRow ? 0 : 20, fontFamily: FONT, flex: inRow ? "1 1 auto" : undefined, minWidth: inRow ? 0 : undefined }}>
+    <div style={{ marginTop: inRow ? 0 : 20, fontFamily: FONT, flex: inRow ? "1 1 160px" : undefined, minWidth: inRow ? 0 : undefined }}>
       <div style={{ display: "flex", gap: 8, flexWrap: inRow ? "nowrap" : "wrap", maxWidth: inRow ? undefined : 430 }}>
         <input
           type="email"
           value={email}
-          placeholder="you@school.edu"
+          placeholder={inRow ? "email" : "you@school.edu"}
           onChange={(e) => { setEmail(e.target.value); if (error) setError(null); }}
           onKeyDown={(e) => { if (e.key === "Enter") join(); }}
           aria-label="Email for the waitlist"
           style={{
-            flex: inRow ? "1 1 120px" : "1 1 220px", minWidth: 0, background: "#f5f5f7", border: "1px solid rgba(0,0,0,0.08)",
-            borderRadius: 980, padding: inRow ? "11px 16px" : "12px 20px", fontSize: inRow ? 14 : 15, color: "#1d1d1f",
+            flex: inRow ? "1 1 60px" : "1 1 220px", minWidth: 0, background: "#f5f5f7", border: "1px solid rgba(0,0,0,0.08)",
+            borderRadius: 980, padding: inRow ? "11px 13px" : "12px 20px", fontSize: inRow ? 14 : 15, color: "#1d1d1f",
             outline: "none", fontFamily: FONT, transition: "border-color 0.15s, background 0.15s",
           }}
           onFocus={(e) => { e.currentTarget.style.borderColor = "#0071e3"; e.currentTarget.style.background = "#fff"; }}

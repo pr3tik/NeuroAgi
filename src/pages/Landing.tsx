@@ -2911,8 +2911,9 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
                 background: "#0071e3", color: "#fff",
                 border: "none",
                 textDecoration: "none", borderRadius: 980,
-                padding: "12px 24px", fontSize: 17, fontWeight: 400,
-                display: "inline-flex", alignItems: "center",
+                padding: "12px 22px", fontSize: 16, fontWeight: 400,
+                display: "inline-flex", alignItems: "center", flexShrink: 0,
+                whiteSpace: "nowrap",
                 fontFamily: FONT, transition: "opacity 0.15s",
               }}
                 onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = "0.84")}
