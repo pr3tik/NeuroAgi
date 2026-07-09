@@ -5,6 +5,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { notify } from "./_notify.js";
+import { awardAchievement, awardFirstTimeAchievement } from "./_achievements.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "",
@@ -27,6 +28,16 @@ const ACTIONS = {
 };
 
 const STREAK_MILESTONES = [7, 14, 30, 60, 100];
+
+// action → achievement_key, for the "first time this action ever fires" achievements.
+// study_session_15min isn't here — it has its own award path (returns early, see below).
+const FIRST_TIME_ACHIEVEMENTS = {
+  canvas_sync:          "first_canvas_sync",
+  quiz_perfect:         "first_quiz_perfect",
+  study_room_join:      "first_room_join",
+  assignment_submitted: "first_assignment_submitted",
+  flashcards_generated: "first_flashcards_generated",
+};
 
 const TIERS = [
   { name: "Brain Owner", min: 2000 },
@@ -95,11 +106,12 @@ export default async function handler(req, res) {
     const { userId } = req.query;
     if (!userId) return res.status(400).json({ error: "userId required" });
 
-    const [{ data: user }, { data: todayRows }, { data: recent }] = await Promise.all([
+    const [{ data: user }, { data: todayRows }, { data: recent }, { data: achievements }] = await Promise.all([
       supabase.from("users").select("points, streak").eq("id", userId).maybeSingle(),
       supabase.from("token_events").select("tokens").eq("user_id", userId).eq("awarded_on", today()),
       supabase.from("token_events").select("action, tokens, meta, created_at")
         .eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
+      supabase.from("user_achievements").select("achievement_key, unlocked_at, meta").eq("user_id", userId),
     ]);
 
     const points      = user?.points ?? 0;
@@ -122,10 +134,11 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       points,
-      tier:         getTier(points),
-      streak:       user?.streak ?? 0,
+      tier:                 getTier(points),
+      streak:               user?.streak ?? 0,
       todayEarned,
-      recentEvents: recent ?? [],
+      recentEvents:         recent ?? [],
+      unlockedAchievements: achievements ?? [],
     });
   }
 
@@ -303,6 +316,15 @@ export default async function handler(req, res) {
       meta:       Object.keys(meta).length > 0 ? meta : null,
       awarded_on: dt,
     });
+
+    // Achievements: first-time-action unlocks (non-blocking, never fails the award —
+    // must run AFTER the insert above so the count check sees this event).
+    if (FIRST_TIME_ACHIEVEMENTS[awardAction]) {
+      awardFirstTimeAchievement(userId, awardAction, FIRST_TIME_ACHIEVEMENTS[awardAction]).catch(() => {});
+    }
+    if (awardAction === "streak_day" && milestoneBonus === 7) {
+      awardAchievement(userId, "streak_7").catch(() => {});
+    }
 
     // Read current points, apply increment
     const { data: userRow } = await supabase

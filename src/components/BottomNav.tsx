@@ -22,7 +22,7 @@ const ITEMS = {
   files:       { label: "Files" },
   rooms:       { label: "Rooms" },
   spaces:      { label: "Spaces" },
-  studyAssistant: { label: "Study Assistant", short: "Assistant" },
+  studyAssistant: { label: "Reggie", short: "Reggie" },
   connections: { label: "Connections", short: "Connect" },
 };
 

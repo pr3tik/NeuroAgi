@@ -397,16 +397,21 @@ function buildFirstSessionGreeting(assignments, courses, userData) {
 
   const walkthrough = WALKTHROUGH_STYLE[userData?.learning_style] || "a walkthrough";
 
+  // First-person self-introduction — this is the ONE moment Reggie names itself,
+  // matching the onboarding doc's "Meet Reggie" beat (Step 2: introduces itself,
+  // already knows the student's courses/deadlines, doesn't ask them to explain).
+  const intro = "I'm Reggie.";
+
   if (nextDue) {
     const course = courses?.find(c => c.id === nextDue.courseId || c.dbId === nextDue.courseId);
     const courseLabel = course?.courseCode || course?.name;
     const subject = courseLabel ? `${courseLabel} — ${nextDue.name}` : nextDue.name;
-    return `${name}, your ${subject} is due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}. Want ${walkthrough}, or a 2-minute readiness check?`;
+    return `${intro} ${name}, your ${subject} is due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}. Want ${walkthrough}, or a 2-minute readiness check?`;
   }
 
   // No synced deadline yet (e.g. skipped Canvas connect) — still personalize with
   // the intake answer instead of falling back to something generic.
-  return `Hey ${name} — want to start with ${walkthrough} on something you're working on, or a quick 2-minute check-in on where you're at?`;
+  return `${intro} Hey ${name} — want to start with ${walkthrough} on something you're working on, or a quick 2-minute check-in on where you're at?`;
 }
 
 // ── Situation-aware opening greeting ─────────────────────────────────────────
@@ -790,7 +795,7 @@ function buildNotificationAskCopy(studyWindow) {
   return byWindow[studyWindow] || "Want me to remind you before deadlines and study sessions?";
 }
 
-export default function NeuralRing() {
+export default function NeuralRing({ currentPage }: { currentPage?: string } = {}) {
   const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, userId, flashcardMap, syllabus, forceSync, canvasToken } = useApp();
 
   const courseOptions = courses.length
@@ -2449,6 +2454,11 @@ export default function NeuralRing() {
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
+  // On the dedicated Reggie page itself, the launcher/sidebar has nothing to add —
+  // the student is already in the full Reggie experience. Guard placed after all
+  // hooks above (never before) to keep hook-call order stable across renders.
+  if (currentPage === "studyAssistant") return null;
+
   return createPortal(
     <>
       {/* Floating ring */}
@@ -2653,6 +2663,25 @@ export default function NeuralRing() {
                     {maximized
                       ? <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3" />
                       : <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3" />}
+                  </svg>
+                </button>
+
+                {/* Open the dedicated full Reggie page — distinct from the in-place
+                    Maximize button above (which just resizes this same floating panel).
+                    This one navigates to the full-screen Reggie experience. */}
+                <button
+                  onClick={() => { setPendingNav({ page: "studyAssistant" }); setChatOpen(false); }}
+                  title="Open full Reggie page"
+                  aria-label="Open full Reggie page"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 32, height: 32, flexShrink: 0, borderRadius: "50%",
+                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+                    cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" />
                   </svg>
                 </button>
 

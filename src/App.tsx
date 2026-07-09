@@ -867,7 +867,7 @@ export default function App() {
         </main>
       </div>
 
-      <NeuralRing />
+      <NeuralRing currentPage={currentPage} />
       {navMode === "tabs" && (
         <BottomNav
           currentPage={currentPage}

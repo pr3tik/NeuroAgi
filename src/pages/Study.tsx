@@ -8,6 +8,7 @@ import { supabase }      from "../api/supabase";
 import { awardTokens }   from "../api/tokens";
 import { Check, X, AlertTriangle, Sparkles } from "lucide-react";
 import { groundingToast } from "../lib/studyGrounding";
+import { cardKey, sm2, GRADE } from "../lib/srs";
 
 
 const SYSTEM =
@@ -45,7 +46,7 @@ function parseFlashcards(text) {
 }
 
 // ── Fullscreen study session ──────────────────────────────────────────────────
-function StudySession({ cards, onExit, updateUserField, userData }) {
+function StudySession({ cards, onExit, updateUserField, userData, courseId, userId }) {
   const [idx, setIdx]         = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [results, setResults] = useState([]);
@@ -56,6 +57,53 @@ function StudySession({ cards, onExit, updateUserField, userData }) {
   const touchStartY  = useRef(null);
   const isDragMode   = useRef(false);
   const judgeLock    = useRef(false);
+
+  // SRS scheduling state, prefetched once per session and updated locally as the
+  // student reviews — avoids a DB round trip before every judge() call. Keyed by
+  // cardKey(courseId, question) (see src/lib/srs.ts — stable identity for a card
+  // that lives as JSON, not a DB row with its own id).
+  const srsStateRef = useRef({});
+  useEffect(() => {
+    if (!userId || !courseId) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from("srs_reviews")
+        .select("card_key, ease, interval_days, reps, lapses, due_at")
+        .eq("user_id", userId)
+        .eq("course_id", courseId);
+      if (error) { console.warn("[Study] srs_reviews prefetch failed:", error.message); return; }
+      const map = {};
+      for (const row of data ?? []) {
+        map[row.card_key] = { ease: row.ease, interval: row.interval_days, reps: row.reps, lapses: row.lapses, dueAt: row.due_at };
+      }
+      srsStateRef.current = map;
+    })();
+  }, [userId, courseId]);
+
+  // Persist one SM-2 review — fire-and-forget, matches the awardTokens() pattern
+  // elsewhere in this file. Never blocks the judge animation/advance.
+  const recordReview = useCallback((cardObj, correct) => {
+    if (!userId || !courseId || !cardObj?.question) return;
+    const key   = cardKey(courseId, cardObj.question);
+    const prior = srsStateRef.current[key];
+    const next  = sm2(prior, correct ? GRADE.good : GRADE.again);
+    srsStateRef.current[key] = next;
+    supabase.from("srs_reviews").upsert({
+      user_id:          userId,
+      card_key:         key,
+      course_id:        courseId,
+      question:         cardObj.question,
+      answer:           cardObj.answer,
+      ease:             next.ease,
+      interval_days:    next.interval,
+      reps:             next.reps,
+      lapses:           next.lapses,
+      due_at:           next.dueAt,
+      last_reviewed_at: new Date().toISOString(),
+    }, { onConflict: "user_id,card_key" }).then(({ error }) => {
+      if (error) console.warn("[Study] srs_reviews upsert failed:", error.message);
+    });
+  }, [userId, courseId]);
 
   // Timer refs
   const sessionStart = useRef(Date.now());   // when session began
@@ -98,6 +146,7 @@ function StudySession({ cards, onExit, updateUserField, userData }) {
     if (judgeLock.current || isDone) return;
     resetIdle(); // reset idle on every judge action
     judgeLock.current = true;
+    recordReview(card, correct);
     setExitDir(correct ? "right" : "left");
     setTimeout(() => {
       setResults((r) => [...r, correct]);
@@ -107,7 +156,7 @@ function StudySession({ cards, onExit, updateUserField, userData }) {
       setExitDir(null);
       judgeLock.current = false;
     }, 280);
-  }, [isDone, resetIdle]);
+  }, [isDone, resetIdle, recordReview, card]);
 
   // Keyboard controls: Space = flip, ArrowRight = got it, ArrowLeft = missed
   useEffect(() => {
@@ -551,6 +600,55 @@ export default function Study() {
   const [toastKind,  setToastKind]  = useState("info"); // "warn" | "ok" | "info"
   const showToast = (msg, kind = "info") => { setToastKind(kind); setToast(msg); };
 
+  // "Suggest more cards" — Deck Signature Analysis-backed deck expansion (api/deck-profile.ts).
+  const [suggestions,     setSuggestions]     = useState([]); // [{ question, answer, topic }]
+  const [suggestLoading,  setSuggestLoading]  = useState(false);
+  const [acceptedKeys,    setAcceptedKeys]    = useState(new Set()); // question text of accepted/dismissed suggestions
+
+  const suggestMore = async () => {
+    const dbId = getCourseDbId();
+    if (!dbId) { showToast("Couldn't link to course — try re-syncing Canvas.", "warn"); return; }
+    setSuggestLoading(true);
+    setAcceptedKeys(new Set());
+    try {
+      const res = await fetch("/api/deck-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "suggest", userId, courseId: dbId, count: 5 }),
+      });
+      const body = await res.json();
+      if (!res.ok) { showToast("Couldn't generate suggestions: " + (body.error ?? "unknown error"), "warn"); return; }
+      setSuggestions(Array.isArray(body.cards) ? body.cards : []);
+      if (!body.cards?.length) showToast("No suggestions right now — add a few flashcards first.", "info");
+    } catch (err) {
+      showToast("Suggestion request failed — " + (err.message ?? "unexpected error"), "warn");
+    } finally {
+      setSuggestLoading(false);
+    }
+  };
+
+  const acceptSuggestion = async (card) => {
+    const dbId = getCourseDbId();
+    if (!dbId) return;
+    setAcceptedKeys(prev => new Set(prev).add(card.question));
+    const res = await fetch("/api/flashcards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save", userId, courseId: dbId, cards: [{ question: card.question, answer: card.answer }] }),
+    });
+    if (!res.ok) { showToast("Couldn't save that card.", "warn"); return; }
+    const reloaded = await fetch("/api/flashcards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "load", userId, courseId: dbId }),
+    }).then(r => r.json()).catch(() => null);
+    if (reloaded?.cards?.length) setFlashcards(reloaded.cards);
+  };
+
+  const dismissSuggestion = (card) => {
+    setAcceptedKeys(prev => new Set(prev).add(card.question));
+  };
+
   // Sync selected course when live courses load in
   useEffect(() => {
     if (COURSES.length > 0 && !course) setCourse(COURSES[0]);
@@ -989,7 +1087,7 @@ export default function Study() {
   };
 
   if (inSession && flashcards.length > 0) {
-    return <StudySession cards={flashcards} onExit={() => setInSession(false)} updateUserField={updateUserField} userData={userData} />;
+    return <StudySession cards={flashcards} onExit={() => setInSession(false)} updateUserField={updateUserField} userData={userData} courseId={getCourseDbId()} userId={userId} />;
   }
 
   // No Canvas connected yet
@@ -1144,17 +1242,76 @@ export default function Study() {
             <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>
               {flashcards.length} cards — tap any card to preview
             </p>
-            <button
-              onClick={() => setInSession(true)}
-              style={{
-                background: "var(--color-accent)", color: "#111", border: "none",
-                borderRadius: "var(--radius-btn)", padding: "9px 18px",
-                fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit",
-              }}
-            >
-              Study Now →
-            </button>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                onClick={suggestMore}
+                disabled={suggestLoading}
+                title="Analyze this deck and suggest more cards that match its topics and style"
+                style={{
+                  background: "transparent", color: "var(--text-secondary)",
+                  border: "1px solid rgba(255,255,255,0.12)", borderRadius: "var(--radius-btn)",
+                  padding: "9px 14px", fontSize: "13px", fontWeight: "500",
+                  cursor: suggestLoading ? "not-allowed" : "pointer", fontFamily: "inherit",
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                }}
+              >
+                {suggestLoading ? "Analyzing…" : <>Suggest more cards<Sparkles size={13} /></>}
+              </button>
+              <button
+                onClick={() => setInSession(true)}
+                style={{
+                  background: "var(--color-accent)", color: "#111", border: "none",
+                  borderRadius: "var(--radius-btn)", padding: "9px 18px",
+                  fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                Study Now →
+              </button>
+            </div>
           </div>
+
+          {suggestions.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "18px" }}>
+              <p style={{ color: "var(--text-dim)", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase" }}>
+                Suggested — matches this deck's topics &amp; style
+              </p>
+              {suggestions.filter(c => !acceptedKeys.has(c.question)).map((card, i) => (
+                <div key={card.question + i} style={{
+                  background: "var(--color-surface)", border: "1px dashed rgba(255,255,255,0.18)",
+                  borderRadius: "var(--radius-card)", padding: "14px 16px",
+                }}>
+                  <p style={{ color: "var(--text-dim)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                    {card.topic || "Suggested"}
+                  </p>
+                  <p style={{ color: "var(--text-primary)", fontSize: "14px", marginBottom: "6px" }}>{card.question}</p>
+                  <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "12px" }}>{card.answer}</p>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      onClick={() => acceptSuggestion(card)}
+                      style={{
+                        flex: 1, background: "rgba(52,199,89,0.1)", border: "1px solid rgba(52,199,89,0.25)",
+                        borderRadius: "8px", padding: "8px", color: "rgba(72,210,110,0.9)",
+                        fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >
+                      Add to deck
+                    </button>
+                    <button
+                      onClick={() => dismissSuggestion(card)}
+                      style={{
+                        flex: 1, background: "transparent", border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: "8px", padding: "8px", color: "var(--text-dim)",
+                        fontSize: "13px", cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {flashcards.map((card) => (
               <div key={card.id} style={{ position: "relative" }}>

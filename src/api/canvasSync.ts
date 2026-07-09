@@ -375,6 +375,32 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
     }
   }
 
+  // ── 4b. Upsert quizzes to structured table (real dates, queryable by the reminder
+  // cron) — was previously only saved to the canvas_data blob below, which a cron
+  // scanning across all users can't query efficiently.
+  const flatQuizzes = allQuizzes.flatMap(group =>
+    group.quizzes.map(q => ({ ...q, courseId: group.courseId }))
+  );
+  if (flatQuizzes.length) {
+    const quizRows = flatQuizzes
+      .filter(q => courseIdMap[String(q.courseId)] != null)
+      .map(q => ({
+        user_id:          userId,
+        course_id:        String(courseIdMap[String(q.courseId)]),
+        external_quiz_id: String(q.id),
+        title:            q.title,
+        due_at:           q.dueAt || null,
+        quiz_type:        q.quizType || null,
+        points_possible:  q.pointsPossible ?? null,
+      }));
+    if (quizRows.length) {
+      const { error: quizError } = await supabase
+        .from('canvas_quizzes')
+        .upsert(quizRows, { onConflict: 'user_id,external_quiz_id' });
+      if (quizError) console.error('canvas_quizzes save failed:', quizError.message);
+    }
+  }
+
   // ── 5. Save blob data to canvas_data ────────────────────────────
   const syllabus = buildSyllabus(courses, allModules, allAssignments, allAssignmentGroups);
 
