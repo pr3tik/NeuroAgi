@@ -420,10 +420,14 @@ export default function FilesScreen() {
 
     async function load() {
       const [filesRes, coursesRes] = await Promise.all([
+        // Matches AppContext.tsx's files query: order by updated_at first —
+        // without it, an unordered LIMIT over 700+ rows returns an arbitrary
+        // slice that can exclude exactly the newest extension-synced files.
         supabase.from("files")
           .select("id,course_id,lms_file_id,name,file_type,size_bytes,source_url,folder,status,storage_path,summary,highlights,processed_at,content_text")
           .eq("user_id", TEST_USER_ID)
-          .limit(300),
+          .order("updated_at", { ascending: false })
+          .limit(500),
         supabase.from("courses")
           .select("id, name, course_code")
           .eq("user_id", TEST_USER_ID),
