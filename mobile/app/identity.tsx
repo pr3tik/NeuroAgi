@@ -14,6 +14,9 @@ import {
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
+import GradeGraph, { GradeGraphCourse, GradeGraphAssignment } from "../components/GradeGraph";
+import WritingTracker from "../components/WritingTracker";
+import FriendsSection from "../components/FriendsSection";
 
 // TODO: replace with the real signed-in user once mobile auth exists.
 // Mirrors work.tsx / assignment.tsx — Sarim Khan's real TMU account on the
@@ -161,6 +164,8 @@ export default function IdentityScreen() {
   const [user, setUser]         = useState<any>(null);
   const [coursePerf, setCoursePerf] = useState<CoursePerf[]>([]);
   const [doneCount, setDoneCount]   = useState(0);
+  const [graphCourses, setGraphCourses]         = useState<GradeGraphCourse[]>([]);
+  const [graphAssignments, setGraphAssignments] = useState<GradeGraphAssignment[]>([]);
   const [tokenSummary, setTokenSummary] = useState<{
     points: number; tier: string; todayEarned: number; recentEvents: TokenEvent[];
   } | null>(null);
@@ -187,6 +192,7 @@ export default function IdentityScreen() {
           { count: submittedCount },
           { data: todayRows },
           { data: recent },
+          { data: fullAssignmentRows },
         ] = await Promise.all([
           // Base columns only — guaranteed to exist per supabase-schema.sql.
           // school_city/school_country/points/discord_user_id come from
@@ -198,7 +204,7 @@ export default function IdentityScreen() {
             .select("name, school, gpa, streak, study_time")
             .eq("id", TEST_USER_ID).maybeSingle(),
           supabase.from("courses")
-            .select("name, course_code, current_score, final_score")
+            .select("id, name, course_code, current_score, final_score")
             .eq("user_id", TEST_USER_ID),
           supabase.from("assignments")
             .select("id", { count: "exact", head: true })
@@ -208,6 +214,11 @@ export default function IdentityScreen() {
           supabase.from("token_events")
             .select("action, tokens, created_at")
             .eq("user_id", TEST_USER_ID).order("created_at", { ascending: false }).limit(10),
+          // GradeGraph needs full rows (course_id/due_at/points_possible/score),
+          // not just the summary fields the rest of this screen uses.
+          supabase.from("assignments")
+            .select("id, course_id, due_at, points_possible, score")
+            .eq("user_id", TEST_USER_ID),
         ]);
         if (cancelled) return;
         if (uErr) { setLoadError(true); setLoading(false); return; }
@@ -232,6 +243,13 @@ export default function IdentityScreen() {
           pct:  c.current_score ?? c.final_score ?? null,
         })));
         setDoneCount(submittedCount ?? 0);
+        setGraphCourses((courseRows ?? []).map((c: any) => ({ id: c.id, courseCode: c.course_code })));
+        setGraphAssignments((fullAssignmentRows ?? []).map((a: any) => ({
+          courseId:       a.course_id,
+          dueAt:          a.due_at,
+          pointsPossible: a.points_possible,
+          submission:     { score: a.score },
+        })));
 
         // Mirrors api/token-engine.ts ?action=summary, read directly from Supabase.
         const points = enhanced.points ?? 0;
@@ -345,6 +363,16 @@ export default function IdentityScreen() {
               <Text style={styles.statLabel}>{s.label}</Text>
             </View>
           ))}
+        </View>
+
+        {/* ── Grade trends chart ── */}
+        <View style={{ marginBottom: 32 }}>
+          <GradeGraph courses={graphCourses} assignments={graphAssignments} connected={coursePerf.length > 0} />
+        </View>
+
+        {/* ── Writing Evolution Tracker ── */}
+        <View style={{ marginBottom: 32 }}>
+          <WritingTracker />
         </View>
 
         {/* ── Course performance bars — only when courses exist ── */}
@@ -507,6 +535,13 @@ export default function IdentityScreen() {
             })}
           </View>
         </View>
+
+        {/* ── Friends ── */}
+        <FriendsSection userId={TEST_USER_ID} ownName={name} />
+
+        {/* ShareCard intentionally not ported here — it depends on html2canvas +
+            navigator.share, both browser-only APIs with no direct RN equivalent
+            (would need react-native-view-shot + the native Share API instead). */}
 
       </ScrollView>
     </ScreenWrapper>
