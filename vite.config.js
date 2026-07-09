@@ -74,6 +74,17 @@ function loadEnvKey(key) {
   return process.env[key];
 }
 
+// Inject a secret into process.env for a handler about to be imported — but NEVER
+// assign undefined: `process.env.X = undefined` coerces to the STRING "undefined",
+// which is truthy and silently defeats every "is this configured?" guard in the
+// handlers (found via daily-room: Bearer undefined was sent to Daily instead of the
+// clean 503). Missing key -> delete, so guards see it as genuinely absent.
+function injectEnv(key) {
+  const v = loadEnvKey(key);
+  if (v) process.env[key] = v;
+  else delete process.env[key];
+}
+
 // Pre-wire server-side env aliases from VITE_ vars when the bare versions are absent.
 // All API proxies call loadEnvKey("SUPABASE_URL") etc. — these must resolve locally.
 // In production (Vercel) the real service key is set; locally we fall back to the
@@ -97,6 +108,28 @@ function injectGatewayEnv(provider) {
   if (provider === "anthropic") { set("ANTHROPIC_API_KEY"); set("ANTHROPIC_MODEL"); set("ANTHROPIC_MODEL_CHEAP"); set("ANTHROPIC_MODEL_DEEP"); }
   set("GROQ_KEY"); set("GROQ_MODEL");  // gateway fallbacks can cross providers
 }
+
+// STT proxy plugin — /api/stt (Groq Whisper). CUSTOM proxy on purpose: the handler
+// reads the RAW request stream (for await (req)) for binary/base64 audio, so the
+// generic handlerProxy (which pre-consumes the body into req.body) would starve it.
+// We only inject the key and add the status/json helpers — the stream passes through.
+const sttProxyPlugin = {
+  name: "stt-proxy",
+  configureServer(server) {
+    server.middlewares.use("/api/stt", async (req, res) => {
+      injectEnv("GROQ_KEY");
+      res.status = (code) => { res.statusCode = code; return res; };
+      res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
+      try {
+        const { default: handler } = await import("./api/stt.js");
+        await handler(req, res);
+      } catch (err) {
+        res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+  },
+};
 
 const groqProxyPlugin = {
   name: "groq-proxy",
@@ -168,6 +201,12 @@ const ttsProxyPlugin = {
         }
         try {
           const { text, voiceId } = JSON.parse(body);
+          // Match the prod handler's 400 — without this, missing text crashed the dev
+          // proxy with a 502 "Cannot read properties of undefined (reading 'substring')".
+          if (!text || typeof text !== "string") {
+            res.statusCode = 400; res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ error: "text is required" })); return;
+          }
           const voice = voiceId || "JBFqnCBsd6RMkjVDRZzb";
           const upstream = await fetch(
             `https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_128`,
@@ -176,7 +215,7 @@ const ttsProxyPlugin = {
               headers: { "xi-api-key": ELEVEN_KEY, "Content-Type": "application/json" },
               body: JSON.stringify({
                 text: text.substring(0, 500),
-                model_id: "eleven_turbo_v2_5",
+                model_id: loadEnvKey("ELEVENLABS_TTS_MODEL") || "eleven_flash_v2_5",
                 voice_settings: { stability: 0.42, similarity_boost: 0.82, style: 0.18, use_speaker_boost: true },
               }),
             }
@@ -239,7 +278,7 @@ const tutorContextProxyPlugin = {
 
       process.env.ANTHROPIC_API_KEY    = loadEnvKey("ANTHROPIC_API_KEY");
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
-      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      injectEnv("SUPABASE_SERVICE_KEY");
       // OPENAI_API_KEY: the pattern-recognition hint lookup dynamically imports
       // rag.js's embed() — without this, embed() throws locally (Vercel prod
       // already has this set for other functions).
@@ -271,7 +310,7 @@ const extractProxyPlugin = {
       if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
       process.env.OPENAI_API_KEY       = loadEnvKey("OPENAI_API_KEY"); // image OCR + media transcription
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");         // read large uploads from Storage
-      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      injectEnv("SUPABASE_SERVICE_KEY");
       let body = "";
       req.on("data", c => { body += c; });
       req.on("end", async () => {
@@ -297,7 +336,7 @@ const fileUrlProxyPlugin = {
       res.setHeader("Access-Control-Allow-Origin", "*");
       if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
-      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      injectEnv("SUPABASE_SERVICE_KEY");
       let body = "";
       req.on("data", c => { body += c; });
       req.on("end", async () => {
@@ -326,7 +365,7 @@ const authMigrateProxyPlugin = {
       res.setHeader("Access-Control-Allow-Origin", "*");
       if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
-      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      injectEnv("SUPABASE_SERVICE_KEY");
       const url = new URL(req.url, "http://localhost");
       req.query = Object.fromEntries(url.searchParams.entries());
       let body = "";
@@ -358,7 +397,7 @@ const ragProxyPlugin = {
       res.setHeader("Access-Control-Allow-Origin", "*");
       if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
-      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      injectEnv("SUPABASE_SERVICE_KEY");
       process.env.OPENAI_API_KEY       = loadEnvKey("OPENAI_API_KEY");
       const url = new URL(req.url, "http://localhost");
       req.query = Object.fromEntries(url.searchParams.entries());
@@ -390,7 +429,7 @@ const transcribeProxyPlugin = {
       res.setHeader("Access-Control-Allow-Origin", "*");
       if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
-      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      injectEnv("SUPABASE_SERVICE_KEY");
       process.env.OPENAI_API_KEY       = loadEnvKey("OPENAI_API_KEY");
       process.env.ELEVENLABS_API_KEY   = loadEnvKey("ELEVENLABS_API_KEY");
       const url = new URL(req.url, "http://localhost");
@@ -426,7 +465,7 @@ const tokenEngineProxyPlugin = {
       res.setHeader("Access-Control-Allow-Origin", "*");
       if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
-      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      injectEnv("SUPABASE_SERVICE_KEY");
       const url = new URL(req.url, "http://localhost");
       req.query = Object.fromEntries(url.searchParams.entries());
       let body = "";
@@ -456,7 +495,7 @@ const flashcardsProxyPlugin = {
       res.setHeader("Access-Control-Allow-Origin", "*");
       if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
-      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      injectEnv("SUPABASE_SERVICE_KEY");
       let body = "";
       req.on("data", c => { body += c; });
       req.on("end", async () => {
@@ -484,7 +523,7 @@ const dailyRoomProxyPlugin = {
       res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
       if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
-      process.env.DAILY_API_KEY = loadEnvKey("DAILY_API_KEY");
+      injectEnv("DAILY_API_KEY");
       let body = "";
       req.on("data", c => { body += c; });
       req.on("end", async () => {
@@ -515,7 +554,7 @@ const nudgeProxyPlugin = {
       res.setHeader("Access-Control-Allow-Origin", "*");
       if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
-      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      injectEnv("SUPABASE_SERVICE_KEY");
       const resendKey = loadEnvKey("RESEND_API_KEY");
       if (resendKey) process.env.RESEND_API_KEY = resendKey;
       let body = "";
@@ -543,7 +582,7 @@ const summarizeProxyPlugin = {
     server.middlewares.use("/api/summarize", async (req, res) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
       if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
-      process.env.ANTHROPIC_API_KEY = loadEnvKey("ANTHROPIC_API_KEY");
+      injectEnv("ANTHROPIC_API_KEY");
       let body = "";
       req.on("data", c => { body += c; });
       req.on("end", async () => {
@@ -605,7 +644,7 @@ const LMS_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY",
   "EXTENSION_AUTH_SECRET"];
 
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
+  plugins: [react(), canvasProxyPlugin, sttProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
     handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
     // OPENAI_API_KEY: session-close.ts now imports rag.js's embed() for the
     // pattern-recognition harvest — without this, embed() throws locally.
@@ -625,6 +664,13 @@ export default defineConfig({
     handlerProxy("/api/canvas-reads",     () => import("./api/canvas-reads.js")),
     handlerProxy("/api/grade-weights",    () => import("./api/grade-weights.js")),
     handlerProxy("/api/route-intent",     () => import("./api/route-intent.js")),
+    // Reggie's front door — its tool-use loop calls many api/* tools in-process, so it
+    // needs the union of their env (Supabase + brain + Anthropic via HANDLER_ENV, plus
+    // OpenAI for rag embeddings and Groq for the gateway's cheap fallback).
+    handlerProxy("/api/agent-manager",    () => import("./api/agent-manager.js"), [...HANDLER_ENV, "OPENAI_API_KEY", "GROQ_KEY"]),
+    handlerProxy("/api/library-agent",    () => import("./api/library-agent.js")),
+    handlerProxy("/api/university-brain", () => import("./api/university-brain.js"), [...HANDLER_ENV, "GROQ_KEY"]),
+    handlerProxy("/api/nudge",            () => import("./api/nudge.js"),         [...HANDLER_ENV, "RESEND_API_KEY"]),
     handlerProxy("/api/guest-demo",       () => import("./api/guest-demo.js"),    HANDLER_ENV)],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
   build: {

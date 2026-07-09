@@ -10,6 +10,8 @@ import { NAV, LABEL }       from "./navigation/navConfig";
 import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
 import NeuralRing           from "./components/NeuralRing";
+import ReggieTester         from "./components/ReggieTester";
+import UniBrainTester       from "./components/UniBrainTester";
 import SiteGuide            from "./components/SiteGuide";
 import BottomNav            from "./components/BottomNav";
 import Landing              from "./pages/Landing"; // eager — logged-out entry, shown on first paint
@@ -217,7 +219,18 @@ export default function App() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError,   setResetError]   = useState("");
   const [resetDone,    setResetDone]    = useState(false);
+  // A clicked reset link that failed server-side ("error" = invalid/replaced token,
+  // "expired" = >1h old). These used to be silently ignored — the user landed on the
+  // app with no explanation, which reads as "reset password doesn't work".
+  const [resetFailed,  setResetFailed]  = useState<string | null>(() => {
+    const r = new URLSearchParams(window.location.search).get("reset");
+    return r === "error" || r === "expired" ? r : null;
+  });
+  const [resetEmail,     setResetEmail]     = useState("");
+  const [resetLinkState, setResetLinkState] = useState<"idle" | "sending" | "sent">("idle");
   const [resendSent,   setResendSent]   = useState(false);
+  // Email-verification gate feedback: null | "checking" | a message to show the user.
+  const [verifyMsg,    setVerifyMsg]    = useState<string | null>(null);
   const [oauthError,   setOauthError]   = useState<string | null>(null);
 
   // ── Google sign-in return (/?auth=google) ──────────────────────────────────
@@ -258,6 +271,47 @@ export default function App() {
     finish();  // fast path if the session was already restored
     return () => sub.subscription.unsubscribe();
   }, [setUserId]);
+
+  // While the verification gate is up, poll every 5s so the app unblocks ITSELF the
+  // moment the link is clicked (usually on the user's phone) — a user report showed the
+  // old flow stuck on "Check your email" with the DB already verified, because nothing
+  // ever re-checked and the continue button gave no feedback.
+  const needsEmailVerify = !!userData && userData.email_verified === false;
+  useEffect(() => {
+    if (!needsEmailVerify) return;
+    const t = setInterval(() => { refreshUser(); }, 5000);
+    return () => clearInterval(t);
+  }, [needsEmailVerify, refreshUser]);
+
+  async function checkVerified() {
+    setVerifyMsg("checking");
+    const fresh = await refreshUser();   // if verified, userData updates and the gate unmounts
+    if (!fresh) setVerifyMsg("Couldn't check just now — give it a second and try again.");
+    else if (fresh.email_verified === false) setVerifyMsg("Not verified yet — open the link in the email first (check your junk/spam folder), then tap this again.");
+    else setVerifyMsg(null);
+  }
+
+  // From the failed-reset-link card: request a fresh reset email.
+  async function requestNewResetLink() {
+    const email = resetEmail.trim();
+    if (!email || resetLinkState !== "idle") return;
+    setResetLinkState("sending");
+    try {
+      await fetch("/api/email?action=reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+    } catch { /* anti-enumeration: same confirmation either way */ }
+    setResetLinkState("sent");
+  }
+
+  function dismissResetFailed() {
+    setResetFailed(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("reset");
+    window.history.replaceState({}, "", url.pathname + url.search);
+  }
 
   async function resendVerification() {
     if (!userData?.email) return;
@@ -595,7 +649,7 @@ export default function App() {
       )}
 
       {/* Premium password-reset card */}
-      {(resetMode || resetDone) && (
+      {(resetMode || resetDone || resetFailed) && (
         <div style={{
           position:"fixed", inset:0, zIndex:1000,
           background:"rgba(8,8,10,0.72)", backdropFilter:"blur(14px)", WebkitBackdropFilter:"blur(14px)",
@@ -608,7 +662,45 @@ export default function App() {
             boxShadow:"0 30px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03), inset 0 1px 0 rgba(255,255,255,0.05)",
             animation:"fsCardUp .5s cubic-bezier(.34,1.56,.64,1) both", textAlign:"center",
           }}>
-            {!resetDone ? (
+            {resetFailed ? (
+              <>
+                <div style={{ width:"52px", height:"52px", margin:"0 auto 22px", borderRadius:"16px", background:"rgba(255,159,10,0.1)", border:"1px solid rgba(255,159,10,0.25)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="#ff9f0a" strokeWidth="1.8"/>
+                    <path d="M12 7.5v5" stroke="#ff9f0a" strokeWidth="1.8" strokeLinecap="round"/>
+                    <circle cx="12" cy="16" r="1" fill="#ff9f0a"/>
+                  </svg>
+                </div>
+                <h2 style={{ color:"#F5F5F5", fontSize:"21px", fontWeight:"700", letterSpacing:"-0.4px", marginBottom:"8px" }}>
+                  {resetFailed === "expired" ? "That link has expired" : "That link isn't valid anymore"}
+                </h2>
+                {resetLinkState !== "sent" ? (
+                  <>
+                    <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"13.5px", lineHeight:1.6, marginBottom:"24px" }}>
+                      {resetFailed === "expired"
+                        ? "Reset links only work for 1 hour. Enter your email and we'll send you a fresh one."
+                        : "It may have been replaced by a newer email, or already used. Enter your email and we'll send a fresh link."}
+                    </p>
+                    <input className="fs-reset-input" type="email" placeholder="Your account email" value={resetEmail}
+                      onChange={e => setResetEmail(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") requestNewResetLink(); }}
+                      style={{ width:"100%", boxSizing:"border-box", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"12px", padding:"13px 15px", color:"#F5F5F5", fontSize:"14px", outline:"none", fontFamily:"inherit", transition:"all .2s ease", marginBottom:"12px", textAlign:"left" }}/>
+                    <button className="fs-reset-btn" onClick={requestNewResetLink} disabled={resetLinkState !== "idle" || !resetEmail.trim()}
+                      style={{ width:"100%", background: resetLinkState !== "idle" || !resetEmail.trim() ? "rgba(255,255,255,0.55)" : "#fff", color:"#111", border:"none", borderRadius:"13px", padding:"14px", fontSize:"15px", fontWeight:"650", cursor: resetLinkState !== "idle" || !resetEmail.trim() ? "default" : "pointer", fontFamily:"inherit", transition:"transform .1s ease, background .2s ease", marginBottom:"10px" }}>
+                      {resetLinkState === "sending" ? "Sending…" : "Email me a new link →"}
+                    </button>
+                  </>
+                ) : (
+                  <p style={{ color:"rgba(48,209,88,0.85)", fontSize:"13.5px", lineHeight:1.65, marginBottom:"18px" }}>
+                    Done — if that email has an account, a fresh reset link is on its way. Check your junk/spam folder too.
+                  </p>
+                )}
+                <button onClick={dismissResetFailed}
+                  style={{ background:"none", border:"none", color:"rgba(255,255,255,0.35)", fontSize:"13px", cursor:"pointer", fontFamily:"inherit", textDecoration:"underline" }}>
+                  Back to FSchoolAI
+                </button>
+              </>
+            ) : !resetDone ? (
               <>
                 <div style={{ width:"52px", height:"52px", margin:"0 auto 22px", borderRadius:"16px", background:"rgba(48,209,88,0.12)", border:"1px solid rgba(48,209,88,0.22)", display:"flex", alignItems:"center", justifyContent:"center" }}>
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -706,13 +798,18 @@ export default function App() {
             </div>
             <div style={{ fontSize:"22px", fontWeight:"700", color:"#F5F5F5", letterSpacing:"-0.4px", marginBottom:"10px" }}>Check your email</div>
             <p style={{ fontSize:"14px", color:"rgba(255,255,255,0.42)", lineHeight:1.65, marginBottom:"4px" }}>We sent a verification link to</p>
-            <p style={{ fontSize:"14px", fontWeight:"600", color:"rgba(255,255,255,0.72)", marginBottom:"30px" }}>{userData.email}</p>
+            <p style={{ fontSize:"14px", fontWeight:"600", color:"rgba(255,255,255,0.72)", marginBottom:"8px" }}>{userData.email}</p>
+            <p style={{ fontSize:"12px", color:"rgba(255,255,255,0.3)", marginBottom:"26px" }}>Not seeing it? Check your junk/spam folder — this page moves on automatically once you click the link.</p>
             <button
-              onClick={() => refreshUser()}
-              style={{ width:"100%", background:"#F5F5F5", color:"#111", border:"none", borderRadius:"13px", padding:"14px", fontSize:"15px", fontWeight:"650", cursor:"pointer", fontFamily:"inherit", marginBottom:"10px", transition:"opacity .15s" }}
+              onClick={checkVerified}
+              disabled={verifyMsg === "checking"}
+              style={{ width:"100%", background:"#F5F5F5", color:"#111", border:"none", borderRadius:"13px", padding:"14px", fontSize:"15px", fontWeight:"650", cursor: verifyMsg === "checking" ? "default" : "pointer", fontFamily:"inherit", marginBottom:"10px", transition:"opacity .15s", opacity: verifyMsg === "checking" ? 0.6 : 1 }}
             >
-              I&apos;ve verified — continue &rarr;
+              {verifyMsg === "checking" ? "Checking…" : <>I&apos;ve verified — continue &rarr;</>}
             </button>
+            {verifyMsg && verifyMsg !== "checking" && (
+              <p style={{ fontSize:"12.5px", color:"rgba(255,180,90,0.85)", lineHeight:1.55, margin:"0 0 10px" }}>{verifyMsg}</p>
+            )}
             <button
               onClick={resendVerification}
               disabled={resendSent}
@@ -868,6 +965,8 @@ export default function App() {
       </div>
 
       <NeuralRing currentPage={currentPage} />
+      <ReggieTester />
+      <UniBrainTester />
       {navMode === "tabs" && (
         <BottomNav
           currentPage={currentPage}

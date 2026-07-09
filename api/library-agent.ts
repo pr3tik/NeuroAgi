@@ -17,10 +17,15 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+// Lazy client — module-load createClient crashes the Node-20 CI suite (supabase-js
+// realtime needs WebSocket) and breaks import-safety for Reggie's in-process tool calls.
+let _supabase: any = null;
+function db() {
+  if (!_supabase) {
+    _supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  }
+  return _supabase;
+}
 
 // Content types that are always private (never shared across students)
 const PRIVATE_CONTENT_TYPES = new Set(["inbox", "submission", "grade", "personal_note"]);
@@ -76,8 +81,11 @@ function extractKeywords(message) {
  * @param {string} [params.activeCourseId] - The currently active course (if known)
  * @returns {object} { found: boolean, snippets: string[], sources: object[] }
  */
-export async function queryLibrary({ userId, message, courseIds = [], activeCourseId = null }) {
-  if (!isLibraryQuery(message)) {
+export async function queryLibrary({ userId, message, courseIds = [], activeCourseId = null , force = false }) {
+  // `force` skips the keyword gate — a deliberate tool call (Reggie's library_search)
+  // has already decided this IS a library query; the gate exists for the passive
+  // tutor-context path that runs on every message.
+  if (!force && !isLibraryQuery(message)) {
     return { found: false, snippets: [], sources: [] };
   }
 
@@ -97,15 +105,15 @@ export async function queryLibrary({ userId, message, courseIds = [], activeCour
 
     // Search 1: Active course — all content types including private for this student
     if (activeCourseId) {
-      const { data: activeResults } = await supabase
+      const { data: activeResults } = await db()
         .from("course_content")
         .select("id, content_type, text, summary, concepts, module_name, week_number, professor_name, is_private, seen_by_count, course_id")
         .eq("course_id", activeCourseId)
-        .or(`is_private.eq.false,and(is_private.eq.true,id.in.(${
-          // For private content, only return if it belongs to this student
-          // We check via a sub-query approach — private content linked to userId
-          "select id from course_content where is_private = true"
-        }))`)
+        // course_content is a SHARED table with no per-user ownership column (see the
+        // migration header), so private rows are unattributable — return shared only.
+        // (The previous .or() embedded a raw SQL subquery, which PostgREST rejects with
+        // a 400 that the destructure swallowed — this branch silently returned nothing.)
+        .eq("is_private", false)
         .order("seen_by_count", { ascending: false })
         .limit(20);
 
@@ -116,7 +124,7 @@ export async function queryLibrary({ userId, message, courseIds = [], activeCour
 
     // Search 2: All enrolled courses — shared content only
     if (courseIds.length > 0) {
-      const { data: enrolledResults } = await supabase
+      const { data: enrolledResults } = await db()
         .from("course_content")
         .select("id, content_type, text, summary, concepts, module_name, week_number, professor_name, is_private, seen_by_count, course_id")
         .in("course_id", courseIds)
@@ -210,9 +218,9 @@ export async function queryLibrary({ userId, message, courseIds = [], activeCour
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { userId, message, courseIds, activeCourseId } = req.body;
+  const { userId, message, courseIds, activeCourseId, force } = req.body;
   if (!userId || !message) return res.status(400).json({ error: "userId and message required" });
 
-  const result = await queryLibrary({ userId, message, courseIds, activeCourseId });
+  const result = await queryLibrary({ userId, message, courseIds, activeCourseId, force: !!force });
   return res.status(200).json(result);
 }

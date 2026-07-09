@@ -20,7 +20,11 @@ import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
 import { ensureTutorReply } from "../lib/tutorReply";
-import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play } from "lucide-react";
+import { parseVoiceTags, stripAgentJSON } from "../lib/voiceTags";
+import { createSentenceChunker } from "../lib/ttsChunker";
+import { streamReggie } from "../lib/reggieStream";
+import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play, Mic } from "lucide-react";
+import { createDictation } from "../lib/dictation";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -66,10 +70,38 @@ const NAV_OVERRIDE_KEYWORDS = [
   "ask me questions", "ask me about", "flashcard me", "drill me",
 ];
 
+// Friendly "what Reggie is doing" labels for the live tool-progress line (Reggie mode).
+const REGGIE_TOOL_LABELS = {
+  canvas_get_grades: "checking your grades", canvas_get_upcoming: "checking what's due",
+  compute_grade_weights: "computing grade weights", rag_search: "searching your materials",
+  generate_quiz: "building a quiz", evaluate_answers: "grading your answers",
+  generate_study_plan: "building a study plan", generate_framework: "mapping the concepts",
+  list_flashcards: "loading your flashcards", save_flashcards: "saving flashcards",
+  summarize_text: "summarizing", what_if_plan: "running the what-if", token_summary: "checking your points",
+};
+const reggieToolLabel = (n) => REGGIE_TOOL_LABELS[n] || (n || "").replace(/_/g, " ");
+
 function isVizRequest(text) {
   const lower = text.toLowerCase();
   if (NAV_OVERRIDE_KEYWORDS.some(kw => lower.includes(kw))) return false;
   return VIZ_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+// Reggie mode uses a STRICT viz gate: only unambiguous artifact asks (charts, diagrams,
+// games, timers…). The broad list's generic verbs ("create", "make me") and study words
+// ("flashcard", "quiz", "planner") would hijack requests Reggie's real tools should
+// handle — "create flashcards for BIO120" must reach save_flashcards, not a sample-data
+// React widget. Classic mode keeps the broad gate (its only builder IS the artifact path).
+const VIZ_KEYWORDS_STRICT = [
+  "chart", "graph", "visuali", "plot", "diagram", "dashboard", "histogram", "scatter", "heatmap",
+  "interactive", "animation", "animate", "simulat",
+  "timer", "calculator", "kanban", "game", "snake", "pomodoro",
+  "sorting", "pathfinding",
+];
+function isStrictVizRequest(text) {
+  const lower = text.toLowerCase();
+  if (NAV_OVERRIDE_KEYWORDS.some(kw => lower.includes(kw))) return false;
+  return VIZ_KEYWORDS_STRICT.some(kw => lower.includes(kw));
 }
 
 function parseArtifact(raw) {
@@ -271,21 +303,8 @@ const VOICE_REPEAT_WORDS = /^(say that again|repeat|repeat that|again|what did y
 const VOICE_SPEED_FAST   = /\b(faster|speed up|too slow|quicker|hurry)\b/i;
 const VOICE_SPEED_SLOW   = /\b(slower|slow down|too fast|slow it down)\b/i;
 
-// ── Voice intent tag parser ──────────────────────────────────────────────────
-// Extracts [VOICE:x], [SPEED:x], [TONE:x], [READ:x], [QUIZ:x],
-//          [SYNC], [GENERATE_FLASHCARDS:course] from Claude reply
-function parseVoiceTags(raw) {
-  const tags: Record<string, any> = {};
-  let cleaned = raw;
-  const re = /\[(VOICE|SPEED|TONE|READ|QUIZ|SYNC|GENERATE_FLASHCARDS|NAVIGATE):?([^\]]*)\]/gi;
-  let m;
-  while ((m = re.exec(raw)) !== null) {
-    // Use `true` for argument-less tags (e.g. [SYNC]), string value for the rest
-    tags[m[1].toUpperCase()] = m[2].trim() || true;
-    cleaned = cleaned.replace(m[0], "");
-  }
-  return { tags, cleaned: cleaned.trim() };
-}
+// Voice intent tag parsing + stray-tool-JSON stripping live in src/lib/voiceTags.ts
+// (shared with Reggie mode + unit-tested there).
 
 // ── ElevenLabs TTS ─────────────────────────────────────────────────────────
 // AudioContext bypasses iOS Safari autoplay restrictions.
@@ -299,17 +318,6 @@ function getAudioContext() {
 // Sanitize text before sending to TTS.
 // Course codes like "GGRC25H3 F LEC01" sound terrible when read aloud.
 // We strip them and replace with a natural phrase where possible.
-// Strip stray tool-call JSON the model sometimes emits as text — e.g.
-// {"name":"recall","arguments":{"query":"…"}} — when it thinks a tool is wired.
-// The system prompt also forbids it; this is the defensive backstop on the final text.
-function stripAgentJSON(text) {
-  if (typeof text !== "string") return text;
-  return text
-    .replace(/\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}\s*\}/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 function sanitizeForTTS(text) {
   return text
     // Strip markdown so TTS never reads symbols aloud ("asterisk", "one dot", etc.).
@@ -690,6 +698,10 @@ function fibonacciSphere(n) {
 
 const NODES = fibonacciSphere(N);
 
+// Per-turn TTS generation stamp for Reggie voice mode — see runReggieTurn. Module scope
+// is fine: one NeuralRing instance per app.
+let reggieTtsGen = 0;
+
 // Safe-area bottom offset — accounts for iOS home indicator + browser toolbar
 function safeBottom() {
   // env(safe-area-inset-bottom) isn't readable from JS directly,
@@ -889,6 +901,11 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   const inputRef                = useRef(null);
   const attachInputRef          = useRef(null);
   const [attachStatus, setAttachStatus] = useState<string | null>(null);
+  // Mic dictation for the text input (tap to talk -> words land in the box, user edits
+  // then sends). Separate from full voice mode; works in classic AND Reggie mode.
+  const [dictState, setDictState] = useState<"idle" | "listening" | "processing">("idle");
+  const [dictInterim, setDictInterim] = useState("");
+  const dictationRef = useRef<any>(null);
 
   // Voice intelligence state
   const [activeVoiceId,      setActiveVoiceId]      = useState(null); // drives instant chip highlight
@@ -898,6 +915,17 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   const [muted,        setMuted]        = useState(() => {
     try { return localStorage.getItem("fschool_muted") === "1"; } catch { return false; }
   });
+  // ── Reggie mode (beta): route the tutor through the agent-manager loop (router +
+  //    tools + brain) instead of the direct Claude/Groq path. Off by default; toggled
+  //    from the chat header; persisted. Fully reversible — off === original behavior.
+  const [reggieMode,   setReggieMode]   = useState(() => {
+    try { return localStorage.getItem("fschool_reggie_mode") === "1"; } catch { return false; }
+  });
+  const reggieModeRef = useRef(reggieMode);
+  useEffect(() => {
+    reggieModeRef.current = reggieMode;
+    try { localStorage.setItem("fschool_reggie_mode", reggieMode ? "1" : "0"); } catch {}
+  }, [reggieMode]);
   const [speaking,     setSpeaking]     = useState(false);
   const [streamingMsg, setStreamingMsg] = useState("");
   const typeTimerRef = useRef(null);
@@ -1914,13 +1942,20 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       });
       if (!sttRes.ok) throw new Error(`STT ${sttRes.status}`);
       const { text } = await sttRes.json();
-      if (!text?.trim()) {
-        // Empty transcript — re-listen silently rather than leaving dead air
+      // Whisper HALLUCINATES on silence: ".", "...", "Thank you.", "you" are its classic
+      // quiet-room artifacts. Treating them as real speech created the "keeps saying
+      // dots" loop: silence -> "." sent as a message -> reply -> re-listen -> repeat.
+      const t = (text ?? "").trim();
+      const silenceArtifact =
+        /^[.,!?;:…\s]*$/.test(t) ||
+        /^(you|thank you|thanks for watching)[.!]?$/i.test(t);
+      if (!t || silenceArtifact) {
+        // Empty/hallucinated transcript — re-listen silently rather than leaving dead air
         sphereStateRef.current = "idle";
         if (voiceModeRef.current && !micDenied) await startAutoListen();
         return;
       }
-      const trimmed = text.trim();
+      const trimmed = t;
 
       // ── Stop-word detection — halt without sending to Claude ─────────────
       if (VOICE_STOP_WORDS.test(trimmed)) {
@@ -2008,6 +2043,260 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     }
   };
 
+  // ── Reggie-mode turn: stream /api/agent-manager (live tokens + tool progress) ──
+  // Text mode streams the answer token-by-token into the streaming bubble; voice mode
+  // shows the tool-progress line while working, then speaks the answer. Self-contained
+  // (does not use the classic viz/rag/Claude tail).
+  // ── Voice-tag executors — ONE implementation shared by the classic tutor and
+  // Reggie mode, so the two paths can't drift. Tags come from src/lib/voiceTags.
+  const applyVoicePrefTags = (voiceTags) => {
+    // [VOICE:x] — match by name, persist + apply immediately
+    if (voiceTags.VOICE) {
+      const query  = String(voiceTags.VOICE).toLowerCase().trim();
+      const words  = query.split(/\s+/).filter(w => w.length > 2);
+      // Score each voice: exact name > partial name > label words coverage
+      const scored = availableVoices.map(v => {
+        const name   = v.name.toLowerCase();
+        const labels = Object.values(v.labels ?? {}).join(" ").toLowerCase();
+        const all    = name + " " + labels;
+        if (name === query) return { v, score: 100 };
+        const hits = words.filter(w => all.includes(w)).length;
+        return { v, score: hits };
+      }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+      const match = scored[0]?.v;
+      if (match) {
+        voiceIdRef.current = match.voice_id;         // sync — next TTS chunk uses this
+        setActiveVoiceId(match.voice_id);             // instant chip highlight
+        updateUserField("preferred_voice_id", match.voice_id).catch(() => {}); // persist async
+      }
+    }
+    if (voiceTags.SPEED) {
+      const sp = Math.min(1.3, Math.max(0.7, parseFloat(voiceTags.SPEED) || 1.0));
+      speedRef.current = sp;
+      updateUserField("preferred_speed", sp).catch(() => {});
+    }
+    if (voiceTags.TONE) {
+      const t = String(voiceTags.TONE).toLowerCase();
+      if (TONE_PRESETS[t]) {
+        toneRef.current = t;
+        updateUserField("preferred_tone", t).catch(() => {});
+      }
+    }
+  };
+
+  // [SYNC] — refresh Canvas data, narrating the result.
+  const execVoiceSync = async () => {
+    try {
+      if (!canvasToken) {
+        const msg = "Canvas isn't connected yet. Head to the Canvas page to set that up first.";
+        setMessages(m => [...m, { role: "assistant", content: msg }]);
+        lastSpokenTextRef.current = msg;
+        await speakAndType(msg);
+      } else {
+        await forceSync();
+        const cCount = courses.length;
+        const aCount = assignments.length;
+        const msg = `Done — synced ${cCount} course${cCount !== 1 ? "s" : ""} and ${aCount} assignment${aCount !== 1 ? "s" : ""}.`;
+        setMessages(m => [...m, { role: "assistant", content: msg }]);
+        lastSpokenTextRef.current = msg;
+        await speakAndType(msg);
+      }
+    } catch (_) {
+      if (voiceModeRef.current) await speakAndType("Canvas sync ran into an issue. Try again in a moment.");
+    }
+  };
+
+  // [GENERATE_FLASHCARDS:course] — generate + save 8 cards, award tokens, narrate.
+  const execVoiceFlashcards = async (courseTag) => {
+    const course = typeof courseTag === "string" && courseTag
+      ? courseTag
+      : (courseOptions[0] ?? "your course");
+    try {
+      const flashResult = await groq([{
+        role: "user",
+        content: `Create exactly 8 study flashcards for "${course}". Format each card as: Q: [question] | A: [answer] — one per line. No numbering, no extra text, no markdown.`,
+      }]);
+      const cards = flashResult.split(String.fromCharCode(10))
+        .filter(l => l.includes("Q:") && l.includes(" | ") && l.includes("A:"))
+        .map(l => {
+          const [qP, aP] = l.split(" | ");
+          return { question: (qP || "").replace(/^Q:/i, "").trim(), answer: (aP || "").replace(/^A:/i, "").trim() };
+        })
+        .filter(c => c.question && c.answer);
+      if (cards.length > 0) {
+        await supabase.from("flashcards").upsert({
+          user_id:      userId,
+          course_id:    null,
+          cards:        cards.map(c => ({ question: c.question, answer: c.answer })),
+          generated_at: new Date().toISOString(),
+        }, { onConflict: "user_id,course_id" });
+        awardTokens("flashcards_generated", {}).catch(() => {});
+        const msg = `${cards.length} flashcards ready for ${course}. Head to Study to review them.`;
+        setMessages(m => [...m, { role: "assistant", content: msg }]);
+        lastSpokenTextRef.current = msg;
+        await speakAndType(msg);
+      }
+    } catch (_) {
+      if (voiceModeRef.current) await speakAndType("Flashcard generation hit an error. Try again in a moment.");
+    }
+  };
+
+  const runReggieTurn = async (text) => {
+    const history = messages
+      .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .map(m => ({ role: m.role, content: m.content }));
+    abortCtrlRef.current = new AbortController();
+    // Stale barge-in context from a previous turn must not leak into this one (the
+    // classic path consumes it; Reggie mode clears it).
+    interruptedTextRef.current = null;
+    const voice = voiceModeRef.current;
+    const speakLive = voice && !muted;                 // sentence-chunked TTS while streaming
+    let streamed = "", toolNote = "", finalOut = "", errMsg = null;
+    let widgets: Array<{ type: string; data: any }> = [];
+    const paint = () => setStreamingMsg([toolNote, voice ? "" : streamed].filter(Boolean).join("\n\n"));
+
+    // ── Streaming TTS (voice mode): speak each sentence the moment it closes — same
+    // chain discipline as the classic streaming path (stop button + barge-in honored
+    // via voiceTTSAbortRef / abort signal). Voice-UI tags are stripped before speech.
+    // A per-turn generation stamp (not just the shared boolean) kills the race where a
+    // NEW turn resets voiceTTSAbortRef before an old chain item ran its abort check —
+    // the old item would otherwise resume speaking stale sentences over the new answer.
+    let ttsChain = Promise.resolve();
+    const myGen = ++reggieTtsGen;
+    voiceTTSAbortRef.current = false;
+    let spokenSoFar = "";
+    const enqueueTTS = (sentence) => {
+      const clean = sanitizeForTTS(parseVoiceTags(sentence).cleaned);
+      if (!clean) return;
+      // Progressive capture so a barge-in (stopResponse) sees what was actually spoken
+      // this turn — streamingMsg is suppressed in voice mode, so it can't serve that role.
+      spokenSoFar += (spokenSoFar ? " " : "") + clean;
+      lastSpokenTextRef.current = spokenSoFar;
+      // PIPELINE: start synthesizing THIS sentence immediately, in parallel with whatever
+      // is currently playing — the chain serializes PLAYBACK order only. Without this,
+      // sentence N+1's synthesis waited for sentence N to finish playing, inserting a
+      // full TTS round-trip of silence between every spoken sentence.
+      const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
+      const audioP = fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+      audioP.catch(() => {});   // consumed in the chain — pre-empt unhandled-rejection noise
+      ttsChain = ttsChain.then(async () => {
+        if (abortCtrlRef.current?.signal?.aborted || voiceTTSAbortRef.current || myGen !== reggieTtsGen) return;
+        setSpeaking(true); speakingRef.current = true;
+        sphereStateRef.current = "speaking";
+        try {
+          const { play } = await audioP;
+          await play(src => { audioSourceRef.current = src; });
+        } catch (e) { console.warn("[reggie voice chunk]", e?.message); }
+      });
+    };
+    const chunker = createSentenceChunker(enqueueTTS);
+
+    try {
+      await streamReggie(
+        { userId, message: text, history, voiceMode: voice },
+        {
+          onToken:      (d) => { streamed += d; toolNote = ""; paint(); if (speakLive) chunker.feed(d); },
+          onReset:      ()  => { streamed = ""; paint(); chunker.reset(); },
+          onToolCall:   (n) => { toolNote = `🔧 ${reggieToolLabel(n)}…`; paint(); },
+          onToolResult: ()  => { /* keep the note until the next token/reset */ },
+          onDone:       (r) => { finalOut = r.output || ""; widgets = r.widgets || []; },
+          onError:      (m) => { errMsg = m; },
+        },
+        abortCtrlRef.current?.signal,
+      );
+    } catch (e) {
+      if (e?.name === "AbortError") { setLoading(false); setStreamingMsg(""); return; }
+      errMsg = e?.message || "request failed";
+    }
+    if (speakLive) chunker.flush();                    // speak the trailing sentence
+    setLoading(false);
+    setStreamingMsg("");
+    if (errMsg) {
+      // If the stream was cut off after some text arrived, keep that partial answer
+      // (it's real and useful) rather than throwing it away for a canned failure.
+      const partial = stripAgentJSON(streamed);
+      const content = partial || "Something went wrong. Try again.";
+      logChat(userId, "assistant", content, null, currentConvIdRef.current);
+      setMessages(m => [...m, { role: "assistant", content }]);
+      voiceTTSAbortRef.current = true;                 // don't keep talking into an error
+      // A chain item may have set the speaking state before the error — clean up, or the
+      // orb stays "speaking" forever and the barge-in RAF kills the mic for good.
+      setSpeaking(false); speakingRef.current = false;
+      sphereStateRef.current = "idle"; audioSourceRef.current = null;
+      if (voice && voiceModeRef.current && !micDenied) await startAutoListen();
+      return;
+    }
+    const rawOut = stripAgentJSON(finalOut) || stripAgentJSON(streamed) || "I couldn't put an answer together — try rephrasing?";
+    // Voice-UI tags: strip from display, then execute (shared executors with classic).
+    const { tags: vTags, cleaned } = parseVoiceTags(rawOut);
+    // A tags-only reply (e.g. just "[SYNC]") must not display the raw tag.
+    const out = cleaned || "On it!";
+    // Apply voice/speed/tone BEFORE awaiting the TTS chain — fetchAndDecodeAudio reads
+    // the refs per chunk, so "speak slower" takes effect on the tail of THIS reply
+    // (classic behaves the same way).
+    applyVoicePrefTags(vTags);
+    // If a tool produced an interactive quiz, attach it so it renders as InlineQuiz cards.
+    const quizCards = (widgets.find(w => w.type === "quiz")?.data?.cards) ?? null;
+    // If Reggie chose to navigate, carry out the page change (+ optional study config).
+    const nav = widgets.find(w => w.type === "navigate")?.data ?? null;
+    logChat(userId, "assistant", out, null, currentConvIdRef.current);
+
+    if (speakLive) {
+      // Audio for every sentence is already queued — commit the bubble, wait it out.
+      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}) }]);
+      lastSpokenTextRef.current = out;
+      await ttsChain;
+      voiceTTSAbortRef.current = false;
+      setSpeaking(false); speakingRef.current = false;
+      sphereStateRef.current = "idle"; audioSourceRef.current = null;
+    } else if (voice) {
+      // Muted voice mode: typewriter only (speakAndType skips audio when muted).
+      lastSpokenTextRef.current = out;
+      await speakAndType(out);
+      if (quizCards) setMessages(m => [...m, { role: "assistant", content: "Here's your quiz:", quiz: quizCards }]);
+    } else {
+      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}) }]);
+    }
+
+    // ── Voice actions (parity with the classic tutor, shared executors). Gate on the
+    // LIVE ref too, so exiting voice mode mid-turn doesn't narrate actions aloud.
+    if (vTags.SYNC && voice && voiceModeRef.current) await execVoiceSync();
+    if (vTags.GENERATE_FLASHCARDS && voice && voiceModeRef.current) await execVoiceFlashcards(vTags.GENERATE_FLASHCARDS);
+
+    if (nav?.page) {
+      if (nav.course || nav.mode) setStudyConfig({ course: nav.course ?? null, mode: nav.mode ?? "flashcards" });
+      setTimeout(() => setPendingNav({ page: nav.page }), 500);
+    }
+    // Living-mind self-write parity with the classic tutor: every 6th exchange.
+    exchangeCountRef.current += 1;
+    if (exchangeCountRef.current % 6 === 0) {
+      const recent = [...messages, { role: "user", content: text }, { role: "assistant", content: out }].slice(-8);
+      fetch("/api/self-write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId, recentMessages: recent }) })
+        .then(r => (r.ok ? r.json() : null)).then(d => { if (d?.updated && d?.patch) setLivingMind(d.patch); }).catch(() => {});
+    }
+    // Auto-restart listening after the reply ends, if still in voice mode.
+    if (voice && voiceModeRef.current && !micDenied) await startAutoListen();
+  };
+
+  function toggleDictation() {
+    if (dictState === "listening") {
+      const usingServer = dictationRef.current?.engine === "server";
+      setDictState(usingServer ? "processing" : "idle");   // server engine transcribes after stop
+      dictationRef.current?.stop();
+      return;
+    }
+    if (dictState === "processing") return;
+    const d = createDictation({
+      onInterim: (t) => setDictInterim(t),
+      onFinal:   (t) => { setDictInterim(""); setInput(prev => (prev ? prev.replace(/\s+$/, "") + " " : "") + t); },
+      onError:   (m) => { setAttachStatus(m); setTimeout(() => setAttachStatus(null), 5000); },
+      onEnd:     ()  => { setDictState("idle"); setDictInterim(""); },
+    });
+    dictationRef.current = d;
+    setDictState("listening");
+    d.start();
+  }
+
   const sendMessage = async (overrideText?) => {
     const text = overrideText ?? input.trim();
     if (!text || loading) return;
@@ -2073,7 +2362,10 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
 
     try {
       // ── Visualization routing — send to Claude artifact builder ───────────
-      if (isVizRequest(userMsg.content)) {
+      // BOTH modes get artifacts, but Reggie mode uses the STRICT gate so generic
+      // "create/make/quiz/flashcard" asks reach his real tools instead of a
+      // sample-data widget (see VIZ_KEYWORDS_STRICT).
+      if (reggieModeRef.current ? isStrictVizRequest(userMsg.content) : isVizRequest(userMsg.content)) {
         const aType = detectArtifactType(userMsg.content);
         const raw = await fetch("/api/claude", {
           method:  "POST",
@@ -2089,8 +2381,27 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
           setMessages(m => [...m, { role: "assistant", content: displayText }]);
         }
         setLoading(false);
+        // Voice mode: narrate the handoff and keep the conversation loop alive — without
+        // this the viz path ended with a silent bubble and a dead mic. (Speak directly:
+        // speakAndType would commit a duplicate bubble — setMessages above already did.)
+        if (voiceModeRef.current) {
+          lastSpokenTextRef.current = displayText;
+          if (!muted) {
+            try {
+              const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
+              setSpeaking(true); speakingRef.current = true; sphereStateRef.current = "speaking";
+              const { play } = await fetchAndDecodeAudio(sanitizeForTTS(displayText), voiceIdRef.current, speedRef.current, tone);
+              await play(src => { audioSourceRef.current = src; });
+            } catch (_) { /* TTS best-effort */ }
+            setSpeaking(false); speakingRef.current = false; sphereStateRef.current = "idle"; audioSourceRef.current = null;
+          }
+          if (voiceModeRef.current && !micDenied) await startAutoListen();
+        }
         return;
       }
+
+      // ── Reggie mode: everything else streams through the agent loop ──────
+      if (reggieModeRef.current) { await runReggieTurn(text); return; }
 
       // ── Dynamic context fetch (chatbot agent upgrade) ─────────────────────
       // Fires in parallel — if it resolves before Claude, gets injected into prompt.
@@ -2100,7 +2411,9 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       // RAG source material is query-specific, so it's fetched per message here.
       let ragContext = null;
       abortCtrlRef.current = new AbortController();
-      const ragFetch = fetch("/api/rag?action=query", {
+      // In Reggie mode the agent does its own retrieval (rag_search tool), so skip this
+      // separate fetch + context injection entirely.
+      const ragFetch = reggieModeRef.current ? Promise.resolve() : fetch("/api/rag?action=query", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, query: userMsg.content, rerank: false }),
@@ -2122,7 +2435,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       // keeping it generous costs nothing in the normal (fast) case but stops a
       // slightly-slow query from dropping the file's grounding (the "no SOURCE MATERIAL"
       // bug). Lower caps trade reliable grounding for a worst-case bound that rarely helps.
-      if (!voiceModeRef.current) {
+      if (!voiceModeRef.current && !reggieModeRef.current) {
         await Promise.race([ragFetch, new Promise(r => setTimeout(r, 4000))]);
       }
 
@@ -2175,7 +2488,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
           const streamRes = await fetch("/api/claude", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages: apiMessages, system: finalSystem, max_tokens: 400, stream: true }),
+            body: JSON.stringify({ messages: apiMessages, system: finalSystem, max_tokens: 400, stream: true, task: "voice" }),
             signal: abortCtrlRef.current?.signal,
           });
           if (!streamRes.ok) throw new Error(`Stream ${streamRes.status}`);
@@ -2189,14 +2502,18 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
           const enqueueTTS = (text) => {
             const clean = sanitizeForTTS(text.trim());
             if (!clean) return;
+            // PIPELINE (same as the Reggie path): synthesize now, serialize playback only —
+            // otherwise each sentence's synthesis waits for the previous one to finish playing.
+            const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
+            const audioP = fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+            audioP.catch(() => {});
             ttsChain = ttsChain.then(async () => {
               if (abortCtrlRef.current?.signal?.aborted || voiceTTSAbortRef.current) return;
               setSpeaking(true); speakingRef.current = true;
               sphereStateRef.current = "speaking";
-              const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
               console.log("[voice] speaking chunk | voiceId:", voiceIdRef.current ?? "(default)");
               try {
-                const { play } = await fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+                const { play } = await audioP;
                 await play(src => { audioSourceRef.current = src; });
               } catch (e) { console.warn("[voice chunk]", e.message); }
             });
@@ -2270,40 +2587,8 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       // ── Voice intent tag extraction (strip before display/quiz/nav parsing) ──
       const { tags: voiceTags, cleaned: rawNoVoice } = parseVoiceTags(raw);
 
-      // Apply VOICE tag — match by name, persist + apply immediately
-      if (voiceTags.VOICE) {
-        const query  = voiceTags.VOICE.toLowerCase().trim();
-        const words  = query.split(/\s+/).filter(w => w.length > 2);
-        // Score each voice: exact name > partial name > label words coverage
-        const scored = availableVoices.map(v => {
-          const name   = v.name.toLowerCase();
-          const labels = Object.values(v.labels ?? {}).join(" ").toLowerCase();
-          const all    = name + " " + labels;
-          if (name === query) return { v, score: 100 };
-          const hits = words.filter(w => all.includes(w)).length;
-          return { v, score: hits };
-        }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
-        const match = scored[0]?.v;
-        if (match) {
-          voiceIdRef.current = match.voice_id;         // sync — next TTS chunk uses this
-          setActiveVoiceId(match.voice_id);             // instant chip highlight
-          updateUserField("preferred_voice_id", match.voice_id).catch(() => {}); // persist async
-        }
-      }
-      // Apply SPEED tag
-      if (voiceTags.SPEED) {
-        const s = Math.min(1.3, Math.max(0.7, parseFloat(voiceTags.SPEED) || 1.0));
-        speedRef.current = s;
-        updateUserField("preferred_speed", s).catch(() => {});
-      }
-      // Apply TONE tag
-      if (voiceTags.TONE) {
-        const t = voiceTags.TONE.toLowerCase();
-        if (TONE_PRESETS[t]) {
-          toneRef.current = t;
-          updateUserField("preferred_tone", t).catch(() => {});
-        }
-      }
+      // Apply VOICE/SPEED/TONE tags (shared executor with Reggie mode)
+      applyVoicePrefTags(voiceTags);
       // [READ:assignments] — Claude's text response IS the reading; tag is stripped
       // [QUIZ:*] — Claude will emit [QUIZ_START]..[QUIZ_END] which is handled below
 
@@ -2381,61 +2666,9 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
         lastSpokenTextRef.current = cleanText;
         await speakAndType(cleanText);
       }
-      // ── Execute voice action tags (SYNC, GENERATE_FLASHCARDS) ───────────────
-      if (voiceTags.SYNC && voiceModeRef.current) {
-        try {
-          if (!canvasToken) {
-            const msg = "Canvas isn't connected yet. Head to the Canvas page to set that up first.";
-            setMessages(m => [...m, { role: "assistant", content: msg }]);
-            lastSpokenTextRef.current = msg;
-            await speakAndType(msg);
-          } else {
-            await forceSync();
-            const cCount = courses.length;
-            const aCount = assignments.length;
-            const msg = `Done — synced ${cCount} course${cCount !== 1 ? "s" : ""} and ${aCount} assignment${aCount !== 1 ? "s" : ""}.`;
-            setMessages(m => [...m, { role: "assistant", content: msg }]);
-            lastSpokenTextRef.current = msg;
-            await speakAndType(msg);
-          }
-        } catch (_) {
-          if (voiceModeRef.current) await speakAndType("Canvas sync ran into an issue. Try again in a moment.");
-        }
-      }
-
-      if (voiceTags.GENERATE_FLASHCARDS && voiceModeRef.current) {
-        const course = typeof voiceTags.GENERATE_FLASHCARDS === "string"
-          ? voiceTags.GENERATE_FLASHCARDS
-          : (courseOptions[0] ?? "your course");
-        try {
-          const flashResult = await groq([{
-            role: "user",
-            content: `Create exactly 8 study flashcards for "${course}". Format each card as: Q: [question] | A: [answer] — one per line. No numbering, no extra text, no markdown.`,
-          }]);
-          const cards = flashResult.split("\n")
-            .filter(l => l.includes("Q:") && l.includes(" | ") && l.includes("A:"))
-            .map(l => {
-              const [qP, aP] = l.split(" | ");
-              return { question: (qP || "").replace(/^Q:\s*/i, "").trim(), answer: (aP || "").replace(/^A:\s*/i, "").trim() };
-            })
-            .filter(c => c.question && c.answer);
-          if (cards.length > 0) {
-            await supabase.from("flashcards").upsert({
-              user_id:      userId,
-              course_id:    null,
-              cards:        cards.map(c => ({ question: c.question, answer: c.answer })),
-              generated_at: new Date().toISOString(),
-            }, { onConflict: "user_id,course_id" });
-            awardTokens("flashcards_generated", {}).catch(() => {});
-            const msg = `${cards.length} flashcards ready for ${course}. Head to Study to review them.`;
-            setMessages(m => [...m, { role: "assistant", content: msg }]);
-            lastSpokenTextRef.current = msg;
-            await speakAndType(msg);
-          }
-        } catch (_) {
-          if (voiceModeRef.current) await speakAndType("Flashcard generation hit an error. Try again in a moment.");
-        }
-      }
+      // ── Execute voice action tags (shared executors with Reggie mode) ───────
+      if (voiceTags.SYNC && voiceModeRef.current) await execVoiceSync();
+      if (voiceTags.GENERATE_FLASHCARDS && voiceModeRef.current) await execVoiceFlashcards(voiceTags.GENERATE_FLASHCARDS);
 
       // Auto-restart listening after reply ends, if still in voice mode
       if (voiceModeRef.current && !micDenied) {
@@ -2642,6 +2875,23 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 6h16M4 12h16M4 18h10" />
                   </svg>
+                </button>
+
+                {/* Reggie mode toggle (beta) — swaps the tutor brain to the agent loop */}
+                <button
+                  onClick={() => setReggieMode(v => !v)}
+                  title={reggieMode ? "Reggie mode ON — using the agent loop (tools + brain). Tap to switch back to the classic tutor." : "Reggie mode OFF — classic tutor. Tap to route through Reggie (tools + brain)."}
+                  aria-label="Toggle Reggie mode"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5, padding: "0 10px", height: 32, flexShrink: 0,
+                    borderRadius: 20, cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
+                    fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase",
+                    background: reggieMode ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.06)",
+                    border: `1px solid ${reggieMode ? "rgba(196,154,60,0.5)" : "rgba(255,255,255,0.12)"}`,
+                    color: reggieMode ? "#C49A3C" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  🤖 Reggie
                 </button>
 
                 {/* Voice toggle */}
@@ -3013,12 +3263,31 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     <rect x="13.5" y="5" width="2.5" height="4" rx="1.25"/>
                   </svg>
                 </button>
+                {/* Mic dictation — tap to talk, words land in the input (better STT path:
+                    browser speech engine when available, /api/stt fallback elsewhere) */}
+                <button
+                  onClick={toggleDictation}
+                  title={dictState === "listening" ? "Stop dictating" : dictState === "processing" ? "Transcribing…" : "Dictate (speech-to-text into the box)"}
+                  aria-label="Dictate"
+                  style={{
+                    background: dictState === "listening" ? "rgba(255,80,80,0.16)" : "none",
+                    border: dictState === "listening" ? "1px solid rgba(255,80,80,0.35)" : "1px solid transparent",
+                    borderRadius: 8, padding: "6px 6px", cursor: "pointer", flexShrink: 0,
+                    color: dictState === "listening" ? "#ff6b5a" : dictState === "processing" ? "#C49A3C" : "rgba(255,255,255,0.28)",
+                    transition: "color 0.15s, background 0.15s", outline: "none",
+                    animation: dictState === "listening" ? "fsPulseRing 1.4s ease-out infinite" : "none",
+                  }}
+                  onMouseEnter={e => { if (dictState === "idle") e.currentTarget.style.color = "#C49A3C"; }}
+                  onMouseLeave={e => { if (dictState === "idle") e.currentTarget.style.color = "rgba(255,255,255,0.28)"; }}
+                >
+                  <Mic size={16} strokeWidth={2.2} />
+                </button>
                 <textarea
                   ref={inputRef}
-                  value={input}
+                  value={dictInterim ? (input ? input + " " : "") + dictInterim : input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); getAudioContext(); sendMessage(); } }}
-                  placeholder="Ask a question, or where to go…"
+                  placeholder={dictState === "listening" ? "Listening… tap the mic to stop" : dictState === "processing" ? "Transcribing…" : "Ask a question, or where to go…"}
                   rows={1}
                   style={{
                     flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",

@@ -21,7 +21,7 @@ function sbHeaders(key: string) {
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const { action, userId, courseId, withinDays, includeSubmitted } = req.body ?? {};
+  const { action, userId, courseId, withinDays, includeSubmitted, status } = req.body ?? {};
   if (!userId) return res.status(400).json({ error: "userId is required" });
 
   const sbUrl = process.env.SUPABASE_URL;
@@ -38,8 +38,10 @@ export default async function handler(req: any, res: any) {
     if (!((await uCheck.json().catch(() => [])) || []).length) return res.status(401).json({ error: "Invalid userId" });
 
     if (action === "grades")   return await grades(res, sbUrl, H, userId, courseId);
-    if (action === "upcoming") return await upcoming(res, sbUrl, H, userId, withinDays, includeSubmitted);
-    return res.status(400).json({ error: "Unknown action. Use grades or upcoming." });
+    // `overdue` is a convenience alias for upcoming with status:'overdue'.
+    if (action === "upcoming") return await upcoming(res, sbUrl, H, userId, withinDays, includeSubmitted, status);
+    if (action === "overdue")  return await upcoming(res, sbUrl, H, userId, withinDays, includeSubmitted, "overdue");
+    return res.status(400).json({ error: "Unknown action. Use grades, upcoming, or overdue." });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message ?? "canvas read failed" });
   }
@@ -87,25 +89,39 @@ async function grades(res: any, sbUrl: string, H: any, userId: string, courseId?
   return res.status(200).json({ ok: true, courses, gpa });
 }
 
+// Lists assignments by window:
+//   'upcoming' (default) → due in the future, soonest first (optionally within N days)
+//   'overdue'            → PAST due AND not submitted, most-recently-due first (what the
+//                          student is behind on) — optionally only within the last N days
+//   'all'                → every assignment, soonest due first
+// Overdue always excludes submitted work (a submitted past-due item isn't "behind").
 async function upcoming(
-  res: any, sbUrl: string, H: any, userId: string, withinDays?: any, includeSubmitted?: boolean,
+  res: any, sbUrl: string, H: any, userId: string, withinDays?: any, includeSubmitted?: boolean, status?: string,
 ) {
   const u = encodeURIComponent(userId);
+  const now = Date.now();
   const nowIso = new Date().toISOString();
-  let url = `${sbUrl}/rest/v1/assignments?user_id=eq.${u}`
-    + `&due_at=gte.${encodeURIComponent(nowIso)}`
-    + `&select=*,courses(name)`
-    + `&order=due_at.asc&limit=2000`;
-  // withinDays given (incl. 0) → bound the horizon; 0/negative clamp to a today-only window.
-  if (withinDays != null && Number.isFinite(Number(withinDays))) {
-    const days = Math.max(0, Number(withinDays));
-    const horizon = new Date(Date.now() + days * 86_400_000).toISOString();
-    url += `&due_at=lte.${encodeURIComponent(horizon)}`;
+  const mode = status === "overdue" || status === "all" ? status : "upcoming";
+  const hasWindow = withinDays != null && Number.isFinite(Number(withinDays));
+  const days = hasWindow ? Math.max(0, Number(withinDays)) : 0;
+
+  let url = `${sbUrl}/rest/v1/assignments?user_id=eq.${u}&select=*,courses(name)&limit=2000`;
+  if (mode === "upcoming") {
+    url += `&due_at=gte.${encodeURIComponent(nowIso)}&order=due_at.asc`;
+    if (hasWindow) url += `&due_at=lte.${encodeURIComponent(new Date(now + days * 86_400_000).toISOString())}`;
+  } else if (mode === "overdue") {
+    url += `&due_at=lt.${encodeURIComponent(nowIso)}&order=due_at.desc`;
+    if (hasWindow) url += `&due_at=gte.${encodeURIComponent(new Date(now - days * 86_400_000).toISOString())}`;
+  } else { // all
+    url += `&order=due_at.asc`;
   }
+
   const r = await fetch(url, { headers: H });
   if (!r.ok) return res.status(r.status).json({ error: `Supabase ${r.status}` });
   const rows = await r.json();
 
+  // Overdue means not done yet → always drop submitted; other modes honor includeSubmitted.
+  const dropSubmitted = mode === "overdue" || !includeSubmitted;
   const assignments = (rows || [])
     .map((a: any) => ({
       id: a.id,
@@ -117,7 +133,7 @@ async function upcoming(
       submitted: a.submitted_at != null,
       missing: a.missing ?? false,
     }))
-    .filter((a: any) => (includeSubmitted ? true : !a.submitted));
+    .filter((a: any) => (dropSubmitted ? !a.submitted : true));
 
-  return res.status(200).json({ ok: true, assignments });
+  return res.status(200).json({ ok: true, status: mode, assignments });
 }

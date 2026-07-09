@@ -8,12 +8,24 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY,
-  { db: { schema: "public" } }  // app data lives in `neuroagi`, not public.* (Vincent's)
-);
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy clients (same fix as api/nudge.ts): `new Resend(undefined)` at module load THROWS,
+// so with RESEND_API_KEY absent (local dev) every email action 502'd before running; and
+// module-load createClient crashes the Node-20 CI suite. Call db()/mailer() per request.
+let _supabase: any = null;
+function db() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_KEY,
+      { db: { schema: "public" } }  // app data lives in `neuroagi`, not public.* (Vincent's)
+    );
+  }
+  return _supabase;
+}
+function mailer() {
+  const key = process.env.RESEND_API_KEY;
+  return key ? new Resend(key) : null;
+}
 
 // Build the public base URL for email links.
 // Only use the request host when it is a known production or custom domain.
@@ -49,7 +61,7 @@ export default async function handler(req, res) {
 
     const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
 
-    const { error } = await supabase
+    const { error } = await db()
       .from("users")
       .update({
         email_verify_token:   token,
@@ -67,7 +79,7 @@ export default async function handler(req, res) {
     const verifyUrl = getBaseUrl(req) + "/api/email?action=verify&token=" + token + "&userId=" + userId;
 
     try {
-      await resend.emails.send({
+      await mailer()!.emails.send({
         from:    "FSchoolAI <noreply@fschoolai.com>",
         to:      email,
         subject: "Verify your FSchoolAI account",
@@ -104,7 +116,7 @@ export default async function handler(req, res) {
     const { token, userId } = req.query;
     if (!token || !userId) return res.redirect("/?verify=error&reason=missing");
 
-    const { data: user, error } = await supabase
+    const { data: user, error } = await db()
       .from("users")
       .select("id, email_verify_token, email_verify_sent_at, email_verified")
       .eq("id", userId)
@@ -118,7 +130,7 @@ export default async function handler(req, res) {
     const hoursSince = (Date.now() - sentAt.getTime()) / (1000 * 60 * 60);
     if (hoursSince > 24) return res.redirect("/?verify=error&reason=expired");
 
-    const { error: updateErr } = await supabase
+    const { error: updateErr } = await db()
       .from("users")
       .update({ email_verified: true, email_verify_token: null })
       .eq("id", userId);
@@ -172,7 +184,7 @@ a.btn:hover{opacity:.82}
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "email required" });
 
-    const { data: user } = await supabase
+    const { data: user } = await db()
       .from("users")
       .select("id, name")
       .eq("email", email.toLowerCase().trim())
@@ -181,16 +193,20 @@ a.btn:hover{opacity:.82}
     // Always return 200 — don't reveal if email exists (security)
     if (!user) return res.status(200).json({ success: true });
 
+    // Dedicated reset_token columns — resets used to piggyback on email_verify_token,
+    // which meant requesting a reset KILLED any pending verification link (and vice
+    // versa): whichever email the user clicked second always failed. Never share
+    // one-time-token columns between flows.
     const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
-    await supabase
+    await db()
       .from("users")
-      .update({ email_verify_token: token, email_verify_sent_at: new Date().toISOString() })
+      .update({ reset_token: token, reset_token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString() })
       .eq("id", user.id);
 
     const resetUrl = getBaseUrl(req) + "/api/email?action=reset-confirm&token=" + token + "&userId=" + user.id;
 
     try {
-      await resend.emails.send({
+      await mailer()!.emails.send({
         from:    "FSchoolAI <noreply@fschoolai.com>",
         to:      email,
         subject: "Reset your FSchoolAI password",
@@ -225,17 +241,16 @@ a.btn:hover{opacity:.82}
     const { token, userId } = req.query;
     if (!token || !userId) return res.redirect("/?reset=error");
 
-    const { data: user } = await supabase
+    const { data: user } = await db()
       .from("users")
-      .select("id, email_verify_token, email_verify_sent_at")
+      .select("id, reset_token, reset_token_expires_at")
       .eq("id", userId)
       .maybeSingle();
 
-    if (!user || user.email_verify_token !== token) return res.redirect("/?reset=error");
-
-    const sentAt     = new Date(user.email_verify_sent_at);
-    const hoursSince = (Date.now() - sentAt.getTime()) / (1000 * 60 * 60);
-    if (hoursSince > 1) return res.redirect("/?reset=expired");
+    if (!user || !user.reset_token || user.reset_token !== token) return res.redirect("/?reset=error");
+    if (user.reset_token_expires_at && Date.now() > new Date(user.reset_token_expires_at).getTime()) {
+      return res.redirect("/?reset=expired");
+    }
 
     return res.redirect("/?reset=confirm&token=" + token + "&userId=" + userId);
   }
