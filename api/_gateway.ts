@@ -139,6 +139,7 @@ export function resolveRoute(req: GatewayRequest): Route & { allowFallback: bool
   }
 
   const HAIKU  = env("ANTHROPIC_MODEL_CHEAP") || "claude-haiku-4-5";
+  const VOICE  = env("ANTHROPIC_MODEL_VOICE") || HAIKU;   // spoken turns: latency-first
   const SONNET = env("ANTHROPIC_MODEL")       || "claude-sonnet-4-6"; // legacy var = tutor/default
   const OPUS   = env("ANTHROPIC_MODEL_DEEP")  || "claude-opus-4-8";
   const GROQ_MODEL = env("GROQ_MODEL") || "llama-3.1-8b-instant";
@@ -149,6 +150,9 @@ export function resolveRoute(req: GatewayRequest): Route & { allowFallback: bool
     classify:  { provider: "anthropic", model: HAIKU },
     summarize: { provider: "anthropic", model: HAIKU,  fallback: { provider: "groq", model: GROQ_MODEL } },
     tutor:     { provider: "anthropic", model: SONNET, fallback: { provider: "anthropic", model: HAIKU } },
+    // Voice replies are short + conversational — Haiku's time-to-first-token is the
+    // dominant win there; typed study questions keep Sonnet's depth (task "tutor").
+    voice:     { provider: "anthropic", model: VOICE,  fallback: { provider: "anthropic", model: SONNET } },
     default:   { provider: "anthropic", model: SONNET, fallback: { provider: "anthropic", model: HAIKU } },
     deep:      { provider: "anthropic", model: OPUS,   fallback: { provider: "anthropic", model: SONNET }, thinking: true },
     reasoning: { provider: "anthropic", model: OPUS,   fallback: { provider: "anthropic", model: SONNET }, thinking: true },

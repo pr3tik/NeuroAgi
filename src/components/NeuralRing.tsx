@@ -1937,13 +1937,20 @@ export default function NeuralRing() {
       });
       if (!sttRes.ok) throw new Error(`STT ${sttRes.status}`);
       const { text } = await sttRes.json();
-      if (!text?.trim()) {
-        // Empty transcript — re-listen silently rather than leaving dead air
+      // Whisper HALLUCINATES on silence: ".", "...", "Thank you.", "you" are its classic
+      // quiet-room artifacts. Treating them as real speech created the "keeps saying
+      // dots" loop: silence -> "." sent as a message -> reply -> re-listen -> repeat.
+      const t = (text ?? "").trim();
+      const silenceArtifact =
+        /^[.,!?;:…\s]*$/.test(t) ||
+        /^(you|thank you|thanks for watching)[.!]?$/i.test(t);
+      if (!t || silenceArtifact) {
+        // Empty/hallucinated transcript — re-listen silently rather than leaving dead air
         sphereStateRef.current = "idle";
         if (voiceModeRef.current && !micDenied) await startAutoListen();
         return;
       }
-      const trimmed = text.trim();
+      const trimmed = t;
 
       // ── Stop-word detection — halt without sending to Claude ─────────────
       if (VOICE_STOP_WORDS.test(trimmed)) {
@@ -2476,7 +2483,7 @@ export default function NeuralRing() {
           const streamRes = await fetch("/api/claude", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages: apiMessages, system: finalSystem, max_tokens: 400, stream: true }),
+            body: JSON.stringify({ messages: apiMessages, system: finalSystem, max_tokens: 400, stream: true, task: "voice" }),
             signal: abortCtrlRef.current?.signal,
           });
           if (!streamRes.ok) throw new Error(`Stream ${streamRes.status}`);
