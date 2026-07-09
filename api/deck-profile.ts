@@ -146,7 +146,7 @@ export default async function handler(req: any, res: any) {
     }
 
     if (action === "suggest") {
-      const { focusTopic, count } = req.body ?? {};
+      const { focusTopic, count, difficulty: difficultyIn } = req.body ?? {};
       const r = await fetch(
         `${sbUrl}/rest/v1/deck_profiles?user_id=eq.${encodeURIComponent(userId)}&course_id=eq.${encodeURIComponent(cid)}&select=*&limit=1`,
         { headers: sbHeaders(sbKey) },
@@ -160,6 +160,9 @@ export default async function handler(req: any, res: any) {
       }
 
       const n = Math.max(1, Math.min(Number(count) || 5, 10));
+      const difficulty: "easy" | "medium" | "hard" | "mixed" =
+        ["easy", "medium", "hard", "mixed"].includes(String(difficultyIn)) ? difficultyIn : "mixed";
+
       const sys = "You write flashcards matching an existing deck's own topics and style. Respond with STRICT JSON only, no prose.";
       const prompt = `This student's flashcard deck covers these topics (with confidence — lower confidence = weaker, more worth reinforcing):
 ${JSON.stringify(profile.topics, null, 2)}
@@ -167,13 +170,21 @@ ${JSON.stringify(profile.topics, null, 2)}
 Deck style: ${profile.style_notes || "(not specified — match a plain, direct Q&A style)"}
 ${focusTopic ? `\nFocus specifically on this topic, which needs reinforcement: "${focusTopic}"` : ""}
 
-Write ${n} NEW flashcards that fit naturally into this deck — same style, same level of depth, covering ${focusTopic ? "the focus topic" : "the deck's weaker topics first"}. Do not repeat existing questions.
+Write ${n} NEW flashcards that fit naturally into this deck, covering ${focusTopic ? "the focus topic" : "the deck's weaker topics first"}. Do not repeat existing questions.
 
-Return JSON: {"cards":[{"question":"...","answer":"...","topic":"..."}]}`;
+Each card must be tagged with a difficulty and actually match that difficulty in how the question is SHAPED, not just in wording:
+- "easy" — direct recall of a single fact or definition. One clear answer, no reasoning required.
+- "medium" — requires applying or connecting a concept: a short calculation, or a "why does X happen" / "what would happen if Y" reasoning step.
+- "hard" — multi-step application, an edge case, or synthesis across two related topics from the deck. Should genuinely require working through something, not just recalling a longer fact.
+${difficulty === "mixed"
+  ? `Produce a spread across all three levels (roughly even, at least one of each if ${n} >= 3).`
+  : `Every card must be "${difficulty}" difficulty — do not include any other level.`}
+
+Return JSON: {"cards":[{"question":"...","answer":"...","topic":"...","difficulty":"easy|medium|hard"}]}`;
 
       const genRes = await callModel({
         task: "default", system: sys, messages: [{ role: "user", content: prompt }],
-        max_tokens: 4000, metadata: { tool: "deck-profile.suggest", user_id: userId, course_id: cid },
+        max_tokens: 4000, metadata: { tool: "deck-profile.suggest", user_id: userId, course_id: cid, difficulty },
       });
       if (!genRes.ok) return res.status(genRes.status || 502).json({ error: genRes.error ?? "suggestion failed" });
 

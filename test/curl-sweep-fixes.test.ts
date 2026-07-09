@@ -102,6 +102,11 @@ describe("self-write NO_UPDATE guard (prefix regression)", () => {
 describe("assignment-reminder missing users.phone (42703 regression)", () => {
   it("returns 500 with the real error instead of a fake success", async () => {
     process.env.TWILIO_SID = "sid"; process.env.TWILIO_TOKEN = "tok"; process.env.TWILIO_FROM = "+1000";
+    // CRON_SECRET fail-closed check (added after this test was originally written —
+    // see CLAUDE.md "Conventions & gotchas") now runs before the rest of the handler,
+    // so a valid auth header is needed to actually reach the users.phone code path
+    // this test exercises.
+    process.env.CRON_SECRET = "test-secret";
     vi.stubGlobal("fetch", vi.fn(async (url: any) => {
       if (String(url).includes("/rest/v1/users"))
         return R({ code: "42703", message: "column users.phone does not exist" });
@@ -109,7 +114,7 @@ describe("assignment-reminder missing users.phone (42703 regression)", () => {
     }));
     const h = (await import("../api/assignment-reminder.ts")).default;
     const res = makeRes();
-    await h({ method: "GET", query: {}, headers: {} }, res);
+    await h({ method: "GET", query: {}, headers: { authorization: "Bearer test-secret" } }, res);
     expect(res.statusCode).toBe(500);
     expect(res.body.error).toMatch(/users\.phone|users query failed/);
   });

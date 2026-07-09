@@ -601,9 +601,10 @@ export default function Study() {
   const showToast = (msg, kind = "info") => { setToastKind(kind); setToast(msg); };
 
   // "Suggest more cards" — Deck Signature Analysis-backed deck expansion (api/deck-profile.ts).
-  const [suggestions,     setSuggestions]     = useState([]); // [{ question, answer, topic }]
+  const [suggestions,     setSuggestions]     = useState([]); // [{ question, answer, topic, difficulty }]
   const [suggestLoading,  setSuggestLoading]  = useState(false);
   const [acceptedKeys,    setAcceptedKeys]    = useState(new Set()); // question text of accepted/dismissed suggestions
+  const [suggestDifficulty, setSuggestDifficulty] = useState("mixed"); // "mixed" | "easy" | "medium" | "hard"
 
   const suggestMore = async () => {
     const dbId = getCourseDbId();
@@ -614,7 +615,7 @@ export default function Study() {
       const res = await fetch("/api/deck-profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "suggest", userId, courseId: dbId, count: 5 }),
+        body: JSON.stringify({ action: "suggest", userId, courseId: dbId, count: 5, difficulty: suggestDifficulty }),
       });
       const body = await res.json();
       if (!res.ok) { showToast("Couldn't generate suggestions: " + (body.error ?? "unknown error"), "warn"); return; }
@@ -1270,6 +1271,26 @@ export default function Study() {
             </div>
           </div>
 
+          <div style={{ display: "flex", gap: "6px", marginBottom: suggestions.length > 0 ? "10px" : "18px" }}>
+            {["mixed", "easy", "medium", "hard"].map(d => (
+              <button
+                key={d}
+                onClick={() => setSuggestDifficulty(d)}
+                title={`Suggest ${d} cards`}
+                style={{
+                  flex: 1, textTransform: "capitalize",
+                  background: suggestDifficulty === d ? "rgba(255,255,255,0.1)" : "transparent",
+                  border: `1px solid ${suggestDifficulty === d ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.1)"}`,
+                  borderRadius: "8px", padding: "6px 4px",
+                  color: suggestDifficulty === d ? "var(--text-primary)" : "var(--text-dim)",
+                  fontSize: "11px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+
           {suggestions.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "18px" }}>
               <p style={{ color: "var(--text-dim)", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase" }}>
@@ -1280,9 +1301,21 @@ export default function Study() {
                   background: "var(--color-surface)", border: "1px dashed rgba(255,255,255,0.18)",
                   borderRadius: "var(--radius-card)", padding: "14px 16px",
                 }}>
-                  <p style={{ color: "var(--text-dim)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
-                    {card.topic || "Suggested"}
-                  </p>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <p style={{ color: "var(--text-dim)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px", margin: 0 }}>
+                      {card.topic || "Suggested"}
+                    </p>
+                    {card.difficulty && (
+                      <span style={{
+                        fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px",
+                        padding: "2px 8px", borderRadius: "10px",
+                        color: card.difficulty === "easy" ? "rgba(100,220,130,0.9)" : card.difficulty === "hard" ? "rgba(255,100,90,0.9)" : "rgba(255,204,0,0.85)",
+                        background: card.difficulty === "easy" ? "rgba(100,220,130,0.12)" : card.difficulty === "hard" ? "rgba(255,100,90,0.12)" : "rgba(255,204,0,0.12)",
+                      }}>
+                        {card.difficulty}
+                      </span>
+                    )}
+                  </div>
                   <p style={{ color: "var(--text-primary)", fontSize: "14px", marginBottom: "6px" }}>{card.question}</p>
                   <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "12px" }}>{card.answer}</p>
                   <div style={{ display: "flex", gap: "8px" }}>

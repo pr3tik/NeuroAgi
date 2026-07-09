@@ -2812,11 +2812,14 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
               {!maximized && <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.18)" }} />}
             </div>
 
-            {/* Header */}
+            {/* Header — flexWrap so an overflowing button row wraps onto a second line
+                instead of being clipped by this panel's overflow:"hidden" (was the actual
+                cause of Close looking "missing" at narrow/non-maximized widths — it wasn't
+                missing, it was clipped off-canvas). */}
             <div style={{ padding: "10px 20px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", rowGap: "8px" }}>
                 <div style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.18), rgba(255,255,255,0.04))", border: "1px solid rgba(255,255,255,0.12)" }} />
-                <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ minWidth: 0, flex: "1 1 100px", overflow: "hidden" }}>
                   {editingName ? (
                     <input
                       ref={ringNameInputRef}
@@ -2828,39 +2831,30 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                         background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.18)",
                         borderRadius: "6px", padding: "3px 9px", color: "var(--text-primary)",
                         fontSize: "17px", fontWeight: "600", letterSpacing: "-0.2px",
-                        outline: "none", fontFamily: "inherit", width: "160px",
+                        outline: "none", fontFamily: "inherit", width: "160px", maxWidth: "100%",
                       }}
                     />
                   ) : (
                     <p
                       onClick={() => { setRingNameInput(ringName); setEditingName(true); setTimeout(() => ringNameInputRef.current?.focus(), 0); }}
-                      style={{ color: "var(--text-primary)", fontSize: "17px", fontWeight: "600", letterSpacing: "-0.2px", cursor: "text" }}
+                      style={{
+                        color: "var(--text-primary)", fontSize: "17px", fontWeight: "600", letterSpacing: "-0.2px", cursor: "text",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
                       title="Tap to rename"
                     >
-                      {ringName || "Name your agent"}
+                      {ringName || "Reggie"}
                     </p>
                   )}
-                  <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "1px", letterSpacing: "0.4px" }}>
-                    Academic AI · Always on{speaking ? " · Speaking…" : ""}
+                  <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "1px", letterSpacing: "0.4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    Always on{speaking ? " · Speaking…" : ""}
                   </p>
                 </div>
 
-                {/* New chat */}
-                <button
-                  onClick={startNewChat}
-                  title="New chat"
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    width: 32, height: 32, flexShrink: 0, borderRadius: "50%",
-                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-                    cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
-
+                {/* Action buttons — grouped so they wrap together as a unit, pushed right.
+                    "New chat" lives in the history panel's own header (below), not here —
+                    was a redundant duplicate control taking up header space. */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto" }}>
                 {/* History */}
                 <button
                   onClick={() => setHistoryOpen(true)}
@@ -2952,6 +2946,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     <path d="M18 6 6 18M6 6l12 12" />
                   </svg>
                 </button>
+                </div>
               </div>
             </div>
 
