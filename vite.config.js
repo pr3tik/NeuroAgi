@@ -215,7 +215,7 @@ const ttsProxyPlugin = {
               headers: { "xi-api-key": ELEVEN_KEY, "Content-Type": "application/json" },
               body: JSON.stringify({
                 text: text.substring(0, 500),
-                model_id: "eleven_turbo_v2_5",
+                model_id: loadEnvKey("ELEVENLABS_TTS_MODEL") || "eleven_flash_v2_5",
                 voice_settings: { stability: 0.42, similarity_boost: 0.82, style: 0.18, use_speaker_boost: true },
               }),
             }
