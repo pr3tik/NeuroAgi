@@ -2160,13 +2160,19 @@ export default function NeuralRing() {
       // this turn — streamingMsg is suppressed in voice mode, so it can't serve that role.
       spokenSoFar += (spokenSoFar ? " " : "") + clean;
       lastSpokenTextRef.current = spokenSoFar;
+      // PIPELINE: start synthesizing THIS sentence immediately, in parallel with whatever
+      // is currently playing — the chain serializes PLAYBACK order only. Without this,
+      // sentence N+1's synthesis waited for sentence N to finish playing, inserting a
+      // full TTS round-trip of silence between every spoken sentence.
+      const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
+      const audioP = fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+      audioP.catch(() => {});   // consumed in the chain — pre-empt unhandled-rejection noise
       ttsChain = ttsChain.then(async () => {
         if (abortCtrlRef.current?.signal?.aborted || voiceTTSAbortRef.current || myGen !== reggieTtsGen) return;
         setSpeaking(true); speakingRef.current = true;
         sphereStateRef.current = "speaking";
-        const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
         try {
-          const { play } = await fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+          const { play } = await audioP;
           await play(src => { audioSourceRef.current = src; });
         } catch (e) { console.warn("[reggie voice chunk]", e?.message); }
       });
@@ -2484,14 +2490,18 @@ export default function NeuralRing() {
           const enqueueTTS = (text) => {
             const clean = sanitizeForTTS(text.trim());
             if (!clean) return;
+            // PIPELINE (same as the Reggie path): synthesize now, serialize playback only —
+            // otherwise each sentence's synthesis waits for the previous one to finish playing.
+            const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
+            const audioP = fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+            audioP.catch(() => {});
             ttsChain = ttsChain.then(async () => {
               if (abortCtrlRef.current?.signal?.aborted || voiceTTSAbortRef.current) return;
               setSpeaking(true); speakingRef.current = true;
               sphereStateRef.current = "speaking";
-              const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
               console.log("[voice] speaking chunk | voiceId:", voiceIdRef.current ?? "(default)");
               try {
-                const { play } = await fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+                const { play } = await audioP;
                 await play(src => { audioSourceRef.current = src; });
               } catch (e) { console.warn("[voice chunk]", e.message); }
             });
