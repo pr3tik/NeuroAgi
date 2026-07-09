@@ -446,8 +446,14 @@ export default function CanvasScreen() {
         </View>
 
         {/* ── Connect Canvas hero card ── */}
+        {/* connected is purely Boolean(canvas_token) — matches web's Canvas.tsx
+            exactly (`{canvasToken ? ... : ...}`). Courses can exist from the
+            browser extension's LMS sync without ever setting canvas_token, and
+            web correctly still shows "not connected" in that case — mobile
+            was incorrectly OR'ing in courses.length > 0 as a fallback, which
+            showed "connected" for extension-synced users when web doesn't. */}
         <ConnectCanvas
-          connected={connected || courses.length > 0}
+          connected={connected}
           syncStatus={syncStatus}
           onRefresh={load}
         />
