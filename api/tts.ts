@@ -69,8 +69,10 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         text: safeText,
         // turbo_v2_5: noticeably more natural than flash_v2_5 at near-identical latency.
-        // For max quality (slightly higher latency) swap to "eleven_multilingual_v2".
-        model_id: "eleven_turbo_v2_5",
+        // Latency-first: flash_v2_5 is ElevenLabs' conversational model (~75ms vs ~300ms
+        // for turbo_v2_5, and half the cost). Override without a deploy via env:
+        // ELEVENLABS_TTS_MODEL=eleven_turbo_v2_5 (balanced) or eleven_multilingual_v2 (max quality).
+        model_id: process.env.ELEVENLABS_TTS_MODEL || "eleven_flash_v2_5",
         voice_settings: { ...vs, use_speaker_boost: true },
         // speed param — honoured by eleven_turbo_v2_5+ if supported; ignored otherwise
         ...(spd !== 1.0 ? { speed: spd } : {}),
