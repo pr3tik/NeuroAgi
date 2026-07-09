@@ -3,7 +3,7 @@
 // → shows the position ("You're #N in line"). Duplicate joins are friendly, not errors.
 import { useEffect, useState } from "react";
 
-export default function WaitlistModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function WaitlistModal({ open, onClose, source = "landing" }: { open: boolean; onClose: () => void; source?: string }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "done">("idle");
@@ -28,7 +28,7 @@ export default function WaitlistModal({ open, onClose }: { open: boolean; onClos
       const r = await fetch("/api/waitlist?action=join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), name: name.trim() || undefined, source: "landing" }),
+        body: JSON.stringify({ email: email.trim(), name: name.trim() || undefined, source }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d?.error) throw new Error(d?.error || `HTTP ${r.status}`);
