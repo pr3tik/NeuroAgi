@@ -309,7 +309,9 @@ export function AppProvider({ children }) {
     return () => { unsub(); };
   }, [userId, refreshTokens]);
 
-  /** Re-fetch the current user row from Supabase (e.g. after verifying on another device). */
+  /** Re-fetch the current user row from Supabase (e.g. after verifying on another device).
+   *  Returns the fresh row (or null if the read failed) so callers — like the email-
+   *  verification gate — can react instead of failing silently. */
   const refreshUser = useCallback(async () => {
     const { data: user } = await supabase
       .from("users")
@@ -321,6 +323,7 @@ export function AppProvider({ children }) {
       if (user.canvas_token)    setCanvasToken(user.canvas_token);
       if (user.canvas_base_url) setCanvasBaseUrl(user.canvas_base_url);
     }
+    return user ?? null;
   }, [userId]);
 
   // When the tab regains focus, re-pull the user. This makes a verification
