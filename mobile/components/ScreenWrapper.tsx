@@ -16,7 +16,7 @@ import { lastDirection } from "../navigation/transitionStore";
 const { width: W, height: H } = Dimensions.get("window");
 const DURATION = 300;
 const EASE = Easing.out(Easing.poly(4));
-const EDGE_STRIP = 24;
+const EDGE_STRIP = 48;
 
 function getInitialOffset(dir: typeof lastDirection) {
   if (dir === "right") return { x: W,  y: 0 };
@@ -58,12 +58,15 @@ export default function ScreenWrapper({ page, children }: Props) {
             <View style={styles.content}>
               {children}
               {/* Thin edge strips for vertical (up/down) nav — kept off the main
-                  content so they never compete with a screen's own ScrollView. */}
+                  content so they never compete with a screen's own ScrollView.
+                  No pointerEvents="box-none" here: these strips have no
+                  children, and box-none makes a childless view untouchable —
+                  it was silently killing gesture recognition on both strips. */}
               <GestureDetector gesture={topEdgeGesture}>
-                <View style={styles.topEdge} pointerEvents="box-none" />
+                <View style={styles.topEdge} />
               </GestureDetector>
               <GestureDetector gesture={bottomEdgeGesture}>
-                <View style={styles.bottomEdge} pointerEvents="box-none" />
+                <View style={styles.bottomEdge} />
               </GestureDetector>
             </View>
             <View style={styles.footer}>
