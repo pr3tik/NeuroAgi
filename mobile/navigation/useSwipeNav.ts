@@ -50,9 +50,11 @@ export function useSwipeNav(
   currentPage: PageKey,
   translateX: SharedValue<number>,
   translateY: SharedValue<number>,
-  opacity: SharedValue<number>
+  opacity: SharedValue<number>,
+  onDebug?: (msg: string) => void
 ) {
   const router = useRouter();
+  const dbg = onDebug ?? (() => {});
 
   function completeNavigate(direction: Direction) {
     const target = NAV[currentPage]?.[direction];
@@ -65,6 +67,7 @@ export function useSwipeNav(
   const horizontalGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
     .failOffsetY([-15, 15])
+    .onTouchesDown(e => { runOnJS(dbg)(`horiz: touch down y=${e.allTouches[0]?.y.toFixed(0)}`); })
     .onUpdate(e => {
       translateX.value = e.translationX;
       opacity.value = Math.max(0.4, 1 - Math.abs(e.translationX) / W);
@@ -88,13 +91,17 @@ export function useSwipeNav(
   // (unlikely in a 48px strip anyway) don't accidentally activate it.
   const topEdgeGesture = Gesture.Pan()
     .activeOffsetY([-1000, 12])
+    .onTouchesDown(() => { runOnJS(dbg)("top: touch down"); })
+    .onBegin(() => { runOnJS(dbg)("top: began"); })
     .onUpdate(e => {
       translateY.value = Math.max(0, e.translationY);
       opacity.value = Math.max(0.4, 1 - Math.abs(e.translationY) / H);
+      runOnJS(dbg)(`top: update ty=${e.translationY.toFixed(0)}`);
     })
     .onEnd(e => {
       const target = NAV[currentPage]?.up;
       const past = e.translationY > MIN_DIST || e.velocityY > MIN_VEL;
+      runOnJS(dbg)(`top: end ty=${e.translationY.toFixed(0)} vy=${e.velocityY.toFixed(0)} target=${target ?? "none"} ${past ? "COMMIT" : "cancel"}`);
       if (target && past) {
         translateY.value = withTiming(H, { duration: COMMIT_DURATION, easing: EASE_APPLE }, finished => {
           if (finished) runOnJS(completeNavigate)("up");
@@ -109,13 +116,17 @@ export function useSwipeNav(
   // Pulling up from the bottom-edge strip → "down".
   const bottomEdgeGesture = Gesture.Pan()
     .activeOffsetY([-12, 1000])
+    .onTouchesDown(() => { runOnJS(dbg)("bottom: touch down"); })
+    .onBegin(() => { runOnJS(dbg)("bottom: began"); })
     .onUpdate(e => {
       translateY.value = Math.min(0, e.translationY);
       opacity.value = Math.max(0.4, 1 - Math.abs(e.translationY) / H);
+      runOnJS(dbg)(`bottom: update ty=${e.translationY.toFixed(0)}`);
     })
     .onEnd(e => {
       const target = NAV[currentPage]?.down;
       const past = e.translationY < -MIN_DIST || e.velocityY < -MIN_VEL;
+      runOnJS(dbg)(`bottom: end ty=${e.translationY.toFixed(0)} vy=${e.velocityY.toFixed(0)} target=${target ?? "none"} ${past ? "COMMIT" : "cancel"}`);
       if (target && past) {
         translateY.value = withTiming(-H, { duration: COMMIT_DURATION, easing: EASE_APPLE }, finished => {
           if (finished) runOnJS(completeNavigate)("down");

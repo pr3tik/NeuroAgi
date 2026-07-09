@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { View, StyleSheet, Dimensions } from "react-native";
+import { useEffect, useState } from "react";
+import { View, Text, StyleSheet, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -35,7 +35,15 @@ export default function ScreenWrapper({ page, children }: Props) {
   const translateY = useSharedValue(iy);
   const opacity    = useSharedValue(ix !== 0 || iy !== 0 ? 0.75 : 1);
 
-  const { horizontalGesture, topEdgeGesture, bottomEdgeGesture } = useSwipeNav(page, translateX, translateY, opacity);
+  // TEMPORARY — diagnosing why vertical swipe isn't reliable. Remove this
+  // whole debugLog block + the debugBox render once that's confirmed fixed.
+  const [debugLog, setDebugLog] = useState<string[]>([]);
+  function pushDebug(msg: string) {
+    const t = new Date().toISOString().slice(14, 23);
+    setDebugLog(prev => [...prev.slice(-5), `${t} ${msg}`]);
+  }
+
+  const { horizontalGesture, topEdgeGesture, bottomEdgeGesture } = useSwipeNav(page, translateX, translateY, opacity, pushDebug);
 
   useEffect(() => {
     translateX.value = withTiming(0, { duration: DURATION, easing: EASE_APPLE });
@@ -77,6 +85,13 @@ export default function ScreenWrapper({ page, children }: Props) {
           </View>
         </GestureDetector>
       </Animated.View>
+
+      {/* TEMPORARY debug overlay — see the note above debugLog's declaration. */}
+      <View style={styles.debugBox} pointerEvents="none">
+        {debugLog.map((l, i) => (
+          <Text key={i} style={styles.debugText}>{l}</Text>
+        ))}
+      </View>
     </SafeAreaView>
   );
 }
@@ -87,4 +102,10 @@ const styles = StyleSheet.create({
   content:   { flex: 1, position: "relative" },
   topEdge:    { position: "absolute", top: 0, left: 0, right: 0, height: EDGE_STRIP, zIndex: 10, elevation: 10 },
   bottomEdge: { position: "absolute", bottom: 0, left: 0, right: 0, height: EDGE_STRIP, zIndex: 10, elevation: 10 },
+  debugBox: {
+    position: "absolute", top: 100, left: 8, right: 8,
+    backgroundColor: "rgba(255,0,0,0.85)", borderRadius: 6, padding: 6,
+    zIndex: 999, elevation: 999,
+  },
+  debugText: { color: "#fff", fontSize: 10, fontFamily: "monospace" },
 });
