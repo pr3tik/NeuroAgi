@@ -28,14 +28,17 @@ const KEYWORD_RULES: Array<[RegExp, string]> = [
   [/\bannouncements?\b|did (my|the) (prof|professor|teacher|ta) (post|announce|say anything)|\bcanvas (inbox|messages?)\b|messages? from (my |the )?(prof|professor|teacher|ta)|what did i take last (term|semester|year)|\bpast courses\b/i, "tutor"],
   // insight_explainer — what-if scenarios & grade standing/weighting
   [/\bwhat[-\s]?if\b|\bif i (get|score|drop|skip|move|only)\b|\bprojected grade\b|\bgrade[-\s]?weight|weighted grade|\bhow (is|are|'?s) my grades?\b|\bwhat('?s| is| are)?\s+(my\s+)?grades?\b|\bmy grades?\b|\bmy gpa\b|\bfinal grade\b|\bhow am i doing\b|do i need (on|to)\b/i, "insight_explainer"],
+  // resource_curator — "what materials/resources" is precise; must beat planner's generic
+  // \blate\b ("what does the library have on the LATE policy" was misrouting to planner)
+  [/what (resources|materials?|readings?)\b|reading list|what should i read|point me to|\b(class|shared|course) library\b/i, "resource_curator"],
   // planner — deadlines, dated study plans, and overdue/past-due work
-  [/\bstudy plan\b|\bplan (for|my|a)\b|study schedule|what'?s due|due (this|next|soon|today)|\bdeadlines?\b|\boverdue\b|past[-\s]?due|\bbehind\b|\blate\b|what did i miss|missing assignments?|prioriti[sz]e|daily briefing|what should i (do|work on|study|focus on)( first| next| today| this week)?/i, "planner"],
+  [/\bstudy plan\b|\bplan (for|my|a)\b|study schedule|what'?s due|due (this|next|soon|today)|\bdeadlines?\b|\boverdue\b|past[-\s]?due|\bbehind\b|\b(turned?|hand(ed)?|submit(ted)?) in late\b|\brunning late\b|what did i miss|missing assignments?|prioriti[sz]e|daily briefing|what should i (do|work on|study|focus on)( first| next| today| this week)?/i, "planner"],
   // content_synthesizer — study aids
   [/\bquiz me\b|\b(make|create|generate|build)\b[^.?!]{0,20}\b(quiz|practice|flashcards?)\b|practice questions?\b|\bflashcards?\b|concept map|mind ?map|\bsummari[sz]e\b|study guide/i, "content_synthesizer"],
   // writing_coach
   [/\bessay\b|\boutline\b|\bthesis\b|\brough draft\b|\bmy paper\b|\bargument\b|revise my|help me write/i, "writing_coach"],
-  // resource_curator
-  [/what (resources|materials?|readings?)\b|reading list|what should i read|point me to/i, "resource_curator"],
+  // tutor — social: nudging/inviting friends, friend list
+  [/\bnudge\b|invite (my |a )?friend|tell \w+ to (come )?study|who are my friends|\bmy friends list\b/i, "tutor"],
   // tokens / gamification (tutor holds token_summary)
   [/how many (points|tokens)|\bmy (points|tokens|tier)\b|what tier|token balance/i, "tutor"],
 ];

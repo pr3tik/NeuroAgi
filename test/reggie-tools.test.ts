@@ -17,6 +17,8 @@ const supa = makeSupabaseMock((ctx: any) => {
     rag_sections: { id: "s1", content: "photosynthesis" },
   };
   if (ctx.table?.startsWith("rpc:")) return { data: [], error: null };   // rag_hybrid_search → no hits
+  if (ctx.table === "nudges") return { data: null, error: null, count: 0 };   // rate-limit count + insert
+  if (ctx.table === "course_content") return { data: [{ id: "cc1", content_type: "syllabus", text: "Late work loses 10% per day.", summary: null, concepts: null, module_name: null, week_number: 1, professor_name: "Prof X", is_private: false, seen_by_count: 3, course_id: "111" }], error: null };
   const one = rows[ctx.table] ?? {};
   return { data: single ? one : [one], error: null };
 });
@@ -52,7 +54,8 @@ function stubFetch() {
     if (u.includes("api.anthropic.com")) return R({ content: [{ type: "text", text: LLM_JSON }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
     if (u.includes("api.openai.com/v1/embeddings")) return R({ data: [{ embedding: new Array(1536).fill(0) }] });
     if (u.includes("api.openai.com")) return R({ choices: [{ message: { content: "[]" } }] });
-    if (u.includes("/rest/v1/users")) return R([{ id: "u1", canvas_token: "ctok", canvas_base_url: "https://canvas.test/api/v1" }]);
+    if (u.includes("id=in.")) return R([{ id: "friend-1", name: "Alex Kim" }]);
+    if (u.includes("/rest/v1/users")) return R([{ id: "u1", name: "Sam", canvas_token: "ctok", canvas_base_url: "https://canvas.test/api/v1" }]);
     if (u.includes("/rest/v1/courses")) return R([{ id: "c-uuid", canvas_course_id: "111", course_code: "BIO", name: "Bio", current_score: 90, final_score: null }]);
     if (u.includes("/rest/v1/assignments")) return R([{ id: "a1", course_id: "c-uuid", title: "HW1", score: 9, points_possible: 10, weight: null, weight_achieved: null, due_at: "2999-01-01T00:00:00Z", submitted_at: null, missing: false, courses: { name: "Bio" } }]);
     if (u.includes("/rest/v1/canvas_data")) return R([{ payload: [{ courseId: "111", groups: [{ name: "Exams", weight: 100 }] }] }]);
@@ -69,6 +72,7 @@ function stubFetch() {
     if (u.includes("canvas.test/api/v1/conversations")) return R([{ id: 5, subject: "Extension", last_message: "Sure, Friday works", last_message_at: "2026-06-01", workflow_state: "read" }]);
     if (u.includes("canvas.test/api/v1/courses/111/files")) return R([{ id: 3, display_name: "slides.pdf", size: 1000, "content-type": "application/pdf", updated_at: "2026-06-01" }]);
     if (u.includes("canvas.test/api/v1/courses")) return R([{ id: 222, name: "Old Course", course_code: "OLD101", enrollments: [{ computed_final_score: 88, computed_final_grade: "A-" }] }]);
+    if (u.includes("/rest/v1/rpc/list_friends")) return R([{ friend_id: "friend-1", friends_since: "2026-06-01" }]);
     // writing-tracker self-calls (via originHeaders default host)
     if (u.includes("/api/claude")) return R({ content: LLM_JSON });
     if (u.includes("/api/brain-")) return R({ ok: false });
@@ -113,6 +117,9 @@ const CASES: Record<string, { args: any; check: (r: any) => void }> = {
   office_hours_capture: { args: { sessionNotes: "we covered eigenvalues; still fuzzy on proofs" }, check: (r) => { expect(r.ok).toBe(true); } },
   writing_analyze: { args: { text: "The cell divides. It is a process. The process has stages and each stage matters for the outcome of division." }, check: (r) => { expect(r.metrics).toBeDefined(); expect(typeof r.assessment).toBe("string"); } },
   delete_flashcards: { args: { cardId: "f1" }, check: (r) => { expect(r.ok).toBe(true); } },
+  library_search: { args: { query: "what is the late policy in the syllabus" }, check: (r) => { expect(r.found).toBe(true); expect(r.snippets.join(" ")).toContain("Late work"); } },
+  list_friends: { args: {}, check: (r) => { expect(r.friends[0]).toMatchObject({ id: "friend-1", name: "Alex Kim" }); } },
+  nudge_friend: { args: { friend: "Alex" }, check: (r) => { expect(r.sent).toBe(true); } },
 };
 
 describe("Reggie tool registry", () => {

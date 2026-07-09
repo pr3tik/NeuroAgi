@@ -17,6 +17,8 @@ import summarize from "../summarize.js";
 import tokenEngine from "../token-engine.js";
 import officeHours from "../office-hours.js";
 import writingTracker from "../writing-tracker.js";
+import libraryAgent from "../library-agent.js";
+import nudge from "../nudge.js";
 import { whatIf } from "../../src/lib/whatIfPlan.js";
 import { callApi } from "./callApi.js";
 import { canvasCreds, canvasGET, resolveCanvasCourseId, allCanvasCourseIds, trim } from "./canvasLive.js";
@@ -53,6 +55,28 @@ async function call(handler: any, opts: any, label: string): Promise<any> {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Minimal service-key REST helpers for tool-side lookups (friends, names).
+function sbEnv() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
+  if (!url || !key) throw new Error("Supabase env vars not configured");
+  return { url, key, headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" } };
+}
+
+/** Accepted friends for a user, with names: [{id, name, friendsSince}]. */
+async function friendsOf(userId: string): Promise<Array<{ id: string; name: string; friendsSince: string | null }>> {
+  const { url, headers } = sbEnv();
+  const r = await fetch(`${url}/rest/v1/rpc/list_friends`, { method: "POST", headers, body: JSON.stringify({ p_user: userId }) });
+  if (!r.ok) throw new Error(`friends lookup failed (${r.status})`);
+  const rows: any[] = await r.json();
+  if (!rows.length) return [];
+  const ids = rows.map((f) => f.friend_id).filter(Boolean);
+  const nr = await fetch(`${url}/rest/v1/users?id=in.(${ids.map(encodeURIComponent).join(",")})&select=id,name`, { headers });
+  const names: any[] = nr.ok ? await nr.json() : [];
+  const nameById = Object.fromEntries(names.map((u) => [u.id, u.name]));
+  return rows.map((f) => ({ id: f.friend_id, name: nameById[f.friend_id] ?? "(unknown)", friendsSince: f.friends_since ?? null }));
+}
 
 // Resolve a course REFERENCE the student gave in words — a course NAME ("BIO 101",
 // "Organic Chemistry") or a course CODE — to the canonical DB course id the handlers
@@ -447,6 +471,60 @@ export const TOOLS: ReggieTool[] = [
       required: ["text"],
     },
     invoke: (a, ctx) => call(writingTracker, { headers: originHeaders(ctx), body: { userId: ctx.userId, text: a.text, title: a.title } }, "writing_analyze"),
+  },
+  {
+    name: "library_search",
+    description:
+      "Search the SHARED class content library (syllabi, lecture notes, announcements, rubrics contributed across students) for a course-knowledge question. Complements rag_search (the student's OWN uploads) — try this when their uploads don't cover it. Returns ranked snippets; empty result means the library has nothing on it yet.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "What to look up." } },
+      required: ["query"],
+    },
+    invoke: async (a, ctx) => {
+      // Pass both id spaces — the extension populates course_content.course_id with its
+      // own course key; canvas ids are what our synced table has. Extra non-matching
+      // values in the in() filter are harmless.
+      const ids = await allCanvasCourseIds(ctx.userId);
+      return call(libraryAgent, { body: { userId: ctx.userId, message: a.query, force: true, courseIds: ids, activeCourseId: null } }, "library_search");
+    },
+  },
+  {
+    name: "list_friends",
+    description: "List the student's accepted friends on FschoolAI (id + name). Call before nudge_friend to resolve who they mean, or for 'who are my friends'.",
+    input_schema: { type: "object", properties: {}, required: [] },
+    invoke: async (_a, ctx) => ({ friends: await friendsOf(ctx.userId) }),
+  },
+  {
+    name: "nudge_friend",
+    description:
+      "Send a 'come study' nudge to ONE of the student's friends (in-app, with an email fallback if they're offline; server rate-limits 2 per friend per day). ONLY call when the student EXPLICITLY asks to nudge/invite a specific friend — never on your own initiative. If the name is ambiguous, list_friends first and confirm.",
+    input_schema: {
+      type: "object",
+      properties: {
+        friend: { type: "string", description: "The friend's name (resolved against their friend list) or user id." },
+        roomName: { type: ["string", "null"], description: "Optional study-room name to mention." },
+      },
+      required: ["friend"],
+    },
+    invoke: async (a, ctx) => {
+      const raw = String(a.friend ?? "").trim();
+      let toUserId = raw;
+      const friends = await friendsOf(ctx.userId);
+      if (!UUID_RE.test(raw)) {
+        const lc = raw.toLowerCase();
+        const matches = friends.filter((f) => (f.name || "").toLowerCase().includes(lc));
+        if (matches.length === 0) throw new Error(`No friend named "${raw}" — call list_friends and confirm who they mean.`);
+        if (matches.length > 1) throw new Error(`Multiple friends match "${raw}" (${matches.map((m) => m.name).join(", ")}) — ask which one.`);
+        toUserId = matches[0].id;
+      } else if (!friends.some((f) => f.id === raw)) {
+        throw new Error("That user isn't on the student's friend list — nudges can only go to accepted friends.");
+      }
+      const { url, headers } = sbEnv();
+      const me = await fetch(`${url}/rest/v1/users?id=eq.${encodeURIComponent(ctx.userId)}&select=name&limit=1`, { headers });
+      const fromName = ((await me.json().catch(() => [])) as any[])[0]?.name ?? "A friend";
+      return call(nudge, { body: { fromUserId: ctx.userId, toUserId, fromName, roomName: a.roomName ?? null, recipientOnline: false } }, "nudge_friend");
+    },
   },
   {
     name: "delete_flashcards",
