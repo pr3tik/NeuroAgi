@@ -41,6 +41,8 @@ describe("reggie router", () => {
     expect(await classifyIntent("what feedback did I get on my lab report?", ROUTES)).toBe("insight_explainer");
     expect(await classifyIntent("help me prep for office hours", ROUTES)).toBe("question_coach");
     expect(await classifyIntent("did my prof post any announcements?", ROUTES)).toBe("tutor");
+    expect(await classifyIntent("nudge Alex to come study with me", ROUTES)).toBe("tutor");
+    expect(await classifyIntent("who are my friends on here?", ROUTES)).toBe("tutor");
     expect(spy).not.toHaveBeenCalled();
   });
 
