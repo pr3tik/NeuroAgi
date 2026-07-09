@@ -2637,7 +2637,19 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
   const [authMode, setAuthMode] = useState<"login"|"signup"|null>(
     waitlistMode && initialAuthMode === "signup" ? null : initialAuthMode,
   );
-  const [waitlistOpen, setWaitlistOpen] = useState(waitlistMode && initialAuthMode === "signup");
+  // Deep link for bios/socials: fschoolai.com/waitlist (or ?waitlist=1) lands with the
+  // join prompt already open. A link can't auto-JOIN (no email yet) — this is the
+  // closest honest thing. ?src=<channel> overrides the source tag (default: instagram,
+  // since the bio link is the primary use).
+  const deepLink = (() => {
+    try {
+      const path = window.location.pathname === "/waitlist";
+      const q = new URLSearchParams(window.location.search);
+      if (!path && !q.has("waitlist")) return null;
+      return q.get("src") || "instagram";
+    } catch { return null; }
+  })();
+  const [waitlistOpen, setWaitlistOpen] = useState((waitlistMode && initialAuthMode === "signup") || (waitlistMode && !!deepLink));
   const requestSignup = () => (waitlistMode ? setWaitlistOpen(true) : setAuthMode("signup"));
   const [forgotStatus, setForgotStatus] = useState<"sent"|"error"|null>(null);
   const [scrollY, setScrollY] = useState(0);
@@ -2906,21 +2918,20 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
                 onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = "0.84")}
                 onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = "1")}
               >Learn more</a>
-              <a href="/card#order" style={{
-                background: "transparent", color: "#0066cc",
-                border: "1px solid rgba(0,102,204,0.56)",
-                textDecoration: "none", borderRadius: 980,
-                padding: "12px 24px", fontSize: 17, fontWeight: 400,
-                display: "inline-flex", alignItems: "center",
-                fontFamily: FONT, transition: "background 0.15s, border-color 0.15s",
-              }}
-                onMouseEnter={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
-                onMouseLeave={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
-              >Apply</a>
+              {/* Apply removed — the waitlist capture IS the second CTA (falls back to a
+                  signup button when waitlist mode is off) */}
+              {waitlistMode ? (
+                <WaitlistInline source="landing-hero" inRow />
+              ) : (
+                <button onClick={requestSignup} style={{
+                  background: "transparent", color: "#0066cc",
+                  border: "1px solid rgba(0,102,204,0.56)", borderRadius: 980,
+                  padding: "12px 24px", fontSize: 17, fontWeight: 400,
+                  display: "inline-flex", alignItems: "center", cursor: "pointer",
+                  fontFamily: FONT, transition: "background 0.15s, border-color 0.15s",
+                }}>Sign up</button>
+              )}
             </div>
-
-            {/* Inline waitlist capture — waitlist mode only; the modal stays for the nav/CTA buttons */}
-            {waitlistMode && <WaitlistInline source="landing-hero" />}
 
             {/* Subtle stat pills */}
             <div style={{ display: "flex", gap: 20, marginTop: 36, flexWrap: "wrap" }}>
@@ -3033,7 +3044,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
       </footer>
 
       {/* ── AUTH + BANNER ── */}
-      <WaitlistModal open={waitlistOpen} onClose={() => setWaitlistOpen(false)} />
+      <WaitlistModal open={waitlistOpen} onClose={() => setWaitlistOpen(false)} source={deepLink ?? "landing"} />
       {authMode && (
         <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onEnter={onEnter}
           onSwitchMode={m => setAuthMode(m as any)} onForgotPassword={handleForgotPassword} t={t} />

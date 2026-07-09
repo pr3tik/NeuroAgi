@@ -5,7 +5,7 @@ import { useState } from "react";
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif";
 
-export default function WaitlistInline({ source = "landing-hero" }: { source?: string }) {
+export default function WaitlistInline({ source = "landing-hero", inRow = false }: { source?: string; inRow?: boolean }) {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "done">("idle");
   const [result, setResult] = useState<{ position: number; total: number; alreadyJoined: boolean } | null>(null);
@@ -33,7 +33,7 @@ export default function WaitlistInline({ source = "landing-hero" }: { source?: s
 
   if (state === "done") {
     return (
-      <div style={{ marginTop: 20, fontFamily: FONT, animation: "appleTitle 0.5s cubic-bezier(0.16,1,0.3,1) both" }}>
+      <div style={{ marginTop: inRow ? 0 : 20, fontFamily: FONT, animation: "appleTitle 0.5s cubic-bezier(0.16,1,0.3,1) both" }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, background: "rgba(0,113,227,0.07)", border: "1px solid rgba(0,113,227,0.22)", borderRadius: 980, padding: "11px 20px" }}>
           <span style={{ width: 18, height: 18, borderRadius: "50%", background: "#0071e3", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="10" height="10" viewBox="0 0 18 18" fill="none"><path d="M3.5 9l4 4 7-7" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -48,7 +48,7 @@ export default function WaitlistInline({ source = "landing-hero" }: { source?: s
   }
 
   return (
-    <div style={{ marginTop: 20, fontFamily: FONT }}>
+    <div style={{ marginTop: inRow ? 0 : 20, fontFamily: FONT, flex: inRow ? "1 1 300px" : undefined, minWidth: inRow ? 260 : undefined }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", maxWidth: 430 }}>
         <input
           type="email"
