@@ -5,6 +5,12 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import ScreenWrapper from "../components/ScreenWrapper";
+import { supabase } from "../services/supabase";
+
+// TODO: replace with the real signed-in user once identity.tsx (mobile login)
+// is built. This is Sarim Khan's real TMU account — same Supabase project,
+// so its courses/assignments are reachable here too.
+const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -110,13 +116,42 @@ export default function WorkScreen() {
   const hour = new Date().getHours();
   const greetingWord = hour < 12 ? "Morning" : hour < 18 ? "Afternoon" : "Evening";
 
-  // Placeholder data — will wire to Supabase
-  const name = "Sarim";
-  const gpa: string | null = null;
-  const streak = 0;
-  const assignments: any[] = [];
+  const [name, setName]             = useState("");
+  const [gpa, setGpa]                 = useState<string | null>(null);
+  const [streak, setStreak]           = useState(0);
+  const [assignments, setAssignments] = useState<any[]>([]);
   const announcements: any[] = [];
-  const syncStatus = "idle";
+  const [syncStatus, setSyncStatus]   = useState<"idle" | "syncing">("syncing");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const [{ data: user }, { data: rows }] = await Promise.all([
+        supabase.from("users").select("name, gpa, streak").eq("id", TEST_USER_ID).maybeSingle(),
+        supabase.from("assignments")
+          .select("id, title, due_at, points_possible, score, submitted_at, late, missing, courses(name, course_code)")
+          .eq("user_id", TEST_USER_ID),
+      ]);
+      if (cancelled) return;
+
+      setName(user?.name ?? "");
+      setGpa(user?.gpa != null ? String(user.gpa) : null);
+      setStreak(user?.streak ?? 0);
+      setAssignments((rows ?? []).map((a: any) => ({
+        id:          a.id,
+        name:        a.title,
+        dueAt:       a.due_at,
+        courseName:  a.courses?.name,
+        courseCode:  a.courses?.course_code,
+        submission:  { score: a.score, submittedAt: a.submitted_at, late: a.late, missing: a.missing },
+      })));
+      setSyncStatus("idle");
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
   const upcoming = assignments
     .filter(a => a.dueAt && (new Date(a.dueAt) > new Date() || !a.submission?.submittedAt))
