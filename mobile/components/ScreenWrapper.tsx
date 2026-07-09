@@ -6,16 +6,16 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  Easing,
 } from "react-native-reanimated";
-import { useSwipeNav } from "../navigation/useSwipeNav";
+import { useSwipeNav, EASE_APPLE } from "../navigation/useSwipeNav";
 import Header from "./Header";
 import { PageKey } from "../navigation/navConfig";
 import { lastDirection } from "../navigation/transitionStore";
 
 const { width: W, height: H } = Dimensions.get("window");
-const DURATION = 300;
-const EASE = Easing.out(Easing.poly(4));
+// Matches web's --ease-apple transition duration/curve exactly (tokens.css) —
+// see useSwipeNav.ts for why the previous poly(4) curve looked instant.
+const DURATION = 220;
 const EDGE_STRIP = 48;
 
 function getInitialOffset(dir: typeof lastDirection) {
@@ -35,12 +35,12 @@ export default function ScreenWrapper({ page, children }: Props) {
   const translateY = useSharedValue(iy);
   const opacity    = useSharedValue(ix !== 0 || iy !== 0 ? 0.75 : 1);
 
-  const { horizontalGesture, topEdgeGesture, bottomEdgeGesture } = useSwipeNav(page, translateX, translateY);
+  const { horizontalGesture, topEdgeGesture, bottomEdgeGesture } = useSwipeNav(page, translateX, translateY, opacity);
 
   useEffect(() => {
-    translateX.value = withTiming(0, { duration: DURATION, easing: EASE });
-    translateY.value = withTiming(0, { duration: DURATION, easing: EASE });
-    opacity.value    = withTiming(1, { duration: DURATION, easing: EASE });
+    translateX.value = withTiming(0, { duration: DURATION, easing: EASE_APPLE });
+    translateY.value = withTiming(0, { duration: DURATION, easing: EASE_APPLE });
+    opacity.value    = withTiming(1, { duration: DURATION, easing: EASE_APPLE });
   }, []);
 
   const animStyle = useAnimatedStyle(() => ({
@@ -85,6 +85,6 @@ const styles = StyleSheet.create({
   safe:      { flex: 1, backgroundColor: "#0f0f0f" },
   container: { flex: 1, padding: 20 },
   content:   { flex: 1, position: "relative" },
-  topEdge:    { position: "absolute", top: 0, left: 0, right: 0, height: EDGE_STRIP },
-  bottomEdge: { position: "absolute", bottom: 0, left: 0, right: 0, height: EDGE_STRIP },
+  topEdge:    { position: "absolute", top: 0, left: 0, right: 0, height: EDGE_STRIP, zIndex: 10, elevation: 10 },
+  bottomEdge: { position: "absolute", bottom: 0, left: 0, right: 0, height: EDGE_STRIP, zIndex: 10, elevation: 10 },
 });
