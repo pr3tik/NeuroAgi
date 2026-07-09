@@ -219,6 +219,8 @@ export default function App() {
   const [resetError,   setResetError]   = useState("");
   const [resetDone,    setResetDone]    = useState(false);
   const [resendSent,   setResendSent]   = useState(false);
+  // Email-verification gate feedback: null | "checking" | a message to show the user.
+  const [verifyMsg,    setVerifyMsg]    = useState<string | null>(null);
   const [oauthError,   setOauthError]   = useState<string | null>(null);
 
   // ── Google sign-in return (/?auth=google) ──────────────────────────────────
@@ -259,6 +261,25 @@ export default function App() {
     finish();  // fast path if the session was already restored
     return () => sub.subscription.unsubscribe();
   }, [setUserId]);
+
+  // While the verification gate is up, poll every 5s so the app unblocks ITSELF the
+  // moment the link is clicked (usually on the user's phone) — a user report showed the
+  // old flow stuck on "Check your email" with the DB already verified, because nothing
+  // ever re-checked and the continue button gave no feedback.
+  const needsEmailVerify = !!userData && userData.email_verified === false;
+  useEffect(() => {
+    if (!needsEmailVerify) return;
+    const t = setInterval(() => { refreshUser(); }, 5000);
+    return () => clearInterval(t);
+  }, [needsEmailVerify, refreshUser]);
+
+  async function checkVerified() {
+    setVerifyMsg("checking");
+    const fresh = await refreshUser();   // if verified, userData updates and the gate unmounts
+    if (!fresh) setVerifyMsg("Couldn't check just now — give it a second and try again.");
+    else if (fresh.email_verified === false) setVerifyMsg("Not verified yet — open the link in the email first (check your junk/spam folder), then tap this again.");
+    else setVerifyMsg(null);
+  }
 
   async function resendVerification() {
     if (!userData?.email) return;
@@ -707,13 +728,18 @@ export default function App() {
             </div>
             <div style={{ fontSize:"22px", fontWeight:"700", color:"#F5F5F5", letterSpacing:"-0.4px", marginBottom:"10px" }}>Check your email</div>
             <p style={{ fontSize:"14px", color:"rgba(255,255,255,0.42)", lineHeight:1.65, marginBottom:"4px" }}>We sent a verification link to</p>
-            <p style={{ fontSize:"14px", fontWeight:"600", color:"rgba(255,255,255,0.72)", marginBottom:"30px" }}>{userData.email}</p>
+            <p style={{ fontSize:"14px", fontWeight:"600", color:"rgba(255,255,255,0.72)", marginBottom:"8px" }}>{userData.email}</p>
+            <p style={{ fontSize:"12px", color:"rgba(255,255,255,0.3)", marginBottom:"26px" }}>Not seeing it? Check your junk/spam folder — this page moves on automatically once you click the link.</p>
             <button
-              onClick={() => refreshUser()}
-              style={{ width:"100%", background:"#F5F5F5", color:"#111", border:"none", borderRadius:"13px", padding:"14px", fontSize:"15px", fontWeight:"650", cursor:"pointer", fontFamily:"inherit", marginBottom:"10px", transition:"opacity .15s" }}
+              onClick={checkVerified}
+              disabled={verifyMsg === "checking"}
+              style={{ width:"100%", background:"#F5F5F5", color:"#111", border:"none", borderRadius:"13px", padding:"14px", fontSize:"15px", fontWeight:"650", cursor: verifyMsg === "checking" ? "default" : "pointer", fontFamily:"inherit", marginBottom:"10px", transition:"opacity .15s", opacity: verifyMsg === "checking" ? 0.6 : 1 }}
             >
-              I&apos;ve verified — continue &rarr;
+              {verifyMsg === "checking" ? "Checking…" : <>I&apos;ve verified — continue &rarr;</>}
             </button>
+            {verifyMsg && verifyMsg !== "checking" && (
+              <p style={{ fontSize:"12.5px", color:"rgba(255,180,90,0.85)", lineHeight:1.55, margin:"0 0 10px" }}>{verifyMsg}</p>
+            )}
             <button
               onClick={resendVerification}
               disabled={resendSent}
