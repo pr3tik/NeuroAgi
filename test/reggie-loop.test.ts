@@ -24,6 +24,21 @@ const basePlan = { examDate: "2026-08-10", sessions: [{ date: "2026-08-01", topi
 async function load() { vi.resetModules(); return (await import("../api/_reggie/loop.ts")).runReggie; }
 
 describe("reggie tool-use loop", () => {
+  it("voiceMode:true appends the voice-tag protocol to the system prompt; absent by default", async () => {
+    const fn = scripted([() => anthropic([{ type: "text", text: "hi" }], "end_turn")]);
+    const runReggie = await load();
+    await runReggie({ specialist, userMessage: "hello", ctx: { userId: "u1" }, voiceMode: true });
+    const body1 = JSON.parse(fn.mock.calls[0][1].body);
+    expect(body1.system).toContain("VOICE mode");
+    for (const tag of ["[SYNC]", "[GENERATE_FLASHCARDS:", "[VOICE:", "[SPEED:", "[TONE:"]) {
+      expect(body1.system).toContain(tag);   // pin every tag the client parser handles
+    }
+    await runReggie({ specialist, userMessage: "hello again", ctx: { userId: "u1" } });
+    const body2 = JSON.parse(fn.mock.calls[1][1].body);
+    expect(body2.system).not.toContain("VOICE mode");
+  });
+
+
   it("runs a tool, feeds the result back, then returns the final answer", async () => {
     scripted([
       () => anthropic([{ type: "text", text: "let me compute" }, { type: "tool_use", id: "tu1", name: "what_if_plan", input: { basePlan, changes: { dropTopics: ["Kinetics"] } } }], "tool_use"),
