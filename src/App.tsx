@@ -11,6 +11,7 @@ import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
 import NeuralRing           from "./components/NeuralRing";
 import ReggieTester         from "./components/ReggieTester";
+import UniBrainTester       from "./components/UniBrainTester";
 import SiteGuide            from "./components/SiteGuide";
 import BottomNav            from "./components/BottomNav";
 import Landing              from "./pages/Landing"; // eager — logged-out entry, shown on first paint
@@ -965,6 +966,7 @@ export default function App() {
 
       <NeuralRing />
       <ReggieTester />
+      <UniBrainTester />
       {navMode === "tabs" && (
         <BottomNav
           currentPage={currentPage}
