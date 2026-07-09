@@ -109,6 +109,28 @@ function injectGatewayEnv(provider) {
   set("GROQ_KEY"); set("GROQ_MODEL");  // gateway fallbacks can cross providers
 }
 
+// STT proxy plugin — /api/stt (Groq Whisper). CUSTOM proxy on purpose: the handler
+// reads the RAW request stream (for await (req)) for binary/base64 audio, so the
+// generic handlerProxy (which pre-consumes the body into req.body) would starve it.
+// We only inject the key and add the status/json helpers — the stream passes through.
+const sttProxyPlugin = {
+  name: "stt-proxy",
+  configureServer(server) {
+    server.middlewares.use("/api/stt", async (req, res) => {
+      injectEnv("GROQ_KEY");
+      res.status = (code) => { res.statusCode = code; return res; };
+      res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
+      try {
+        const { default: handler } = await import("./api/stt.js");
+        await handler(req, res);
+      } catch (err) {
+        res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+  },
+};
+
 const groqProxyPlugin = {
   name: "groq-proxy",
   configureServer(server) {
@@ -622,7 +644,7 @@ const LMS_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY",
   "EXTENSION_AUTH_SECRET"];
 
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
+  plugins: [react(), canvasProxyPlugin, sttProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
     handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
     // OPENAI_API_KEY: session-close.ts now imports rag.js's embed() for the
     // pattern-recognition harvest — without this, embed() throws locally.

@@ -23,7 +23,8 @@ import { ensureTutorReply } from "../lib/tutorReply";
 import { parseVoiceTags, stripAgentJSON } from "../lib/voiceTags";
 import { createSentenceChunker } from "../lib/ttsChunker";
 import { streamReggie } from "../lib/reggieStream";
-import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play } from "lucide-react";
+import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play, Mic } from "lucide-react";
+import { createDictation } from "../lib/dictation";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -895,6 +896,11 @@ export default function NeuralRing() {
   const inputRef                = useRef(null);
   const attachInputRef          = useRef(null);
   const [attachStatus, setAttachStatus] = useState<string | null>(null);
+  // Mic dictation for the text input (tap to talk -> words land in the box, user edits
+  // then sends). Separate from full voice mode; works in classic AND Reggie mode.
+  const [dictState, setDictState] = useState<"idle" | "listening" | "processing">("idle");
+  const [dictInterim, setDictInterim] = useState("");
+  const dictationRef = useRef<any>(null);
 
   // Voice intelligence state
   const [activeVoiceId,      setActiveVoiceId]      = useState(null); // drives instant chip highlight
@@ -2254,6 +2260,25 @@ export default function NeuralRing() {
     if (voice && voiceModeRef.current && !micDenied) await startAutoListen();
   };
 
+  function toggleDictation() {
+    if (dictState === "listening") {
+      const usingServer = dictationRef.current?.engine === "server";
+      setDictState(usingServer ? "processing" : "idle");   // server engine transcribes after stop
+      dictationRef.current?.stop();
+      return;
+    }
+    if (dictState === "processing") return;
+    const d = createDictation({
+      onInterim: (t) => setDictInterim(t),
+      onFinal:   (t) => { setDictInterim(""); setInput(prev => (prev ? prev.replace(/\s+$/, "") + " " : "") + t); },
+      onError:   (m) => { setAttachStatus(m); setTimeout(() => setAttachStatus(null), 5000); },
+      onEnd:     ()  => { setDictState("idle"); setDictInterim(""); },
+    });
+    dictationRef.current = d;
+    setDictState("listening");
+    d.start();
+  }
+
   const sendMessage = async (overrideText?) => {
     const text = overrideText ?? input.trim();
     if (!text || loading) return;
@@ -3192,12 +3217,31 @@ export default function NeuralRing() {
                     <rect x="13.5" y="5" width="2.5" height="4" rx="1.25"/>
                   </svg>
                 </button>
+                {/* Mic dictation — tap to talk, words land in the input (better STT path:
+                    browser speech engine when available, /api/stt fallback elsewhere) */}
+                <button
+                  onClick={toggleDictation}
+                  title={dictState === "listening" ? "Stop dictating" : dictState === "processing" ? "Transcribing…" : "Dictate (speech-to-text into the box)"}
+                  aria-label="Dictate"
+                  style={{
+                    background: dictState === "listening" ? "rgba(255,80,80,0.16)" : "none",
+                    border: dictState === "listening" ? "1px solid rgba(255,80,80,0.35)" : "1px solid transparent",
+                    borderRadius: 8, padding: "6px 6px", cursor: "pointer", flexShrink: 0,
+                    color: dictState === "listening" ? "#ff6b5a" : dictState === "processing" ? "#C49A3C" : "rgba(255,255,255,0.28)",
+                    transition: "color 0.15s, background 0.15s", outline: "none",
+                    animation: dictState === "listening" ? "fsPulseRing 1.4s ease-out infinite" : "none",
+                  }}
+                  onMouseEnter={e => { if (dictState === "idle") e.currentTarget.style.color = "#C49A3C"; }}
+                  onMouseLeave={e => { if (dictState === "idle") e.currentTarget.style.color = "rgba(255,255,255,0.28)"; }}
+                >
+                  <Mic size={16} strokeWidth={2.2} />
+                </button>
                 <textarea
                   ref={inputRef}
-                  value={input}
+                  value={dictInterim ? (input ? input + " " : "") + dictInterim : input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); getAudioContext(); sendMessage(); } }}
-                  placeholder="Ask a question, or where to go…"
+                  placeholder={dictState === "listening" ? "Listening… tap the mic to stop" : dictState === "processing" ? "Transcribing…" : "Ask a question, or where to go…"}
                   rows={1}
                   style={{
                     flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",
