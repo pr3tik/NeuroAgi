@@ -48,7 +48,7 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
   }
 
   return (
-    <div style={{ marginTop: inRow ? 0 : 20, fontFamily: FONT, flex: inRow ? "1 1 160px" : undefined, minWidth: inRow ? 0 : undefined }}>
+    <div style={{ marginTop: inRow ? 0 : 20, fontFamily: FONT, flex: inRow ? "1 1 160px" : undefined, minWidth: inRow ? 0 : undefined, position: inRow ? "relative" : undefined }}>
       <div style={{ display: "flex", gap: 8, flexWrap: inRow ? "nowrap" : "wrap", maxWidth: inRow ? undefined : 430 }}>
         <input
           type="email"
@@ -79,8 +79,8 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
         </button>
       </div>
       {error
-        ? <p style={{ fontSize: 12.5, color: "#c0392b", margin: "8px 0 0" }}>{error}</p>
-        : <p style={{ fontSize: 12.5, color: "#a3a3a3", margin: "8px 0 0" }}>Early access rolls out in waves — no spam, one invite email.</p>}
+        ? <p style={{ fontSize: 12.5, color: "#c0392b", margin: "8px 0 0", ...(inRow ? { position: "absolute" as const, top: "100%", left: 14, margin: "6px 0 0", whiteSpace: "nowrap" as const } : {}) }}>{error}</p>
+        : <p style={{ fontSize: 12.5, color: "#a3a3a3", margin: "8px 0 0", ...(inRow ? { position: "absolute" as const, top: "100%", left: 14, margin: "6px 0 0", whiteSpace: "nowrap" as const } : {}) }}>Early access rolls out in waves — no spam, one invite email.</p>}
     </div>
   );
 }
