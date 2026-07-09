@@ -15,6 +15,7 @@
 // content area (see ScreenWrapper.tsx), so it can't fight normal scrolling.
 
 import { Gesture } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import { NAV, PageKey, Direction } from "./navConfig";
 import { setLastDirection } from "./transitionStore";
@@ -33,13 +34,18 @@ export function useSwipeNav(currentPage: PageKey) {
     }
   }
 
+  // .onEnd() callbacks run as UI-thread worklets (gesture-handler + reanimated
+  // auto-integration) — router.replace() etc. are plain JS-thread functions,
+  // so they must be dispatched back via runOnJS instead of called directly
+  // (calling them directly throws at runtime, tearing down the app on swipe).
   const horizontalGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
     .failOffsetY([-15, 15])
     .onEnd(e => {
+      "worklet";
       const dist = Math.abs(e.translationX);
       if (dist < MIN_DIST && Math.abs(e.velocityX) < MIN_VEL) return;
-      navigate(e.translationX < 0 ? "right" : "left");
+      runOnJS(navigate)(e.translationX < 0 ? "right" : "left");
     });
 
   // Pulling down from the top-edge strip → "up" (mirrors a pull-to-refresh
@@ -48,16 +54,18 @@ export function useSwipeNav(currentPage: PageKey) {
   const topEdgeGesture = Gesture.Pan()
     .activeOffsetY([-1000, 12])
     .onEnd(e => {
+      "worklet";
       if (e.translationY < MIN_DIST && e.velocityY < MIN_VEL) return;
-      navigate("up");
+      runOnJS(navigate)("up");
     });
 
   // Pulling up from the bottom-edge strip → "down".
   const bottomEdgeGesture = Gesture.Pan()
     .activeOffsetY([-12, 1000])
     .onEnd(e => {
+      "worklet";
       if (e.translationY > -MIN_DIST && e.velocityY > -MIN_VEL) return;
-      navigate("down");
+      runOnJS(navigate)("down");
     });
 
   return { horizontalGesture, topEdgeGesture, bottomEdgeGesture, navigate };
