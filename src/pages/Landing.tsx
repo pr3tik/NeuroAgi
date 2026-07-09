@@ -2778,16 +2778,24 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
             onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = "0.84"; }}
             onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = "1"; }}
           >Learn more</a>
-          <a href="/card#order" style={{
+          <button onClick={() => {
+            // Ride up to the hero with the cursor already blinking in the email box.
+            // preventScroll keeps focus from jump-cutting the smooth scroll; if the
+            // input isn't there (waitlist mode off / already joined), open the modal.
+            const el = document.getElementById("waitlist-email") as HTMLInputElement | null;
+            if (el) { el.focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: "smooth" }); }
+            else if (waitlistMode) { window.scrollTo({ top: 0, behavior: "smooth" }); setWaitlistOpen(true); }
+            else requestSignup();
+          }} style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
-            padding: "7px 17px", fontSize: 13, fontWeight: 400,
-            color: "#0066cc", textDecoration: "none", background: "transparent",
+            padding: "7px 17px", fontSize: 13, fontWeight: 400, cursor: "pointer",
+            color: "#0066cc", background: "transparent", fontFamily: FONT,
             display: "inline-flex", alignItems: "center",
             transition: "background 0.15s, border-color 0.15s",
           }}
-            onMouseEnter={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
-            onMouseLeave={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
-          >Apply</a>
+            onMouseEnter={e => { const a = e.currentTarget as HTMLButtonElement; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
+            onMouseLeave={e => { const a = e.currentTarget as HTMLButtonElement; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
+          >Join the waitlist</button>
         </div>
       </div>
 
