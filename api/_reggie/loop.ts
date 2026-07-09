@@ -138,7 +138,7 @@ export async function runReggie(opts: RunOpts): Promise<ReggieResult> {
 
   for (let step = 1; step <= maxSteps; step++) {
     const r = await callModel({
-      task: specialist.task, system, tools, messages, max_tokens: 4000,
+      task: voiceMode ? "voice" : specialist.task, system, tools, messages, max_tokens: 4000,
       metadata: { tool: "reggie", route: specialist.key, user_id: ctx.userId, step },
     });
     if (!r.ok) throw new Error(r.error || `model call failed (status ${r.status})`);
@@ -154,16 +154,16 @@ export async function runReggie(opts: RunOpts): Promise<ReggieResult> {
     messages.push({ role: "user", content: results });
   }
 
-  return forceFinalBlocking(specialist, system, ctx, messages, trace, widgets, maxSteps, emit);
+  return forceFinalBlocking(specialist, voiceMode ? "voice" : specialist.task, system, ctx, messages, trace, widgets, maxSteps, emit);
 }
 
 async function forceFinalBlocking(
-  specialist: Specialist, system: string, ctx: ToolContext, messages: any[], trace: ToolCallTrace[], widgets: RenderableWidget[], maxSteps: number, emit?: (e: ReggieEvent) => void,
+  specialist: Specialist, task: string, system: string, ctx: ToolContext, messages: any[], trace: ToolCallTrace[], widgets: RenderableWidget[], maxSteps: number, emit?: (e: ReggieEvent) => void,
 ): Promise<ReggieResult> {
   // Reuse the turn's REAL system prompt (brain context + voice addendum included) — the
   // old rebuild with brainContext:null silently depersonalized budget-exhausted answers.
   const fin = await callModel({
-    task: specialist.task,
+    task,
     system: system + "\n\nYou have reached the tool-call limit for this turn. Answer now using what you already have; do not request more tools.",
     messages, max_tokens: 2000,
     metadata: { tool: "reggie", route: specialist.key, user_id: ctx.userId, final: true },
@@ -192,7 +192,7 @@ export async function runReggieStream(opts: RunOpts): Promise<ReggieResult> {
 
   for (let step = 1; step <= maxSteps; step++) {
     const meta = { tool: "reggie", route: specialist.key, user_id: ctx.userId, step };
-    const turn = await streamTurn({ task: specialist.task, system, tools, messages, max_tokens: 4000, metadata: meta }, emit);
+    const turn = await streamTurn({ task: voiceMode ? "voice" : specialist.task, system, tools, messages, max_tokens: 4000, metadata: meta }, emit);
 
     if (turn.stop_reason !== "tool_use") {
       emit?.({ type: "final", output: turn.text });
@@ -209,7 +209,7 @@ export async function runReggieStream(opts: RunOpts): Promise<ReggieResult> {
   // Budget exhausted → one final tool-less streamed turn.
   const finSystem = system + "\n\nYou have reached the tool-call limit for this turn. Answer now using what you already have; do not request more tools.";
   emit?.({ type: "reset" });
-  const fin = await streamTurn({ task: specialist.task, system: finSystem, messages, max_tokens: 2000, metadata: { tool: "reggie", route: specialist.key, user_id: ctx.userId, final: true } }, emit);
+  const fin = await streamTurn({ task: voiceMode ? "voice" : specialist.task, system: finSystem, messages, max_tokens: 2000, metadata: { tool: "reggie", route: specialist.key, user_id: ctx.userId, final: true } }, emit);
   const output = fin.text || "I ran out of tool budget before finishing — could you narrow the question?";
   emit?.({ type: "final", output });
   return { output, route: specialist.key, trace, steps: maxSteps, budgetExhausted: true, widgets };
