@@ -48,8 +48,8 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
   }
 
   return (
-    <div style={{ marginTop: inRow ? 0 : 20, fontFamily: FONT, flex: inRow ? "1 1 300px" : undefined, minWidth: inRow ? 260 : undefined }}>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", maxWidth: 430 }}>
+    <div style={{ marginTop: inRow ? 0 : 20, fontFamily: FONT, flex: inRow ? "1 1 auto" : undefined, minWidth: inRow ? 0 : undefined }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: inRow ? "nowrap" : "wrap", maxWidth: inRow ? undefined : 430 }}>
         <input
           type="email"
           value={email}
@@ -58,8 +58,8 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
           onKeyDown={(e) => { if (e.key === "Enter") join(); }}
           aria-label="Email for the waitlist"
           style={{
-            flex: "1 1 220px", minWidth: 0, background: "#f5f5f7", border: "1px solid rgba(0,0,0,0.08)",
-            borderRadius: 980, padding: "12px 20px", fontSize: 15, color: "#1d1d1f",
+            flex: inRow ? "1 1 120px" : "1 1 220px", minWidth: 0, background: "#f5f5f7", border: "1px solid rgba(0,0,0,0.08)",
+            borderRadius: 980, padding: inRow ? "11px 16px" : "12px 20px", fontSize: inRow ? 14 : 15, color: "#1d1d1f",
             outline: "none", fontFamily: FONT, transition: "border-color 0.15s, background 0.15s",
           }}
           onFocus={(e) => { e.currentTarget.style.borderColor = "#0071e3"; e.currentTarget.style.background = "#fff"; }}
@@ -70,8 +70,8 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
           disabled={state === "sending" || !email.trim()}
           style={{
             background: state === "sending" || !email.trim() ? "rgba(0,113,227,0.45)" : "#0071e3",
-            color: "#fff", border: "none", borderRadius: 980, padding: "12px 24px",
-            fontSize: 15, fontWeight: 400, cursor: state === "sending" || !email.trim() ? "default" : "pointer",
+            color: "#fff", border: "none", borderRadius: 980, padding: inRow ? "11px 18px" : "12px 24px",
+            fontSize: inRow ? 14.5 : 15, fontWeight: 400, cursor: state === "sending" || !email.trim() ? "default" : "pointer",
             fontFamily: FONT, transition: "opacity 0.15s", whiteSpace: "nowrap",
           }}
         >

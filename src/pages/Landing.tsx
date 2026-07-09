@@ -2906,7 +2906,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
             </p>
 
             {/* CTAs — Apple exact: "Learn more" solid blue, "Apply" ghost outline */}
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", width: "100%" }}>
               <a href="/card" style={{
                 background: "#0071e3", color: "#fff",
                 border: "none",
