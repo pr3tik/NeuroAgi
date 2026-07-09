@@ -66,7 +66,7 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
       setResult({ position: d.position, total: d.total, alreadyJoined: !!d.alreadyJoined });
       setState("done");
     } catch (e: any) {
-      setError(e?.message ?? "Something went wrong — try again.");
+      setError(e?.message ?? "Something went wrong. Try again.");
       setState("idle");
     }
   }
@@ -80,7 +80,7 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
             <svg width="11" height="11" viewBox="0 0 18 18" fill="none"><path d="M3.5 9l4 4 7-7" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </span>
           <span style={{ fontSize: 15, color: "#1d1d1f", whiteSpace: "nowrap" }}>
-            {result?.alreadyJoined ? "Spot saved — " : "You're in — "}
+            {result?.alreadyJoined ? "Spot saved, " : "You're in, "}
             <b>#{result?.position?.toLocaleString?.()}</b> in line. Check your inbox.
           </span>
         </div>
@@ -151,7 +151,7 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
       {/* Helper / error — out of flow so the pills stay aligned with Learn more */}
       {error
         ? <p style={{ fontSize: 12.5, color: "#c0392b", position: "absolute", top: "100%", left: 14, margin: "6px 0 0", whiteSpace: "nowrap", fontFamily: FONT }}>{error}</p>
-        : <p style={{ fontSize: 12.5, color: "#a3a3a3", position: "absolute", top: "100%", left: 14, margin: "6px 0 0", whiteSpace: "nowrap", fontFamily: FONT }}>Free while in beta — one invite email, no spam.</p>}
+        : <p style={{ fontSize: 12.5, color: "#a3a3a3", position: "absolute", top: "100%", left: 14, margin: "6px 0 0", whiteSpace: "nowrap", fontFamily: FONT }}>Free while in beta: one invite email, no spam.</p>}
     </div>
   );
 }
