@@ -117,6 +117,7 @@ export default function WaitlistInline({ source = "landing-hero", inRow = false 
             onKeyDown={(e) => { if (e.key === "Enter") join(); }}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
+            id={inRow ? "waitlist-email" : undefined}
             aria-label="Email for the waitlist"
             style={{
               flex: "1 1 60px", minWidth: 0, background: "transparent", border: "none",
