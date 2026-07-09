@@ -93,6 +93,16 @@ describe("agent-manager (Reggie front door)", () => {
     expect(runReggie.mock.calls[0][0].history).toEqual(history);
   });
 
+  it("passes voiceMode through to the loop (default false)", async () => {
+    const h = await load();
+    let res = makeRes();
+    await h({ method: "POST", body: { userId: "u1", message: "what's my grade in bio", voiceMode: true } }, res);
+    expect(runReggie.mock.calls.at(-1)[0].voiceMode).toBe(true);
+    res = makeRes();
+    await h({ method: "POST", body: { userId: "u1", message: "what's my grade in bio" } }, res);
+    expect(runReggie.mock.calls.at(-1)[0].voiceMode).toBe(false);
+  });
+
   it("routes an explicit product action straight to its specialist (no classification)", async () => {
     const h = await load(); const res = makeRes();
     await h({ method: "POST", body: { action: "weekly_plan", userId: "u1", message: "plan my week" } }, res);

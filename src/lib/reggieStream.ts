@@ -32,6 +32,8 @@ export interface ReggieStreamBody {
   history?: Array<{ role: string; content: string }>;
   courseId?: any;
   hint?: string | null;
+  /** Client is in voice mode — the loop teaches the model the voice-tag protocol. */
+  voiceMode?: boolean;
 }
 
 export async function streamReggie(

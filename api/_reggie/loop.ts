@@ -108,12 +108,28 @@ export interface RunOpts {
   history?: HistoryTurn[];
   emit?: (e: ReggieEvent) => void;
   maxSteps?: number;
+  /** Client is in voice mode: teach the model the UI voice-tag protocol and ask for
+   *  spoken-length answers (the client parses/strips the tags — see src/lib/voiceTags). */
+  voiceMode?: boolean;
 }
+
+// Kept server-side (duplicated from src/lib/voiceTags VOICE_TAGS_ADDENDUM in spirit) so
+// api/ has no src/ UI import; the tag names MUST stay in sync with parseVoiceTags.
+const VOICE_ADDENDUM = [
+  '',
+  'The student is in VOICE mode: your reply is spoken aloud. Keep it conversational and short (2-4 sentences unless asked for more). You can control the voice UI by embedding bracket tags anywhere in your reply (they are stripped before display/speech):',
+  '- [SYNC] when they ask to sync/refresh their Canvas data.',
+  '- [GENERATE_FLASHCARDS:<course name>] when they ask you to make flashcards for a course by voice.',
+  '- [VOICE:<voice name or description>] when they ask for a different voice.',
+  '- [SPEED:<0.7-1.3>] when they ask you to speak faster or slower.',
+  '- [TONE:calm|energetic|neutral|serious] when they ask for a different tone.',
+  'Only emit a tag when the student explicitly asks for that action. Never mention the tags.',
+].join(String.fromCharCode(10));
 
 // ── Blocking loop (one callModel per turn) ──────────────────────────────────────
 export async function runReggie(opts: RunOpts): Promise<ReggieResult> {
-  const { specialist, userMessage, brainContext = null, ctx, history, emit, maxSteps = MAX_STEPS } = opts;
-  const system = specialist.system({ brainContext });
+  const { specialist, userMessage, brainContext = null, ctx, history, emit, maxSteps = MAX_STEPS, voiceMode = false } = opts;
+  const system = specialist.system({ brainContext }) + (voiceMode ? VOICE_ADDENDUM : "");
   const tools = toolSpecs(specialist.tools);
   const messages = buildMessages(userMessage, history);
   const trace: ToolCallTrace[] = [];
@@ -138,15 +154,17 @@ export async function runReggie(opts: RunOpts): Promise<ReggieResult> {
     messages.push({ role: "user", content: results });
   }
 
-  return forceFinalBlocking(specialist, ctx, messages, trace, widgets, maxSteps, emit);
+  return forceFinalBlocking(specialist, system, ctx, messages, trace, widgets, maxSteps, emit);
 }
 
 async function forceFinalBlocking(
-  specialist: Specialist, ctx: ToolContext, messages: any[], trace: ToolCallTrace[], widgets: RenderableWidget[], maxSteps: number, emit?: (e: ReggieEvent) => void,
+  specialist: Specialist, system: string, ctx: ToolContext, messages: any[], trace: ToolCallTrace[], widgets: RenderableWidget[], maxSteps: number, emit?: (e: ReggieEvent) => void,
 ): Promise<ReggieResult> {
+  // Reuse the turn's REAL system prompt (brain context + voice addendum included) — the
+  // old rebuild with brainContext:null silently depersonalized budget-exhausted answers.
   const fin = await callModel({
     task: specialist.task,
-    system: specialist.system({ brainContext: null }) + "\n\nYou have reached the tool-call limit for this turn. Answer now using what you already have; do not request more tools.",
+    system: system + "\n\nYou have reached the tool-call limit for this turn. Answer now using what you already have; do not request more tools.",
     messages, max_tokens: 2000,
     metadata: { tool: "reggie", route: specialist.key, user_id: ctx.userId, final: true },
   });
@@ -164,8 +182,8 @@ async function forceFinalBlocking(
 // tools, then the next turn streams the real answer. Falls back to a blocking turn if
 // a stream can't be opened.
 export async function runReggieStream(opts: RunOpts): Promise<ReggieResult> {
-  const { specialist, userMessage, brainContext = null, ctx, history, emit, maxSteps = MAX_STEPS } = opts;
-  const system = specialist.system({ brainContext });
+  const { specialist, userMessage, brainContext = null, ctx, history, emit, maxSteps = MAX_STEPS, voiceMode = false } = opts;
+  const system = specialist.system({ brainContext }) + (voiceMode ? VOICE_ADDENDUM : "");
   const tools = toolSpecs(specialist.tools);
   const messages = buildMessages(userMessage, history);
   const trace: ToolCallTrace[] = [];

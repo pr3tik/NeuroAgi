@@ -21,7 +21,7 @@ export default async function handler(req: any, res: any) {
   const {
     action = "ask", userId, message,
     courseId = null, assignmentId = null, brainPersonId = null, hint = null,
-    history = [],
+    history = [], voiceMode = false,
   } = req.body ?? {};
   const wantStream = !!(req.body?.stream || req.query?.stream);
 
@@ -66,7 +66,7 @@ export default async function handler(req: any, res: any) {
     };
     try {
       const result = await runReggieStream({
-        specialist, userMessage: message, brainContext, history: hist,
+        specialist, userMessage: message, brainContext, history: hist, voiceMode: !!voiceMode,
         ctx: { userId, courseId, assignmentId, origin },
         emit: (e) => { if (e.type !== "final") send(e.type, e); },   // `final` is superseded by `done`
       });
@@ -86,7 +86,7 @@ export default async function handler(req: any, res: any) {
   // 3b. Blocking: return the final answer + tool-call trace as one JSON body.
   try {
     const result = await runReggie({
-      specialist, userMessage: message, brainContext, history: hist,
+      specialist, userMessage: message, brainContext, history: hist, voiceMode: !!voiceMode,
       ctx: { userId, courseId, assignmentId, origin },
     });
     return res.status(200).json({
