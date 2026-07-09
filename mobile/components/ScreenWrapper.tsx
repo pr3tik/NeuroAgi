@@ -29,12 +29,13 @@ function getInitialOffset(dir: typeof lastDirection) {
 type Props = { page: PageKey; children: React.ReactNode };
 
 export default function ScreenWrapper({ page, children }: Props) {
-  const { horizontalGesture, topEdgeGesture, bottomEdgeGesture } = useSwipeNav(page);
   const { x: ix, y: iy } = getInitialOffset(lastDirection);
 
   const translateX = useSharedValue(ix);
   const translateY = useSharedValue(iy);
   const opacity    = useSharedValue(ix !== 0 || iy !== 0 ? 0.75 : 1);
+
+  const { horizontalGesture, topEdgeGesture, bottomEdgeGesture } = useSwipeNav(page, translateX, translateY);
 
   useEffect(() => {
     translateX.value = withTiming(0, { duration: DURATION, easing: EASE });
