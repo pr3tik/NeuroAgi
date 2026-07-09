@@ -188,8 +188,14 @@ export default function IdentityScreen() {
           { data: todayRows },
           { data: recent },
         ] = await Promise.all([
+          // Base columns only — guaranteed to exist per supabase-schema.sql.
+          // school_city/school_country/points/discord_user_id come from
+          // separate, later migrations that may not be applied to this DB
+          // yet; Postgrest fails the WHOLE query if any selected column is
+          // missing, so those are fetched separately below and degrade
+          // gracefully instead of blocking the whole profile screen.
           supabase.from("users")
-            .select("name, school, school_city, school_country, gpa, streak, study_time, points, discord_user_id")
+            .select("name, school, gpa, streak, study_time")
             .eq("id", TEST_USER_ID).maybeSingle(),
           supabase.from("courses")
             .select("name, course_code, current_score, final_score")
@@ -206,7 +212,19 @@ export default function IdentityScreen() {
         if (cancelled) return;
         if (uErr) { setLoadError(true); setLoading(false); return; }
 
-        setUser(u ?? null);
+        // Best-effort enhanced fields — silently absent if their migration
+        // (supabase-users-school-columns-migration.sql / the discord_user_id
+        // column) hasn't been run against this database yet.
+        let enhanced: { school_city?: string; school_country?: string; points?: number; discord_user_id?: string } = {};
+        try {
+          const { data: e } = await supabase.from("users")
+            .select("school_city, school_country, points, discord_user_id")
+            .eq("id", TEST_USER_ID).maybeSingle();
+          if (e) enhanced = e;
+        } catch {}
+
+        const merged = { ...u, ...enhanced };
+        setUser(merged);
         setName(u?.name ?? "");
         setCoursePerf((courseRows ?? []).map((c: any) => ({
           name: c.name,
@@ -216,7 +234,7 @@ export default function IdentityScreen() {
         setDoneCount(submittedCount ?? 0);
 
         // Mirrors api/token-engine.ts ?action=summary, read directly from Supabase.
-        const points = u?.points ?? 0;
+        const points = enhanced.points ?? 0;
         setTokenSummary({
           points,
           tier:         getTier(points).name,
