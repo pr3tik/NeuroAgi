@@ -15,13 +15,26 @@ import rag from "../rag.js";
 import flashcards from "../flashcards.js";
 import summarize from "../summarize.js";
 import tokenEngine from "../token-engine.js";
+import officeHours from "../office-hours.js";
+import writingTracker from "../writing-tracker.js";
 import { whatIf } from "../../src/lib/whatIfPlan.js";
 import { callApi } from "./callApi.js";
+import { canvasCreds, canvasGET, resolveCanvasCourseId, allCanvasCourseIds, trim } from "./canvasLive.js";
 
 export interface ToolContext {
   userId: string;
   courseId?: any;
   assignmentId?: any;
+  /** Public origin of the incoming request (host + proto) — forwarded to handlers that
+   *  build self-call URLs from headers (writing-tracker → /api/claude). */
+  origin?: { host: string; proto: string };
+}
+
+/** Header bag for handlers that derive a base URL from the request. */
+function originHeaders(ctx: ToolContext): Record<string, string> {
+  const host = ctx.origin?.host || "fschoolai.com";
+  const proto = ctx.origin?.proto || "https";
+  return { host, "x-forwarded-host": host, "x-forwarded-proto": proto };
 }
 
 export interface ReggieTool {
@@ -259,6 +272,191 @@ export const TOOLS: ReggieTool[] = [
       required: ["page"],
     },
     invoke: async (a) => ({ ok: true, page: a.page, course: a.course ?? null, mode: a.mode ?? null }),
+  },
+
+  // ── G. LIVE Canvas reads ─────────────────────────────────────────────────────
+  // Direct Canvas REST with the student's stored token (via canvasLive.ts) — content the
+  // sync doesn't persist: announcements, module structure, page bodies, quizzes,
+  // submission feedback, inbox. All results are trimmed to compact shapes.
+  {
+    name: "canvas_announcements",
+    description:
+      "Read the student's recent Canvas ANNOUNCEMENTS (what professors posted) — across all their courses or one course. Call for 'did my prof post/announce anything', 'any updates in X'. Canvas only returns ~14 days by default; pass sinceDays to look further back.",
+    input_schema: {
+      type: "object",
+      properties: {
+        course: { type: ["string", "number", "null"], description: "Optional: one course by name/code/Canvas id. Omit for all courses." },
+        sinceDays: { type: "integer", description: "Look back N days (default 30)." },
+      },
+      required: [],
+    },
+    invoke: async (a, ctx) => {
+      const creds = await canvasCreds(ctx.userId);
+      const ids = a.course != null ? [await resolveCanvasCourseId(ctx.userId, a.course)] : await allCanvasCourseIds(ctx.userId);
+      if (!ids.length) throw new Error("No synced courses found — run a Canvas sync first.");
+      const since = new Date(Date.now() - (Number(a.sinceDays) > 0 ? Number(a.sinceDays) : 30) * 86_400_000).toISOString().slice(0, 10);
+      const rows = await canvasGET(creds, "/announcements", { "context_codes[]": ids.map((i) => `course_${i}`), start_date: since, per_page: 30 });
+      return { announcements: trim.announcements(rows) };
+    },
+  },
+  {
+    name: "canvas_modules",
+    description:
+      "Read a course's Canvas MODULES (the week/topic structure with items). Call for 'what's in module 3', 'what topics does this course cover', 'what's the course structure'.",
+    input_schema: {
+      type: "object",
+      properties: { course: { type: ["string", "number"], description: "Course by name, code, or Canvas id." } },
+      required: ["course"],
+    },
+    invoke: async (a, ctx) => {
+      const creds = await canvasCreds(ctx.userId);
+      const id = await resolveCanvasCourseId(ctx.userId, a.course);
+      const rows = await canvasGET(creds, `/courses/${id}/modules`, { "include[]": "items", per_page: 50 });
+      return { modules: trim.modules(rows) };
+    },
+  },
+  {
+    name: "canvas_pages",
+    description:
+      "Read a course's Canvas wiki PAGES. Without pageSlug: list the pages. With pageSlug: return that page's full text content. Call for lecture/session pages, syllabus-style content ('what does the week 5 page say').",
+    input_schema: {
+      type: "object",
+      properties: {
+        course: { type: ["string", "number"], description: "Course by name, code, or Canvas id." },
+        pageSlug: { type: ["string", "null"], description: "Page slug from the list call — returns the page body." },
+      },
+      required: ["course"],
+    },
+    invoke: async (a, ctx) => {
+      const creds = await canvasCreds(ctx.userId);
+      const id = await resolveCanvasCourseId(ctx.userId, a.course);
+      if (a.pageSlug) return { page: trim.page(await canvasGET(creds, `/courses/${id}/pages/${encodeURIComponent(a.pageSlug)}`)) };
+      return { pages: trim.pagesIndex(await canvasGET(creds, `/courses/${id}/pages`, { per_page: 50 })) };
+    },
+  },
+  {
+    name: "canvas_quizzes",
+    description: "List a course's Canvas QUIZZES (title, due date, points, question count). Call for 'do I have any quizzes', 'when is the next quiz in X'.",
+    input_schema: {
+      type: "object",
+      properties: { course: { type: ["string", "number"], description: "Course by name, code, or Canvas id." } },
+      required: ["course"],
+    },
+    invoke: async (a, ctx) => {
+      const creds = await canvasCreds(ctx.userId);
+      const id = await resolveCanvasCourseId(ctx.userId, a.course);
+      return { quizzes: trim.quizzes(await canvasGET(creds, `/courses/${id}/quizzes`, { per_page: 50 })) };
+    },
+  },
+  {
+    name: "canvas_submission_feedback",
+    description:
+      "Read the student's OWN submission for one assignment — score, grade, lateness, the professor's COMMENTS, and rubric points. Call for 'what feedback did I get', 'why did I lose points on X', 'what did the prof say about my essay'. Get the assignment id from canvas_get_upcoming/canvas_get_grades or ask.",
+    input_schema: {
+      type: "object",
+      properties: {
+        course: { type: ["string", "number"], description: "Course by name, code, or Canvas id." },
+        assignmentId: { type: ["string", "number"], description: "Canvas assignment id." },
+      },
+      required: ["course", "assignmentId"],
+    },
+    invoke: async (a, ctx) => {
+      const creds = await canvasCreds(ctx.userId);
+      const id = await resolveCanvasCourseId(ctx.userId, a.course);
+      const s = await canvasGET(creds, `/courses/${id}/assignments/${a.assignmentId}/submissions/self`, { "include[]": ["submission_comments", "rubric_assessment"] });
+      return { submission: trim.submission(s) };
+    },
+  },
+  {
+    name: "canvas_inbox",
+    description:
+      "Read the student's Canvas INBOX. Without conversationId: list recent conversations. With conversationId: return that thread's messages. Call for 'any messages from my prof/TA', 'what did X reply'.",
+    input_schema: {
+      type: "object",
+      properties: { conversationId: { type: ["string", "number", "null"], description: "A conversation id from the list call." } },
+      required: [],
+    },
+    invoke: async (a, ctx) => {
+      const creds = await canvasCreds(ctx.userId);
+      if (a.conversationId) return { conversation: trim.conversation(await canvasGET(creds, `/conversations/${a.conversationId}`)) };
+      return { conversations: trim.conversations(await canvasGET(creds, "/conversations", { per_page: 20 })) };
+    },
+  },
+  {
+    name: "canvas_course_files",
+    description:
+      "List a course's Canvas FILES (slides, PDFs, docs). Call for 'what slides/files are posted in X'. Note: some schools restrict the Files tab — a 403 means the student can't access it either.",
+    input_schema: {
+      type: "object",
+      properties: { course: { type: ["string", "number"], description: "Course by name, code, or Canvas id." } },
+      required: ["course"],
+    },
+    invoke: async (a, ctx) => {
+      const creds = await canvasCreds(ctx.userId);
+      const id = await resolveCanvasCourseId(ctx.userId, a.course);
+      return { files: trim.files(await canvasGET(creds, `/courses/${id}/files`, { per_page: 50 })) };
+    },
+  },
+  {
+    name: "canvas_past_courses",
+    description: "List the student's COMPLETED Canvas courses with final scores/grades. Call for 'what did I take last term', 'what was my grade in <past course>', GPA history questions.",
+    input_schema: { type: "object", properties: {}, required: [] },
+    invoke: async (_a, ctx) => {
+      const creds = await canvasCreds(ctx.userId);
+      const rows = await canvasGET(creds, "/courses", { enrollment_state: "completed", "include[]": "total_scores", per_page: 50 });
+      return { pastCourses: trim.pastCourses(rows) };
+    },
+  },
+
+  // ── H. coaching / analysis ──────────────────────────────────────────────────
+  {
+    name: "office_hours_prep",
+    description:
+      "Generate personalized questions the student should ASK in office hours for a course, based on their known gaps and recent course material. Call for 'what should I ask my prof', 'help me prep for office hours'.",
+    input_schema: {
+      type: "object",
+      properties: { course: { type: ["string", "number"], description: "Course by name, code, or id." } },
+      required: ["course"],
+    },
+    invoke: async (a, ctx) => call(officeHours, { query: { action: "prep" }, body: { action: "prep", userId: ctx.userId, courseId: await resolveCourse(ctx.userId, a.course) } }, "office_hours_prep"),
+  },
+  {
+    name: "office_hours_capture",
+    description:
+      "AFTER office hours: capture what was discussed so the tutor's understanding of the student updates. Pass the student's notes/summary of the session. Call when they say 'I went to office hours and…'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        sessionNotes: { type: "string", description: "What was discussed / answered / still confusing." },
+        course: { type: ["string", "number", "null"], description: "Optional course by name, code, or id." },
+      },
+      required: ["sessionNotes"],
+    },
+    invoke: async (a, ctx) => call(officeHours, { query: { action: "capture" }, body: { action: "capture", userId: ctx.userId, sessionNotes: a.sessionNotes, courseId: a.course != null ? await resolveCourse(ctx.userId, a.course) : undefined } }, "office_hours_capture"),
+  },
+  {
+    name: "writing_analyze",
+    description:
+      "Analyze a piece of the student's WRITING (essay draft, paragraph): objective metrics (sentence variety, lexical diversity), change vs their last analyzed sample, one assessment + one tip. Call for 'how's my writing', 'analyze this draft'. Do NOT rewrite it for them.",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "The student's writing sample." },
+        title: { type: ["string", "null"], description: "Optional label, e.g. 'History essay draft 2'." },
+      },
+      required: ["text"],
+    },
+    invoke: (a, ctx) => call(writingTracker, { headers: originHeaders(ctx), body: { userId: ctx.userId, text: a.text, title: a.title } }, "writing_analyze"),
+  },
+  {
+    name: "delete_flashcards",
+    description: "Delete ONE saved flashcard by its id (get ids from list_flashcards). Call when the student asks to remove a card. Confirm which card before deleting.",
+    input_schema: {
+      type: "object",
+      properties: { cardId: { type: "string", description: "The card's id from list_flashcards." } },
+      required: ["cardId"],
+    },
+    invoke: (a, ctx) => call(flashcards, { body: { action: "delete", userId: ctx.userId, cardId: a.cardId } }, "delete_flashcards"),
   },
 ];
 

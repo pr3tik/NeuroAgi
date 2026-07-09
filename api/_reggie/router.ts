@@ -17,8 +17,15 @@ const TASK_HINTS: Record<string, string> = {
 
 // Ordered, PRECISE rules — first match wins. A rule fires only if its route is available.
 const KEYWORD_RULES: Array<[RegExp, string]> = [
-  // question_coach — grading the student's OWN answers / practice (must beat generic "grade")
+  // writing_coach — analyzing the student's own writing (before question_coach's generic "check my …")
+  [/\b(analy[sz]e|review|improve)\b[^.?!]*\b(my|this)\b[^.?!]*\b(writing|essay|draft|paper|paragraph)\b|how('s| is) my writing/i, "writing_coach"],
+  // insight_explainer — professor feedback / lost points on submitted work
+  [/\bfeedback\b[^.?!]{0,30}\b(on|for|about)\b|why did i (lose|get docked)\b|\brubric\b|what did (the |my )?(prof|professor|teacher|ta) (say|comment)/i, "insight_explainer"],
+  // question_coach — office-hours prep, then grading the student's OWN answers / practice
+  [/office hours?/i, "question_coach"],
   [/\b(grade|check|mark|evaluate|score)\b[^.?!]*\b(my|these|this|the)\b[^.?!]*\b(answer|answers|response|work|attempt|essay|solution)\b|\bam i (right|correct)\b|\bhow did i do\b|\bgrade (my|these|this)\b/i, "question_coach"],
+  // tutor — live-Canvas reads: announcements, inbox, past terms
+  [/\bannouncements?\b|did (my|the) (prof|professor|teacher|ta) (post|announce|say anything)|\bcanvas (inbox|messages?)\b|messages? from (my |the )?(prof|professor|teacher|ta)|what did i take last (term|semester|year)|\bpast courses\b/i, "tutor"],
   // insight_explainer — what-if scenarios & grade standing/weighting
   [/\bwhat[-\s]?if\b|\bif i (get|score|drop|skip|move|only)\b|\bprojected grade\b|\bgrade[-\s]?weight|weighted grade|\bhow (is|are|'?s) my grades?\b|\bwhat('?s| is| are)?\s+(my\s+)?grades?\b|\bmy grades?\b|\bmy gpa\b|\bfinal grade\b|\bhow am i doing\b|do i need (on|to)\b/i, "insight_explainer"],
   // planner — deadlines, dated study plans, and overdue/past-due work
@@ -34,12 +41,12 @@ const KEYWORD_RULES: Array<[RegExp, string]> = [
 ];
 
 const ROUTE_DESC: Record<string, string> = {
-  tutor: "general questions, explanations, points/tokens, or anything not covered by another specialist",
-  insight_explainer: "the student's grades, projected grade, grade weighting, GPA, and what-if scenarios (dropping a topic, moving an exam, hypothetical scores)",
+  tutor: "general questions, explanations, points/tokens, Canvas announcements/inbox/modules, past courses, or anything not covered by another specialist",
+  insight_explainer: "the student's grades, projected grade, grade weighting, GPA, what-if scenarios, and the professor's feedback/rubric on submitted work",
   planner: "what's due, deadlines, prioritizing work, and building dated study plans for an exam",
   content_synthesizer: "making study materials from their content — quizzes, flashcards, summaries, concept maps",
-  question_coach: "quizzing the student and grading THEIR practice answers with feedback",
-  writing_coach: "essays and writing — outlining, argument structure, revision (never writing the submission for them)",
+  question_coach: "quizzing the student, grading THEIR practice answers with feedback, and prepping questions for office hours",
+  writing_coach: "essays and writing — outlining, argument structure, revision, analyzing their drafts (never writing the submission for them)",
   resource_curator: "pointing the student to the most relevant material they already have",
 };
 

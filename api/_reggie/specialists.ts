@@ -31,38 +31,38 @@ function base(persona: string, brainContext?: string | null): string {
 export const SPECIALISTS: Record<string, Specialist> = {
   tutor: {
     key: "tutor", title: "General tutor", task: "tutor",
-    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "summarize_text", "list_flashcards", "token_summary", "navigate"],
-    system: (o) => base("Answer the student's question clearly and help them understand it, pulling from their uploaded materials (rag_search) and Canvas data when relevant.", o.brainContext),
+    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "canvas_announcements", "canvas_modules", "canvas_submission_feedback", "canvas_inbox", "canvas_past_courses", "office_hours_capture", "summarize_text", "list_flashcards", "token_summary", "navigate"],
+    system: (o) => base("Answer the student's question clearly and help them understand it, pulling from their uploaded materials (rag_search) and Canvas when relevant — including live Canvas: announcements, module structure, submission feedback, inbox, and past courses. If they mention going to office hours, capture what happened (office_hours_capture).", o.brainContext),
   },
   insight_explainer: {
     key: "insight_explainer", title: "Grades & what-if", task: "tutor",
-    tools: ["canvas_get_grades", "compute_grade_weights", "what_if_plan", "canvas_get_upcoming", "token_summary"],
-    system: (o) => base("Explain the student's grade standing and run what-if scenarios. Fetch real grades/weights BEFORE any math, and show the numbers you used.", o.brainContext),
+    tools: ["canvas_get_grades", "compute_grade_weights", "what_if_plan", "canvas_get_upcoming", "canvas_submission_feedback", "canvas_past_courses", "token_summary"],
+    system: (o) => base("Explain the student's grade standing and run what-if scenarios. Fetch real grades/weights BEFORE any math, and show the numbers you used. For 'why did I lose points / what feedback did I get' use canvas_submission_feedback; for past terms use canvas_past_courses.", o.brainContext),
   },
   planner: {
     key: "planner", title: "Planning & deadlines", task: "tutor",
-    tools: ["canvas_get_upcoming", "canvas_get_grades", "generate_study_plan", "what_if_plan", "navigate"],
+    tools: ["canvas_get_upcoming", "canvas_get_grades", "generate_study_plan", "what_if_plan", "canvas_announcements", "canvas_quizzes", "canvas_modules", "navigate"],
     system: (o) => base("Help the student plan: what's due, what they're OVERDUE/behind on (call canvas_get_upcoming with status:'overdue'), what to prioritize, dated study plans for exams (based on their REAL upcoming work), and what-if tweaks to an existing plan (drop a topic, move the exam, change daily minutes) via what_if_plan.", o.brainContext),
   },
   content_synthesizer: {
     key: "content_synthesizer", title: "Study materials", task: "tutor",
-    tools: ["rag_search", "generate_quiz", "list_flashcards", "save_flashcards", "summarize_text", "generate_framework", "navigate"],
-    system: (o) => base("Turn the student's materials into study aids — quizzes, flashcards, summaries, concept maps — grounded in their actual course content (rag_search).", o.brainContext),
+    tools: ["rag_search", "generate_quiz", "list_flashcards", "save_flashcards", "delete_flashcards", "summarize_text", "generate_framework", "canvas_modules", "canvas_pages", "canvas_course_files", "navigate"],
+    system: (o) => base("Turn the student's materials into study aids — quizzes, flashcards, summaries, concept maps — grounded in their actual course content (rag_search, plus live Canvas pages/modules/files when their uploads don't cover it).", o.brainContext),
   },
   question_coach: {
     key: "question_coach", title: "Practice & feedback", task: "tutor",
-    tools: ["rag_search", "generate_quiz", "evaluate_answers"],
-    system: (o) => base("Coach the student through practice: quiz them, grade their answers, and give targeted feedback on gaps.", o.brainContext),
+    tools: ["rag_search", "generate_quiz", "evaluate_answers", "canvas_quizzes", "office_hours_prep"],
+    system: (o) => base("Coach the student through practice: quiz them, grade their answers, and give targeted feedback on gaps. See their real upcoming Canvas quizzes (canvas_quizzes) and help them prep questions to ask in office hours (office_hours_prep).", o.brainContext),
   },
   writing_coach: {
     key: "writing_coach", title: "Writing", task: "tutor",
-    tools: ["rag_search", "summarize_text", "generate_framework"],
-    system: (o) => base("Coach the student's writing — outline, argument structure, revision — WITHOUT writing the submission for them. Use their sources (rag_search).", o.brainContext),
+    tools: ["rag_search", "summarize_text", "generate_framework", "writing_analyze", "canvas_submission_feedback"],
+    system: (o) => base("Coach the student's writing — outline, argument structure, revision — WITHOUT writing the submission for them. Use their sources (rag_search), analyze drafts objectively (writing_analyze), and pull the professor's real feedback on submitted work (canvas_submission_feedback).", o.brainContext),
   },
   resource_curator: {
     key: "resource_curator", title: "Resources", task: "tutor",
-    tools: ["rag_search", "navigate"],
-    system: (o) => base("Point the student to the most relevant material they already have for their question, and suggest what to study next.", o.brainContext),
+    tools: ["rag_search", "canvas_course_files", "canvas_modules", "canvas_pages", "navigate"],
+    system: (o) => base("Point the student to the most relevant material for their question — their uploads (rag_search) AND what's posted on Canvas (files, modules, pages) — and suggest what to study next.", o.brainContext),
   },
 };
 
