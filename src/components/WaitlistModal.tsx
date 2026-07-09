@@ -35,7 +35,7 @@ export default function WaitlistModal({ open, onClose, source = "landing" }: { o
       setResult({ position: d.position, total: d.total, alreadyJoined: !!d.alreadyJoined });
       setState("done");
     } catch (e: any) {
-      setError(e?.message ?? "Something went wrong — try again.");
+      setError(e?.message ?? "Something went wrong. Try again.");
       setState("idle");
     }
   }
@@ -55,7 +55,7 @@ export default function WaitlistModal({ open, onClose, source = "landing" }: { o
             <p style={{ fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: "rgba(26,24,20,0.4)", fontWeight: 600, margin: "0 0 18px" }}>Early access</p>
             <h2 style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 27, color: "#1a1814", margin: "0 0 10px", lineHeight: 1.2 }}>Join the waitlist</h2>
             <p style={{ fontSize: 14.5, color: "rgba(26,24,20,0.55)", lineHeight: 1.65, margin: "0 0 24px" }}>
-              We're letting students in gradually{total ? <> — <b>{total.toLocaleString()}</b> are already in line</> : ""}. Leave your email and we'll send your invite the moment a spot opens.
+              We're letting students in gradually{total ? <>: <b>{total.toLocaleString()}</b> are already in line</> : ""}. Leave your email and we'll send your invite the moment a spot opens.
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14, textAlign: "left" }}>
               <input style={input} type="text" placeholder="First name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
@@ -68,7 +68,7 @@ export default function WaitlistModal({ open, onClose, source = "landing" }: { o
               style={{ width: "100%", background: state === "sending" || !email.trim() ? "rgba(26,24,20,0.35)" : "#1a1814", color: "#F6F2E9", border: "none", borderRadius: 13, padding: 15, fontSize: 15, fontWeight: 650, cursor: state === "sending" || !email.trim() ? "default" : "pointer", fontFamily: "inherit" }}>
               {state === "sending" ? "Joining…" : "Join the waitlist →"}
             </button>
-            <p style={{ fontSize: 12, color: "rgba(26,24,20,0.35)", margin: "16px 0 0" }}>No spam — one confirmation now, one email when you're in.</p>
+            <p style={{ fontSize: 12, color: "rgba(26,24,20,0.35)", margin: "16px 0 0" }}>No spam: one confirmation now, one email when you're in.</p>
           </>
         ) : (
           <>
@@ -79,10 +79,10 @@ export default function WaitlistModal({ open, onClose, source = "landing" }: { o
               {result?.alreadyJoined ? "You're already in line" : "You're on the list"}
             </h2>
             <p style={{ fontSize: 15, color: "rgba(26,24,20,0.55)", lineHeight: 1.65, margin: "0 0 6px" }}>
-              You're <b style={{ color: "#1a1814" }}>#{result?.position?.toLocaleString?.() ?? "—"}</b> of {result?.total?.toLocaleString?.() ?? "—"} in line.
+              You're <b style={{ color: "#1a1814" }}>#{result?.position?.toLocaleString?.() ?? "…"}</b> of {result?.total?.toLocaleString?.() ?? "…"} in line.
             </p>
             <p style={{ fontSize: 13.5, color: "rgba(26,24,20,0.45)", lineHeight: 1.6, margin: "0 0 22px" }}>
-              {result?.alreadyJoined ? "We have your spot saved — watch your inbox for the invite." : "Check your inbox for a confirmation — your invite lands there the moment a spot opens."}
+              {result?.alreadyJoined ? "We have your spot saved. Watch your inbox for the invite." : "Check your inbox for a confirmation. Your invite lands there the moment a spot opens."}
             </p>
             <button onClick={onClose} style={{ background: "none", border: "1px solid rgba(26,24,20,0.18)", borderRadius: 13, padding: "12px 22px", fontSize: 14, color: "#1a1814", cursor: "pointer", fontFamily: "inherit" }}>Done</button>
           </>

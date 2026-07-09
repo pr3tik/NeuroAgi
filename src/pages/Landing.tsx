@@ -201,7 +201,7 @@ function HeroMockup({ t }: { t: typeof DARK }) {
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: t.text }} />
         </div>
         <span style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.45 }}>
-          Review lac operon before Friday — your notes are ready.
+          Review lac operon before Friday. Your notes are ready.
         </span>
       </div>
     </MockCard>
@@ -283,7 +283,7 @@ function TutorMockup({ t }: { t: typeof DARK }) {
             <div style={{ background: t.cardInner, border: `1px solid ${t.cardInnerBorder}`,
               borderRadius: "4px 16px 16px 16px", padding: "12px 14px",
               fontSize: 14, color: t.textMuted, lineHeight: 1.65 }}>
-              Based on your <span style={{ color: t.text, fontWeight: 500 }}>Lecture 4 notes</span>, the lac operon is an inducible system — when lactose binds the repressor, it detaches from the operator and transcription begins. Your professor contrasted it with the trp operon (repressible).
+              Based on your <span style={{ color: t.text, fontWeight: 500 }}>Lecture 4 notes</span>, the lac operon is an inducible system: when lactose binds the repressor, it detaches from the operator and transcription begins. Your professor contrasted it with the trp operon (repressible).
             </div>
             {/* Sources — fades in with the response */}
             <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 7, paddingLeft: 2 }}>
@@ -329,10 +329,10 @@ function TutorMockup({ t }: { t: typeof DARK }) {
 
 // ── Recording mockup — waveform + speaker-turn transcript ────────────────────
 const TRANSCRIPT_LINES = [
-  { speaker: "Prof", text: "Working memory has strict capacity limits — roughly seven items." },
+  { speaker: "Prof", text: "Working memory has strict capacity limits: roughly seven items." },
   { speaker: "Prof", text: "Four components govern how we take in new information." },
   { speaker: "You",  text: "Is this the same as Miller's Law?" },
-  { speaker: "Prof", text: "Exactly — seven plus or minus two chunks per modality." },
+  { speaker: "Prof", text: "Exactly, seven plus or minus two chunks per modality." },
 ];
 
 function RecordingMockup({ t }: { t: typeof DARK }) {
@@ -573,7 +573,7 @@ function DocDropMockup({ t }: { t: typeof DARK }) {
   const inDrop = phase < 4;
 
   const NOTES = [
-    "Working memory holds 7±2 chunks — design around this limit",
+    "Working memory holds 7±2 chunks: design around this limit",
     "Four components: phonological loop, visuospatial, central exec, episodic buffer",
     "Germane load = schema-building; intrinsic = task complexity; extraneous = poor design",
   ];
@@ -651,7 +651,7 @@ function DocDropMockup({ t }: { t: typeof DARK }) {
           transition: "max-height 0.55s ease, opacity 0.45s ease",
         }}>
           <p style={{ fontSize: 13, fontWeight: 600, color: t.text, margin: "0 0 12px", letterSpacing: "-0.1px" }}>
-            Cognitive Load Theory — Week 6
+            Cognitive Load Theory · Week 6
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 14 }}>
             {NOTES.map((note, i) => (
@@ -749,9 +749,9 @@ function GradeTrackerMockup({ t }: { t: typeof DARK }) {
 
 // ── SRS Review mockup — spaced repetition flip card session ──────────────────
 const SRS_DECK = [
-  { q:"What is the lac operon?",      a:"An inducible operon — lactose binding releases the repressor, starting transcription." },
+  { q:"What is the lac operon?",      a:"An inducible operon: lactose binding releases the repressor, starting transcription." },
   { q:"Define working memory.",        a:"Short-term store holding ~7±2 chunks, managed by the central executive." },
-  { q:"What drives the Krebs cycle?",  a:"Acetyl-CoA — enters and yields 2 CO₂, NADH, and ATP per turn." },
+  { q:"What drives the Krebs cycle?",  a:"Acetyl-CoA: enters and yields 2 CO₂, NADH, and ATP per turn." },
 ];
 function SRSReviewMockup({ t }: { t: typeof DARK }) {
   const [containerRef, inView] = useInView(0.3);
@@ -795,7 +795,7 @@ function SRSReviewMockup({ t }: { t: typeof DARK }) {
             <div style={{ position:"absolute",inset:0,backfaceVisibility:"hidden",background:t.cardInner,border:`1px solid ${t.cardInnerBorder}`,borderRadius:12,padding:"13px 15px",display:"flex",flexDirection:"column",justifyContent:"space-between" }}>
               <span style={{ fontSize:9, fontWeight:700, letterSpacing:"0.1em", color:t.textFaint }}>QUESTION</span>
               <p style={{ margin:0, fontSize:13, color:t.text, lineHeight:1.5, fontWeight:500 }}>{card.q}</p>
-              <span style={{ fontSize:10, color:t.textFaint, textAlign:"center" }}>— tap to reveal —</span>
+              <span style={{ fontSize:10, color:t.textFaint, textAlign:"center" }}>tap to reveal</span>
             </div>
             {/* Back */}
             <div style={{ position:"absolute",inset:0,backfaceVisibility:"hidden",transform:"rotateY(180deg)",background:t.cardInner,border:`1px solid ${t.cardInnerBorder}`,borderRadius:12,padding:"13px 15px",display:"flex",flexDirection:"column",justifyContent:"space-between" }}>
@@ -895,10 +895,10 @@ function LeaderboardMockup({ t }: { t: typeof DARK }) {
 // and animations replay immediately (the card is always in-viewport when visible).
 
 const SHOWCASE_TABS = [
-  { id: "tutor"     as const, label: "AI Tutor",    word: "AI Tutor",    desc: "Grounded in your actual lecture notes — not just the internet." },
-  { id: "leaderboard" as const, label: "Leaderboard", word: "Leaderboard", desc: "XP, streaks, and weekly rankings — study with momentum and compete with classmates." },
+  { id: "tutor"     as const, label: "AI Tutor",    word: "AI Tutor",    desc: "Grounded in your actual lecture notes, not just the internet." },
+  { id: "leaderboard" as const, label: "Leaderboard", word: "Leaderboard", desc: "XP, streaks, and weekly rankings: study with momentum and compete with classmates." },
   { id: "documents" as const, label: "Documents",   word: "Library",     desc: "PDFs and slides transform into notes and flashcards instantly." },
-  { id: "rooms"     as const, label: "Study Rooms", word: "Study Room",  desc: "Focus together — shared timers, live presence, group AI." },
+  { id: "rooms"     as const, label: "Study Rooms", word: "Study Room",  desc: "Focus together: shared timers, live presence, group AI." },
 ];
 
 function FeaturesShowcase({ t, chromaStyle, ghostRef }: {
@@ -942,7 +942,7 @@ function FeaturesShowcase({ t, chromaStyle, ghostRef }: {
       </Reveal>
       <Reveal delay={0.06}>
         <p style={{ fontSize: 18, color: "#737373", maxWidth: 480, margin: "0 auto 80px", lineHeight: 1.65 }}>
-          Purpose-built for the way students actually learn — grounded in your courses, not the internet.
+          Purpose-built for the way students actually learn, grounded in your courses, not the internet.
         </p>
       </Reveal>
 
@@ -1109,7 +1109,7 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
             Works with everything<br />you already use.
           </h2>
           <p style={{ fontSize: 16, color: "#737373", maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>
-            Canvas, YouTube, Google Drive, Microsoft, Discord — your academic world unified.
+            Canvas, YouTube, Google Drive, Microsoft, Discord. Your academic world unified.
           </p>
         </Reveal>
       </div>
@@ -1251,7 +1251,7 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
       {/* Bottom tagline */}
       <Reveal delay={0.1}>
         <p style={{ textAlign: "center", fontSize: 13, color: "#a3a3a3", marginTop: 44, lineHeight: 1.7, padding: "0 20px" }}>
-          Canvas · YouTube · Google Drive · Microsoft · Discord · PDFs — your academic world, connected.
+          Canvas · YouTube · Google Drive · Microsoft · Discord · PDFs. Your academic world, connected.
         </p>
       </Reveal>
     </section>
@@ -1264,9 +1264,9 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
 
 // RecordingAppMockup — realistic iPhone-frame showing FschoolAI live recording UI
 const TX = [
-  { speaker: "Prof", text: "Working memory has strict capacity limits — roughly seven items." },
+  { speaker: "Prof", text: "Working memory has strict capacity limits: roughly seven items." },
   { speaker: "You",  text: "Is this the same as Miller's Law?" },
-  { speaker: "Prof", text: "Exactly — seven plus or minus two chunks per modality." },
+  { speaker: "Prof", text: "Exactly, seven plus or minus two chunks per modality." },
   { speaker: "Prof", text: "Germane load builds long-term schema. Design for it." },
 ];
 const WAVE_H = [14,22,36,18,44,28,16,40,24,48,20,34,18,42,26,36,16,40,22,32,18,38,24,30];
@@ -1479,9 +1479,9 @@ function ThreeMoments({ t }: { t: typeof DARK }) {
           <Reveal style={{ flex: "1 1 300px" }}>
             <p style={EYEBROW}>During lecture</p>
             <div style={DISPLAY}>Real-time</div>
-            <p style={SUBLINE}>transcription — live as it happens</p>
+            <p style={SUBLINE}>transcription: live as it happens</p>
             <p style={BODY}>
-              FschoolAI captures your lectures the moment they start. No typing, no missed words — just the full transcript, ready to search and study from.
+              FschoolAI captures your lectures the moment they start. No typing, no missed words. Just the full transcript, ready to search and study from.
             </p>
           </Reveal>
           <Reveal delay={0.12} style={{ flex: "1 1 280px" }}>
@@ -1513,9 +1513,9 @@ function ThreeMoments({ t }: { t: typeof DARK }) {
           <Reveal style={{ flex: "1 1 300px" }}>
             <p style={EYEBROW}>Before the exam</p>
             <div style={DISPLAY}>1 month</div>
-            <p style={SUBLINE}>free on beta signup — no credit card</p>
+            <p style={SUBLINE}>free on beta signup · no credit card</p>
             <p style={BODY}>
-              Start for free. Every tool — live recording, AI tutor, flashcards, study rooms — works from day one. No feature gates, no trial tricks.
+              Start for free. Every tool (live recording, AI tutor, flashcards, study rooms) works from day one. No feature gates, no trial tricks.
             </p>
           </Reveal>
           <Reveal delay={0.15} style={{ flex: "1 1 260px", display: "flex", justifyContent: "center" }}>
@@ -1613,7 +1613,7 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
         </h2>
         <p style={{ fontSize: 16, color: "#737373", maxWidth: 440,
           margin: "0 auto", lineHeight: 1.6 }}>
-          FschoolAI builds a living map of your courses, lectures, notes and deadlines —
+          FschoolAI builds a living map of your courses, lectures, notes and deadlines,
           so every answer is grounded in your actual world.
         </p>
       </Reveal>
@@ -1962,7 +1962,7 @@ function FlashcardGenDemo({ t }: { t: typeof DARK }) {
 const LIVE_LINES = [
   { speaker: "Prof", text: "Working memory holds roughly seven chunks at once." },
   { speaker: "You",  text: "Is this the Miller's Law?" },
-  { speaker: "Prof", text: "Exactly — seven plus or minus two. It's fundamental." },
+  { speaker: "Prof", text: "Exactly, seven plus or minus two. It's fundamental." },
   { speaker: "Prof", text: "Germane load builds long-term schema. Design for it." },
 ];
 
@@ -2038,9 +2038,9 @@ function LiveRecordingDemo({ t }: { t: typeof DARK }) {
 
 // ── AIDemoSection — replaces FeaturesShowcase ─────────────────────────────────
 const DEMO_TABS = [
-  { id: "voice",     word: "AI Tutor",     label: "AI Tutor",     desc: "Ask anything — the AI answers from your actual lecture notes, not the internet." },
+  { id: "voice",     word: "AI Tutor",     label: "AI Tutor",     desc: "Ask anything. The AI answers from your actual lecture notes, not the internet." },
   { id: "flash",     word: "Flashcards",   label: "Flashcards",   desc: "One tap converts your notes into exam-ready flashcards with spaced repetition built in." },
-  { id: "review",    word: "Review Mode",  label: "Study Review", desc: "SM-2 spaced repetition — shows each card exactly when you're about to forget it." },
+  { id: "review",    word: "Review Mode",  label: "Study Review", desc: "SM-2 spaced repetition: shows each card exactly when you're about to forget it." },
 ] as const;
 type DemoTabId = typeof DEMO_TABS[number]["id"];
 
@@ -2075,7 +2075,7 @@ function AIDemoSection({ t, ghostRef }: { t: typeof DARK; ghostRef: React.RefObj
       </Reveal>
       <Reveal delay={0.06}>
         <p style={{ fontSize: 18, color: "#737373", maxWidth: 480, margin: "0 auto 72px", lineHeight: 1.65 }}>
-          Purpose-built for the way students actually learn — grounded in your courses, not the internet.
+          Purpose-built for the way students actually learn, grounded in your courses, not the internet.
         </p>
       </Reveal>
 
@@ -2139,12 +2139,12 @@ function AIDemoSection({ t, ghostRef }: { t: typeof DARK; ghostRef: React.RefObj
 
 // ── Feature Grid — 6 product pillars ─────────────────────────────────────────
 const FEATURE_ITEMS = [
-  { icon:"🎓", title:"AI Tutor",       desc:"Grounded in your actual lecture notes and syllabus — not the internet.",   bg:"#f0f4ff" },
+  { icon:"🎓", title:"AI Tutor",       desc:"Grounded in your actual lecture notes and syllabus, not the internet.",   bg:"#f0f4ff" },
   { icon:"🎙",  title:"Live Recording", desc:"Real-time transcription with speaker turns. Every lecture, searchable.",   bg:"#fff0f0" },
   { icon:"⚡",  title:"Smart Flashcards",desc:"One tap from any material. Spaced repetition built in for long-term memory.", bg:"#fffbf0" },
   { icon:"🔗",  title:"Canvas Sync",   desc:"All your assignments, due dates and grades pulled directly from your LMS.", bg:"#f0fff4" },
   { icon:"👥",  title:"Study Rooms",   desc:"Shared focus timers, live presence, group AI and whiteboard collaboration.", bg:"#f5f0ff" },
-  { icon:"📄",  title:"Document AI",   desc:"Upload PDFs and slides — the AI extracts notes, flashcards and insights.",  bg:"#fff0fa" },
+  { icon:"📄",  title:"Document AI",   desc:"Upload PDFs and slides. The AI extracts notes, flashcards and insights.",  bg:"#fff0fa" },
 ] as const;
 
 function FeatureGrid({ t }: { t: typeof DARK }) {
@@ -2192,7 +2192,7 @@ const CAROUSEL_DEMOS = [
   {
     id: "voice" as const,
     label: "AI Tutor",
-    desc: "Ask anything from your lectures. The AI answers grounded in your actual notes — not the internet.",
+    desc: "Ask anything from your lectures. The AI answers grounded in your actual notes, not the internet.",
   },
   {
     id: "flash" as const,
@@ -2202,7 +2202,7 @@ const CAROUSEL_DEMOS = [
   {
     id: "grades" as const,
     label: "Grade Tracker",
-    desc: "Every Canvas grade and assignment in one view — GPA, completion bars, due dates, live.",
+    desc: "Every Canvas grade and assignment in one view: GPA, completion bars, due dates, live.",
   },
 ];
 
@@ -2297,14 +2297,14 @@ function DemoCarousel({ t }: { t: typeof DARK }) {
 // LEFT: bold stats. RIGHT: real-time AI event stream — terminal aesthetic.
 // Zero rotation, zero orbit. Completely distinct from Ecosystem marquee.
 const STREAM_EVENTS = [
-  { type: "SYNC",  color: "#34c759", text: "Canvas BIOL 201 — 3 new assignments imported"     },
-  { type: "INDEX", color: "#0066cc", text: "Lecture 4.pdf — 47 key concepts extracted"         },
+  { type: "SYNC",  color: "#34c759", text: "Canvas BIOL 201: 3 new assignments imported"     },
+  { type: "INDEX", color: "#0066cc", text: "Lecture 4.pdf: 47 key concepts extracted"         },
   { type: "FLASH", color: "#ff9500", text: "12 flashcards generated from your BIOL notes"      },
-  { type: "TRACK", color: "#ff3b30", text: "Cell Division quiz — due Friday 11:59 PM"          },
+  { type: "TRACK", color: "#ff3b30", text: "Cell Division quiz: due Friday 11:59 PM"          },
   { type: "LINK",  color: "#5856d6", text: "Cross-referenced COMP 101 with Study Guide"        },
   { type: "LEARN", color: "#34c759", text: "Pattern: stronger in theory, weaker in application"},
-  { type: "SYNC",  color: "#0066cc", text: "MATH 202 lecture — 23 min, 31 concepts indexed"    },
-  { type: "GRADE", color: "#ff9500", text: "Grade updated: BIOL assignment 84% — B"            },
+  { type: "SYNC",  color: "#0066cc", text: "MATH 202 lecture: 23 min, 31 concepts indexed"    },
+  { type: "GRADE", color: "#ff9500", text: "Grade updated: BIOL assignment 84% (B)"            },
 ];
 
 function NeuralCoreSection({ t }: { t: typeof DARK }) {
@@ -2340,7 +2340,7 @@ function NeuralCoreSection({ t }: { t: typeof DARK }) {
               Every course.<br />Every lecture.<br />One mind.
             </h2>
             <p style={{ fontSize: 15, color: "rgba(255,255,255,0.40)", lineHeight: 1.75, marginBottom: 44, maxWidth: 320 }}>
-              FschoolAI builds a living model of your academic world — grounding every answer in your actual notes, deadlines and study history.
+              FschoolAI builds a living model of your academic world, grounding every answer in your actual notes, deadlines and study history.
             </p>
           </Reveal>
           <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
@@ -2366,7 +2366,7 @@ function NeuralCoreSection({ t }: { t: typeof DARK }) {
               {/* Titlebar */}
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                 {["#ff5f57","#ffbd2e","#28c840"].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />)}
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.22)", marginLeft: 8, fontFamily: "monospace" }}>fschoolai — neural_core</span>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.22)", marginLeft: 8, fontFamily: "monospace" }}>fschoolai · neural_core</span>
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#34c759", animation: "pulseGlow 2s ease-in-out infinite" }} />
                   <span style={{ fontSize: 9, color: "rgba(255,255,255,0.28)", fontFamily: "monospace", letterSpacing: "0.06em" }}>LIVE</span>
@@ -2460,7 +2460,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
           transform: inView ? "none" : "translateY(16px)",
           transition: "opacity 0.72s ease 0.14s, transform 0.72s cubic-bezier(0.16,1,0.3,1) 0.14s",
         }}>
-          Free for your first month. Every tool from day one — no credit card, no feature gates.
+          Free for your first month. Every tool from day one, no credit card, no feature gates.
         </p>
 
         {/* Buttons */}
@@ -2519,7 +2519,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
           opacity: inView ? 1 : 0,
           transition: "opacity 0.72s ease 0.30s",
         }}>
-          Joining 847 founding students — free for your first month
+          Joining 847 founding students, free for your first month
         </p>
       </div>
 
@@ -2613,10 +2613,10 @@ function AuthModal({ mode, onClose, onEnter, onSwitchMode, onForgotPassword, t }
 
 // ── Landing ────────────────────────────────────────────────────────────────────
 const FAQ_DATA = [
-  { q: "Is FschoolAI free?", a: "Yes — 1 month free on beta signup, no credit card required. Pro features and extended storage are paid." },
-  { q: "Does it work with my university's Canvas?", a: "Yes. FschoolAI syncs directly with Canvas via your access token — courses, assignments, deadlines, and grades." },
-  { q: "What makes it different from ChatGPT?", a: "ChatGPT knows the internet. FschoolAI knows YOUR courses — your lecture notes, your syllabus, your actual assignments. Answers are grounded in what your professor actually said." },
-  { q: "What's the Founding Card?", a: "A physical NFC titanium card for the first 1,000 members — it holds your AI identity, student number, and lifetime Pro access. See the Card page." },
+  { q: "Is FschoolAI free?", a: "Yes, 1 month free on beta signup, no credit card required. Pro features and extended storage are paid." },
+  { q: "Does it work with my university's Canvas?", a: "Yes. FschoolAI syncs directly with Canvas via your access token: courses, assignments, deadlines, and grades." },
+  { q: "What makes it different from ChatGPT?", a: "ChatGPT knows the internet. FschoolAI knows YOUR courses: your lecture notes, your syllabus, your actual assignments. Answers are grounded in what your professor actually said." },
+  { q: "What's the Founding Card?", a: "A physical NFC titanium card for the first 1,000 members. It holds your AI identity, student number, and lifetime Pro access. See the Card page." },
 ];
 
 // Waitlist mode (default ON): new-signup CTAs open the waitlist instead of account
@@ -2820,7 +2820,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
           <span style={{ fontWeight: 500, color: "rgba(0,0,0,0.72)" }}>
             in waves&nbsp;· free while in beta&nbsp;· founding spots numbered
           </span>
-          {" "}—{" "}
+          {" "}·{" "}
           <button onClick={requestSignup} style={{
             background: "none", border: "none", padding: 0, fontSize: 12,
             fontFamily: "inherit", color: "#0066cc", cursor: "pointer",
@@ -2911,7 +2911,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
 
             {/* Body — Apple 19px, color #6e6e73, relaxed line-height */}
             <p style={{ fontSize: "clamp(16px,1.8vw,19px)", fontWeight: 400, color: "#6e6e73", lineHeight: 1.68, margin: "0 0 32px", maxWidth: "50ch", fontFamily: FONT }}>
-              The AI that reads your Canvas, explains your lectures, and builds your exam prep — grounded in your actual notes.
+              The AI that reads your Canvas, explains your lectures, and builds your exam prep, grounded in your actual notes.
             </p>
 
             {/* CTAs — Apple exact: "Learn more" solid blue, "Apply" ghost outline */}
@@ -2963,7 +2963,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
             >
               <img
                 src="/cards/herodesktop_light.png"
-                alt="FschoolAI Founding Cards — 5 colorways"
+                alt="FschoolAI Founding Cards, 5 colorways"
                 style={{
                   display: "block", width: "100%", height: "auto",
                   animation: "cardFloat 5.5s ease-in-out 1.6s infinite",
@@ -3069,7 +3069,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
           backdropFilter: "blur(20px)", fontFamily: FONT,
           animation: "bannerIn 0.3s cubic-bezier(0,0,0.2,1) both" }}>
           <p style={{ flex: 1, fontSize: 14, color: t.text }}>
-            {forgotStatus === "sent" ? "Reset link sent — check your inbox." : "Something went wrong. Try again."}
+            {forgotStatus === "sent" ? "Reset link sent. Check your inbox." : "Something went wrong. Try again."}
           </p>
           <button onClick={() => setForgotStatus(null)} style={{ background: "none", border: "none", color: t.textMuted, cursor: "pointer", fontSize: 18 }}>×</button>
           <style>{`@keyframes bannerIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
