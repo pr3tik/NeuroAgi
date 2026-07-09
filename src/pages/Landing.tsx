@@ -2808,18 +2808,19 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
           fontSize: 12, fontWeight: 400, letterSpacing: "0.015em",
           color: "rgba(0,0,0,0.52)", margin: 0, textAlign: "center",
         }}>
-          Founding members receive{" "}
+          Early access is rolling out{" "}
           <span style={{ fontWeight: 500, color: "rgba(0,0,0,0.72)" }}>
-            Lifetime Pro&nbsp;· guaranteed founding number&nbsp;· express delivery
+            in waves&nbsp;· free while in beta&nbsp;· founding spots numbered
           </span>
           {" "}—{" "}
-          <a href="/card#order" style={{
-            color: "#0066cc", textDecoration: "none",
+          <button onClick={requestSignup} style={{
+            background: "none", border: "none", padding: 0, fontSize: 12,
+            fontFamily: "inherit", color: "#0066cc", cursor: "pointer",
             transition: "color 0.12s",
           }}
-            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = "#004499"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = "#0066cc"; }}
-          >Apply now →</a>
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#004499"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "#0066cc"; }}
+          >Join the waitlist →</button>
         </p>
       </div>
 
