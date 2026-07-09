@@ -3,6 +3,7 @@
 // --sk-body-text-color: rgb(29,29,31)  --sk-fill: #fff  --sk-fill-secondary: #fafafc
 // --sk-fill-tertiary: #f5f5f7  --sk-glyph-gray-secondary: rgb(110,110,115)
 
+import WaitlistInline from "../components/WaitlistInline";
 import WaitlistModal from "../components/WaitlistModal";
 import React, { useState, useEffect, useRef } from "react";
 
@@ -2917,6 +2918,9 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
                 onMouseLeave={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
               >Apply</a>
             </div>
+
+            {/* Inline waitlist capture — waitlist mode only; the modal stays for the nav/CTA buttons */}
+            {waitlistMode && <WaitlistInline source="landing-hero" />}
 
             {/* Subtle stat pills */}
             <div style={{ display: "flex", gap: 20, marginTop: 36, flexWrap: "wrap" }}>
