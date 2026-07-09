@@ -19,6 +19,7 @@ import officeHours from "../office-hours.js";
 import writingTracker from "../writing-tracker.js";
 import libraryAgent from "../library-agent.js";
 import nudge from "../nudge.js";
+import universityBrain from "../university-brain.js";
 import { whatIf } from "../../src/lib/whatIfPlan.js";
 import { callApi } from "./callApi.js";
 import { canvasCreds, canvasGET, resolveCanvasCourseId, allCanvasCourseIds, trim } from "./canvasLive.js";
@@ -525,6 +526,31 @@ export const TOOLS: ReggieTool[] = [
       const fromName = ((await me.json().catch(() => [])) as any[])[0]?.name ?? "A friend";
       return call(nudge, { body: { fromUserId: ctx.userId, toUserId, fromName, roomName: a.roomName ?? null, recipientOnline: false } }, "nudge_friend");
     },
+  },
+  {
+    name: "university_brain_profile",
+    description:
+      "Read the UNIVERSITY BRAIN: the global, cross-student knowledge base of published course/professor facts (syllabus policies, grading structure, teachers). Ask by course OR professor name. Works even if THIS student never contributed — that's the point: one student's contribution serves everyone. Call for 'what do we know about Prof X', 'what's the grading breakdown/late policy in <course>' when the student's own materials don't cover it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        course: { type: ["string", "number", "null"], description: "Course by name, code, or Canvas id." },
+        professor: { type: ["string", "null"], description: "Professor name (used when no course given)." },
+      },
+      required: [],
+    },
+    invoke: (a, ctx) => call(universityBrain, { query: { action: "profile" }, body: { userId: ctx.userId, course: a.course ?? null, professor: a.professor ?? null } }, "university_brain_profile"),
+  },
+  {
+    name: "contribute_course_intel",
+    description:
+      "CONTRIBUTE to the university brain: pull the published artifacts from this student's own Canvas for a course (syllabus, teachers, grading weights), extract mechanical facts, and add them to the global cross-student knowledge base (deduplicated — re-contributing the same content just counts the crowd). ONLY call when the student explicitly agrees to share/contribute course info. Facts only, never opinions about professors.",
+    input_schema: {
+      type: "object",
+      properties: { course: { type: ["string", "number"], description: "Course by name, code, or Canvas id." } },
+      required: ["course"],
+    },
+    invoke: (a, ctx) => call(universityBrain, { query: { action: "contribute" }, body: { userId: ctx.userId, course: a.course } }, "contribute_course_intel"),
   },
   {
     name: "delete_flashcards",

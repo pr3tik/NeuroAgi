@@ -31,12 +31,12 @@ function base(persona: string, brainContext?: string | null): string {
 export const SPECIALISTS: Record<string, Specialist> = {
   tutor: {
     key: "tutor", title: "General tutor", task: "tutor",
-    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "canvas_announcements", "canvas_modules", "canvas_submission_feedback", "canvas_inbox", "canvas_past_courses", "office_hours_capture", "summarize_text", "list_flashcards", "list_friends", "nudge_friend", "token_summary", "navigate"],
+    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "canvas_announcements", "canvas_modules", "canvas_submission_feedback", "canvas_inbox", "canvas_past_courses", "office_hours_capture", "summarize_text", "list_flashcards", "list_friends", "nudge_friend", "university_brain_profile", "contribute_course_intel", "token_summary", "navigate"],
     system: (o) => base("Answer the student's question clearly and help them understand it, pulling from their uploaded materials (rag_search) and Canvas when relevant — including live Canvas: announcements, module structure, submission feedback, inbox, and past courses. If they mention going to office hours, capture what happened (office_hours_capture).", o.brainContext),
   },
   insight_explainer: {
     key: "insight_explainer", title: "Grades & what-if", task: "tutor",
-    tools: ["canvas_get_grades", "compute_grade_weights", "what_if_plan", "canvas_get_upcoming", "canvas_submission_feedback", "canvas_past_courses", "token_summary"],
+    tools: ["canvas_get_grades", "compute_grade_weights", "what_if_plan", "canvas_get_upcoming", "canvas_submission_feedback", "canvas_past_courses", "university_brain_profile", "token_summary"],
     system: (o) => base("Explain the student's grade standing and run what-if scenarios. Fetch real grades/weights BEFORE any math, and show the numbers you used. For 'why did I lose points / what feedback did I get' use canvas_submission_feedback; for past terms use canvas_past_courses.", o.brainContext),
   },
   planner: {
@@ -61,7 +61,7 @@ export const SPECIALISTS: Record<string, Specialist> = {
   },
   resource_curator: {
     key: "resource_curator", title: "Resources", task: "tutor",
-    tools: ["rag_search", "library_search", "canvas_course_files", "canvas_modules", "canvas_pages", "navigate"],
+    tools: ["rag_search", "library_search", "university_brain_profile", "canvas_course_files", "canvas_modules", "canvas_pages", "navigate"],
     system: (o) => base("Point the student to the most relevant material for their question — their uploads (rag_search), the shared class library (library_search), AND what's posted on Canvas (files, modules, pages) — and suggest what to study next.", o.brainContext),
   },
 };
