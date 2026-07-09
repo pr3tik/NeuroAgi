@@ -45,6 +45,11 @@ export default function RootLayout() {
             headerShown: false,
             contentStyle: { backgroundColor: BG },
             animation: "none",
+            // Every nav call is router.replace() (swap, not push), so the
+            // stack never has more than one screen — the native stack's
+            // built-in edge swipe-to-go-back has nothing to pop back to and
+            // was fighting our own Pan-based swipe nav. Disable it entirely.
+            gestureEnabled: false,
           }}
         />
       </SafeAreaProvider>
