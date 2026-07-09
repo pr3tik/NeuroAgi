@@ -11,7 +11,7 @@
 import { useMemo } from "react";
 
 type OrbMember = { userId?: string; name?: string; initial?: string };
-type StudyOrbProps = { active?: boolean; members?: OrbMember[]; size?: number };
+type StudyOrbProps = { active?: boolean; members?: OrbMember[]; size?: number; speakingNames?: string[] };
 
 const ORB_CSS = `
 @keyframes so-breathe { 0%,100%{transform:scale(1)}    50%{transform:scale(1.055)} }
@@ -19,6 +19,7 @@ const ORB_CSS = `
 @keyframes so-spin    { to { transform:rotate(360deg) } }
 @keyframes so-spinrev { to { transform:rotate(-360deg) } }
 @keyframes so-twinkle { 0%,100%{opacity:.25}           50%{opacity:.95} }
+@keyframes so-speak   { 0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,0.7),0 0 10px rgba(196,154,60,0.28)} 60%{box-shadow:0 0 0 7px rgba(74,222,128,0),0 0 10px rgba(196,154,60,0.28)} }
 .so-g    { transform-box:view-box; transform-origin:100px 100px; }
 .so-core { transform-box:view-box; transform-origin:100px 100px; animation:so-breathe 4.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce){
@@ -26,8 +27,9 @@ const ORB_CSS = `
 }
 `;
 
-export default function StudyOrb({ active = false, members = [], size = 200 }: StudyOrbProps) {
+export default function StudyOrb({ active = false, members = [], size = 200, speakingNames = [] }: StudyOrbProps) {
   const orbiters = members.slice(0, 8);
+  const speakingSet = new Set(speakingNames);
   const pulse    = active ? 1 : 0.68;
 
   // Pre-computed particle ring (stable across renders so they don't jump).
@@ -115,6 +117,7 @@ export default function StudyOrb({ active = false, members = [], size = 200 }: S
               const R = size * 0.43;
               const x = size / 2 + Math.cos(ang) * R;
               const y = size / 2 + Math.sin(ang) * R;
+              const isSpeaking = speakingSet.has(m.name || "");
               return (
                 <div
                   key={m.userId || i}
@@ -122,10 +125,11 @@ export default function StudyOrb({ active = false, members = [], size = 200 }: S
                   style={{
                     position: "absolute", left: x, top: y, width: 26, height: 26,
                     marginLeft: -13, marginTop: -13, borderRadius: "50%",
-                    background: "rgba(18,18,24,0.92)", border: "1px solid rgba(196,154,60,0.5)",
-                    color: "var(--color-accent)", fontSize: "11px", fontWeight: 700,
+                    background: "rgba(18,18,24,0.92)",
+                    border: isSpeaking ? "1.5px solid rgba(74,222,128,0.85)" : "1px solid rgba(196,154,60,0.5)",
+                    color: isSpeaking ? "#4ade80" : "var(--color-accent)", fontSize: "11px", fontWeight: 700,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    boxShadow: "0 0 10px rgba(196,154,60,0.28)",
+                    animation: isSpeaking ? "so-speak 0.9s ease-out infinite" : undefined,
                   }}
                 >
                   {/* counter-rotate so the initial stays upright */}

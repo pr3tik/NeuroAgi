@@ -140,9 +140,10 @@ function renderSteps(captures) {
 
   const allDone = STEPS.every(n => doneSteps.has(n));
   document.getElementById("reset-btn").style.display = allDone ? "block" : "none";
-  document.getElementById("status-msg").textContent = allDone
-    ? "All pages captured — data synced to NeuroAgi ✓"
-    : "Navigate to the highlighted page on your portal, then click Capture";
+  setStatus(
+    allDone ? "All pages captured — data synced to NeuroAgi ✓" : "Navigate to the highlighted page on your portal, then click Capture",
+    allDone
+  );
 }
 
 function renderStats(stats) {
@@ -158,6 +159,13 @@ function setProcessing(visible, label = "Reading page…") {
   row.classList.toggle("visible", visible);
   document.getElementById("processing-label").textContent = label;
   document.getElementById("capture-btn").disabled = visible;
+  if (visible) document.getElementById("status-msg").classList.remove("success");
+}
+
+function setStatus(msg, success = false) {
+  const el = document.getElementById("status-msg");
+  el.textContent = msg;
+  el.classList.toggle("success", success);
 }
 
 // ── Capture flow ──────────────────────────────────────────────────────────────
@@ -201,9 +209,12 @@ async function captureCurrentPage(user) {
       const missing = [];
       if (!nAssign) missing.push("assignments");
       if (!nGraded) missing.push("grades");
-      document.getElementById("status-msg").textContent = missing.length
-        ? `${api.lms.toUpperCase()}: ${res.counts.courses} courses synced, but no ${missing.join(" or ")} found — open the page's console (F12) and send the logs.`
-        : `Synced ✓ — ${res.counts.courses} courses, ${res.counts.assignments} assignments, ${res.counts.grades} grades (${api.lms} API)`;
+      setStatus(
+        missing.length
+          ? `${api.lms.toUpperCase()}: ${res.counts.courses} courses synced, but no ${missing.join(" or ")} found — open the page's console (F12) and send the logs.`
+          : `Synced ✓ — ${res.counts.courses} courses, ${res.counts.assignments} assignments, ${res.counts.grades} grades (${api.lms} API)`,
+        !missing.length
+      );
       return;
     }
 
@@ -239,15 +250,14 @@ async function captureCurrentPage(user) {
 
     renderSteps(updatedCaptures);
     renderStats(stats);
-    document.getElementById("status-msg").textContent = result.message ?? "Captured ✓";
+    setStatus(result.message ?? "Captured ✓", true);
 
     // 5. Auto-crawl: the background worker DISCOVERS each course's assignments +
     //    grades pages from the page's real links (works on any portal) and learns
     //    the pattern per domain. Runs after any "courses" capture.
     if (stepHint === "courses") {
       setProcessing(true, `Discovering your courses & syncing grades…`);
-      document.getElementById("status-msg").textContent =
-        `Auto-syncing your courses — this may take a minute…`;
+      setStatus("Auto-syncing your courses — this may take a minute…");
 
       const crawl = await chrome.runtime.sendMessage({
         type:        "NEUROAGI_AUTOCRAWL",
@@ -269,16 +279,14 @@ async function captureCurrentPage(user) {
         await chrome.storage.local.set({ neuroagi_captures: allCaptures, neuroagi_stats: finalStats });
         renderSteps(allCaptures);
         renderStats(finalStats);
-        document.getElementById("status-msg").textContent =
-          `All done ✓ — ${crawl.totalAssignments ?? 0} assignments, ${crawl.totalGrades ?? 0} grades synced`;
+        setStatus(`All done ✓ — ${crawl.totalAssignments ?? 0} assignments, ${crawl.totalGrades ?? 0} grades synced`, true);
       } else {
-        document.getElementById("status-msg").textContent =
-          "Courses synced. Visit a grades/assignments page and click Capture to add more.";
+        setStatus("Courses synced. Visit a grades/assignments page and click Capture to add more.", true);
       }
     }
 
   } catch (err) {
-    document.getElementById("status-msg").textContent = `Error: ${err.message}`;
+    setStatus(`Error: ${err.message}`);
   } finally {
     setProcessing(false);
   }
@@ -371,7 +379,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderStats(stats);
     // Show a brief "auto-synced" message
     if (changes.neuroagi_captures?.newValue?.length > (changes.neuroagi_captures?.oldValue?.length ?? 0)) {
-      document.getElementById("status-msg").textContent = "Auto-captured ✓ — browse to the next page";
+      setStatus("Auto-captured ✓ — browse to the next page", true);
     }
   }
 });

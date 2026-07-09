@@ -52,6 +52,15 @@ fused with **Reciprocal Rank Fusion**. Embeddings: **OpenAI `text-embedding-3-sm
 (PDF/docx/pptx/images/audio/video/YouTube, with OCR fallback for scanned PDFs); `api/rag.ts`
 ingests → chunks → embeds (batched) → queries. Large media goes through `api/transcribe.ts`.
 
+**PDF OCR model** (`api/lms-ingest.ts`): Scanned PDFs trigger Claude native OCR via `ANTHROPIC_MODEL_OCR`.
+Current default: **Haiku** (`claude-haiku-4-5-20251001`) — fast, cheap (~$0.01/PDF), good for typed/printed docs.
+Alternative options (set via env var):
+- `claude-sonnet-4-6` — better accuracy on handwriting/sketches/smudged scans (~$0.15/PDF, 3x cost)
+- `claude-opus-4-8` — best OCR accuracy (~$15/M tokens, use only for difficult documents)
+
+To change globally: set `ANTHROPIC_MODEL_OCR` in `.env.local` (dev) or Vercel env (prod).
+To test a specific model locally: `ANTHROPIC_MODEL_OCR=claude-sonnet-4-6 npm run dev`.
+
 ## Conventions & gotchas
 
 - **api/ imports use `.js` extensions** even from `.ts` files (e.g. `import { ingest } from "./rag.js"`)

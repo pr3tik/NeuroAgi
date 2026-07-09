@@ -44,13 +44,16 @@ export default async function handler(req, res) {
         name,
         privacy: "public",
         properties: {
-          start_video_off:    true,
-          start_audio_off:    true,
-          enable_screenshare: false,
-          enable_chat:        false,
-          enable_people_ui:   true,
+          start_video_off:      true,
+          start_audio_off:      true,
+          enable_screenshare:   false,
+          enable_chat:          false,
+          enable_people_ui:     true,
+          // Skip Daily's own pre-join lobby — users already confirmed intent in the
+          // study room UI, and their display name is locked via the meeting token.
+          "prejoin-ui-enabled": false,
           exp,
-          eject_at_room_exp:  true,
+          eject_at_room_exp:    true,
         },
       }),
     });

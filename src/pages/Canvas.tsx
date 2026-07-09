@@ -2,6 +2,7 @@
 // All data logic (fetchAssignments, fetchModules, addManualCourse, etc.) unchanged.
 
 import { useState, useEffect } from "react";
+import { Check, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import ManualUploadSheet from "../components/ManualUploadSheet";
 import { fetchAssignments, fetchModules } from "../../canvas-module/canvasApi";
@@ -83,7 +84,7 @@ function RefreshButton({ syncStatus, onClick, style }: any) {
       onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}
     >
-      {busy ? "Syncing…" : "↻ Refresh"}
+      {busy ? "Syncing…" : <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><RefreshCw size={13} />Refresh</span>}
     </button>
   );
 }
@@ -499,10 +500,10 @@ function AnnouncementsSection({ announcements }) {
         style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
           padding: "14px 18px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
         <span style={{ color: "#E3E2E2", fontSize: "13px", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          📢 Announcements
+          Announcements
         </span>
         <span style={{ color: "rgba(200,197,203,0.4)", fontSize: "12px" }}>
-          {announcements.length} · {open ? "▲" : "▼"}
+          {announcements.length} · {open ? <ChevronUp size={12} style={{ verticalAlign: "-2px" }} /> : <ChevronDown size={12} style={{ verticalAlign: "-2px" }} />}
         </span>
       </button>
 
@@ -568,10 +569,10 @@ function PastCoursesSection({ pastCourses, addedIds, adding, onAdd, onAddManual 
         <button onClick={() => setOpen(o => !o)}
           style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px" }}>
           <span style={{ color: "#E3E2E2", fontSize: "13px", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-            🗂 Past Courses
+            Past Courses
           </span>
           <span style={{ color: "rgba(200,197,203,0.4)", fontSize: "12px" }}>
-            {pastCourses.length} {open ? "▲" : "▼"}
+            {pastCourses.length} {open ? <ChevronUp size={12} style={{ verticalAlign: "-2px" }} /> : <ChevronDown size={12} style={{ verticalAlign: "-2px" }} />}
           </span>
         </button>
         <button onClick={() => { setShowForm(f => !f); setOpen(true); }}
@@ -620,7 +621,7 @@ function PastCoursesSection({ pastCourses, addedIds, adding, onAdd, onAddManual 
                     </div>
                     <button onClick={() => onAdd(c)} disabled={added || adding}
                       style={{ background: added ? "rgba(100,220,130,0.1)" : "rgba(255,255,255,0.07)", border: `1px solid ${added ? "rgba(100,220,130,0.25)" : "rgba(255,255,255,0.12)"}`, borderRadius: "8px", padding: "5px 12px", color: added ? "rgba(100,220,130,0.8)" : "rgba(255,255,255,0.6)", fontSize: "11px", fontWeight: 500, cursor: added || adding ? "default" : "pointer", fontFamily: "inherit", flexShrink: 0, marginLeft: "10px", transition: "all 0.15s" }}>
-                      {added ? "Added ✓" : adding ? "Adding…" : "+ Add"}
+                      {added ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>Added<Check size={12} /></span> : adding ? "Adding…" : "+ Add"}
                     </button>
                   </div>
                 );

@@ -5,6 +5,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from "rea
 import { supabase }                  from "../api/supabase";
 import { syncCanvasData, loadCanvasData } from "../api/canvasSync";
 import { getTokenSummary, onTokenAwarded } from "../api/tokens";
+import { currentProfile, adoptIdentity, pendingMerges } from "../api/auth";
 
 const AppContext = createContext(null);
 
@@ -114,6 +115,15 @@ export function AppProvider({ children }) {
   const [tokenSummary, setTokenSummary] = useState(null);
   // Per-course-card change badges: { [courseId]: { newAssignments, gradedAssignments, scoreChanged, scoreDelta } }
   const [cardChanges, setCardChanges] = useState({});
+  // Bridge so Study Assistant (a separate page) can see the whiteboard/chat of
+  // whatever Study Room the student is currently (or was most recently) in.
+  // Only one page is mounted at a time (see App.tsx), so the Room's own components
+  // unmount on navigation — this in-memory state is what survives the page switch.
+  // Whiteboards are deliberately session-only/unpersisted (cleared when everyone
+  // leaves), so `whiteboardSnapshot` is the only record of what was drawn; it is
+  // never written to the DB, matching that ephemeral-by-design choice.
+  const [activeRoomId, setActiveRoomId] = useState(null);
+  const [whiteboardSnapshot, setWhiteboardSnapshot] = useState(null); // { dataUrl, capturedAt, roomId }
   // Navigation mode: 'swipe' (spatial/gesture graph) | 'tabs' (bottom tab bar).
   // localStorage mirror so it's available instantly and survives a missing DB column.
   const [navMode, setNavModeState] = useState(() => {
@@ -158,6 +168,28 @@ export function AppProvider({ children }) {
     if (result.flashcardMap)             setFlashcardMap(result.flashcardMap);
     if (result.pastCourses?.length)      setPastCourses(result.pastCourses);
   }
+
+  // Identity reconciliation: if a GoTrue session exists, the auth-linked profile id is
+  // canonical. If localStorage.fschool_uid drifted, merge the old id's data server-side
+  // FIRST, then adopt the canonical id. When there is no session, never touch identity
+  // (offline / legacy logged-in users stay in).
+  useEffect(() => {
+    (async () => {
+      try {
+        const profile = await currentProfile();
+        if (!profile?.id) return;                      // no session → keep current id, stay logged in
+        for (const pending of pendingMerges())
+          if (pending !== profile.id) await adoptIdentity(pending);
+        if (profile.id === userId) return;             // already canonical
+        const ok = await adoptIdentity(userId);
+        if (!ok) return;                               // merge failed → keep old id, retry next boot
+        localStorage.setItem("fschool_uid", profile.id);
+        localStorage.setItem("fschool_logged_in", "1");
+        setUserId(profile.id);                         // every [userId]-dep effect reloads under the new id
+      } catch { /* keep current identity on any failure */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load user + cached Canvas data from Supabase on mount
   useEffect(() => {
@@ -277,7 +309,9 @@ export function AppProvider({ children }) {
     return () => { unsub(); };
   }, [userId, refreshTokens]);
 
-  /** Re-fetch the current user row from Supabase (e.g. after verifying on another device). */
+  /** Re-fetch the current user row from Supabase (e.g. after verifying on another device).
+   *  Returns the fresh row (or null if the read failed) so callers — like the email-
+   *  verification gate — can react instead of failing silently. */
   const refreshUser = useCallback(async () => {
     const { data: user } = await supabase
       .from("users")
@@ -289,6 +323,7 @@ export function AppProvider({ children }) {
       if (user.canvas_token)    setCanvasToken(user.canvas_token);
       if (user.canvas_base_url) setCanvasBaseUrl(user.canvas_base_url);
     }
+    return user ?? null;
   }, [userId]);
 
   // When the tab regains focus, re-pull the user. This makes a verification
@@ -525,6 +560,10 @@ export function AppProvider({ children }) {
       refreshTokens,
       navMode,
       setNavMode,
+      activeRoomId,
+      setActiveRoomId,
+      whiteboardSnapshot,
+      setWhiteboardSnapshot,
     }}>
       {children}
     </AppContext.Provider>

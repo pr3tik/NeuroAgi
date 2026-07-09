@@ -4,6 +4,7 @@
 // FEAT: multi-file upload — attach multiple PDFs/images, all merged before Groq parse.
 
 import { useState, useRef } from "react";
+import { FileText, Image as ImageIcon, Paperclip, X, Check, Sparkles, AlertTriangle } from "lucide-react";
 import { groq } from "../api/groq";
 import { supabase } from "../api/supabase";
 import { useApp } from "../context/AppContext";
@@ -101,7 +102,7 @@ function Btn({ primary, children, ...props }: any) {
 function FileChip({ file, onRemove, status }) {
   const isPdf = file.type === "application/pdf";
   const isImg = file.type.startsWith("image/");
-  const icon  = isPdf ? "📄" : isImg ? "🖼️" : "📎";
+  const Icon  = isPdf ? FileText : isImg ? ImageIcon : Paperclip;
   const statusColor =
     status === "done"    ? "rgba(100,220,130,0.7)" :
     status === "failed"  ? "rgba(255,196,0,0.7)"   :
@@ -116,7 +117,7 @@ function FileChip({ file, onRemove, status }) {
       borderRadius: "8px", padding: "6px 10px",
       maxWidth: "100%",
     }}>
-      <span style={{ fontSize: "13px" }}>{icon}</span>
+      <span style={{ display: "flex", flexShrink: 0, color: "rgba(255,255,255,0.6)" }}><Icon size={14} /></span>
       <span style={{
         color: statusColor, fontSize: "12px", fontWeight: "500",
         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -135,7 +136,7 @@ function FileChip({ file, onRemove, status }) {
           cursor: "pointer", lineHeight: 1, padding: "0 2px",
           flexShrink: 0,
         }}
-      >✕</button>
+      ><X size={13} /></button>
     </div>
   );
 }
@@ -354,7 +355,7 @@ export default function ManualUploadSheet({ onClose, onSave }) {
 
               {files.some(f => f.type === "application/pdf") && (
                 <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "6px", paddingLeft: "2px" }}>
-                  📄 PDF text will be extracted automatically before parsing
+                  PDF text will be extracted automatically before parsing
                 </p>
               )}
             </div>
@@ -375,7 +376,7 @@ export default function ManualUploadSheet({ onClose, onSave }) {
         {/* ── STEP 1: Parsing ───────────────────────────── */}
         {step === 1 && (
           <div style={{ textAlign: "center", padding: "40px 0" }}>
-            <p style={{ fontSize: "26px", marginBottom: "14px", opacity: 0.9 }}>✦</p>
+            <p style={{ marginBottom: "14px", opacity: 0.9, display: "flex", justifyContent: "center" }}><Sparkles size={26} /></p>
             <p style={{ color: "var(--text-primary)", fontSize: "15px", fontWeight: "600", marginBottom: "6px" }}>
               {parseStatus === "reading" ? "Reading files…" : "Parsing…"}
             </p>
@@ -408,8 +409,9 @@ export default function ManualUploadSheet({ onClose, onSave }) {
             </p>
 
             {anyFailed && (
-              <p style={{ color: "rgba(255,196,0,0.8)", fontSize: "12px", marginBottom: "12px" }}>
-                ⚠️ Some files couldn't be read automatically — results may be incomplete.
+              <p style={{ color: "rgba(255,196,0,0.8)", fontSize: "12px", marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                Some files couldn't be read automatically — results may be incomplete.
               </p>
             )}
 
@@ -483,7 +485,7 @@ export default function ManualUploadSheet({ onClose, onSave }) {
         {/* ── STEP 3: Saved ─────────────────────────────── */}
         {step === 3 && (
           <div style={{ textAlign: "center", padding: "40px 0" }}>
-            <p style={{ fontSize: "26px", marginBottom: "14px" }}>✓</p>
+            <p style={{ marginBottom: "14px", display: "flex", justifyContent: "center", color: "rgba(100,220,130,0.9)" }}><Check size={28} /></p>
             <p style={{ color: "var(--text-primary)", fontSize: "15px", fontWeight: "600", marginBottom: "6px" }}>
               Course Added
             </p>

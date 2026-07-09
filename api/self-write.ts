@@ -104,7 +104,9 @@ If no patch is warranted, return exactly: NO_UPDATE`;
     const data  = await claudeRes.json();
     const text  = data.content?.[0]?.text?.trim() ?? "";
 
-    if (text === "NO_UPDATE" || text === "") {
+    // Prefix match, not equality — the model sometimes replies "NO_UPDATE\n\n<reasoning>",
+    // which the old exact check missed, writing the reasoning into the mind doc as a patch.
+    if (text === "" || text.startsWith("NO_UPDATE")) {
       return res.status(200).json({ updated: false });
     }
 

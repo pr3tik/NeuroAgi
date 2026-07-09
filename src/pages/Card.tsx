@@ -1,5 +1,6 @@
 // FschoolAI Founding Card — Apple AirPods Pro 3 buy flow + iPhone 17 Pro cinematic scroll
 import { useState, useEffect, useRef } from "react";
+import { Brain, Bot, Mic, BookOpen, Radio, Medal, Gem, Trophy, Infinity as InfinityIcon, Truck, RotateCcw, GraduationCap, PartyPopper } from "lucide-react";
 
 /* ─── Data ───────────────────────────────────────────────────────────────── */
 const COLORWAYS = [
@@ -11,15 +12,15 @@ const COLORWAYS = [
 ];
 
 const FEATURES = [
-  { icon: "🧠", title: "NeuroAGI Brain ID",           desc: "Your unique neural identity across the entire NeuroAGI ecosystem" },
-  { icon: "🤖", title: "AI Tutor — Priority",          desc: "24/7 personal AI tutor grounded in your actual lecture notes" },
-  { icon: "🎙️", title: "In-Class Recording",           desc: "Real-time transcription, searchable, always in your notes" },
-  { icon: "📚", title: "Canvas Sync",                  desc: "Every course, assignment, and deadline — automatically synced" },
-  { icon: "📡", title: "NFC Tap",                      desc: "One tap shares your full profile and Brain Card instantly" },
-  { icon: "🏅", title: "Founding Number #0001–#0500",  desc: "Permanently engraved — only 500 exist, ever" },
-  { icon: "💎", title: "FST Token Wallet",             desc: "Built-in wallet — earn, hold, and spend FST tokens" },
-  { icon: "🏆", title: "Leaderboard Badge",            desc: "Verified rank badge on the FschoolAI global leaderboard" },
-  { icon: "♾️", title: "Lifetime FschoolAI Pro",       desc: "Every Pro feature, every future update — forever, no subscription" },
+  { icon: Brain,        title: "NeuroAGI Brain ID",           desc: "Your unique neural identity across the entire NeuroAGI ecosystem" },
+  { icon: Bot,          title: "AI Tutor — Priority",          desc: "24/7 personal AI tutor grounded in your actual lecture notes" },
+  { icon: Mic,          title: "In-Class Recording",           desc: "Real-time transcription, searchable, always in your notes" },
+  { icon: BookOpen,     title: "Canvas Sync",                  desc: "Every course, assignment, and deadline — automatically synced" },
+  { icon: Radio,        title: "NFC Tap",                      desc: "One tap shares your full profile and Brain Card instantly" },
+  { icon: Medal,        title: "Founding Number #0001–#0500",  desc: "Permanently engraved — only 500 exist, ever" },
+  { icon: Gem,          title: "FST Token Wallet",             desc: "Built-in wallet — earn, hold, and spend FST tokens" },
+  { icon: Trophy,       title: "Leaderboard Badge",            desc: "Verified rank badge on the FschoolAI global leaderboard" },
+  { icon: InfinityIcon, title: "Lifetime FschoolAI Pro",       desc: "Every Pro feature, every future update — forever, no subscription" },
 ];
 
 /* ─── Hooks ──────────────────────────────────────────────────────────────── */
@@ -473,7 +474,7 @@ export default function Card() {
               </form>
             ) : (
               <div style={{ textAlign: "center", padding: "32px 0" }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>🎉</div>
+                <div style={{ marginBottom: 16, display: "flex", justifyContent: "center" }}><PartyPopper size={48} color="#C49A3C" /></div>
                 <h3 style={{ fontSize: 22, fontWeight: 700, color: "#1d1d1f", marginBottom: 8 }}>You're on the list.</h3>
                 <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.6 }}>We'll email you when your founding card is ready to ship. Welcome to the founding {isFounder ? "5" : "500"}.</p>
               </div>
@@ -484,12 +485,12 @@ export default function Card() {
         {/* Trust icons */}
         <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 24px 40px" }}>
           {[
-            { icon: "🚚", title: "Free delivery", desc: "Ships Q4 2026 to your door" },
-            { icon: "♾️", title: "Lifetime Pro included", desc: "Every feature, every update — no subscription ever" },
-            { icon: "↩️", title: "Cancel anytime", desc: "Before your card ships, no questions asked" },
+            { icon: Truck,        title: "Free delivery", desc: "Ships Q4 2026 to your door" },
+            { icon: InfinityIcon, title: "Lifetime Pro included", desc: "Every feature, every update — no subscription ever" },
+            { icon: RotateCcw,    title: "Cancel anytime", desc: "Before your card ships, no questions asked" },
           ].map((item, i, arr) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "28px 24px", borderBottom: i < arr.length - 1 ? "1px solid #e5e5ea" : "none" }}>
-              <span style={{ fontSize: 32, marginBottom: 10 }}>{item.icon}</span>
+              <item.icon size={28} color="#1d1d1f" style={{ marginBottom: 10 }} />
               <p style={{ fontSize: 15, fontWeight: 600, color: "#1d1d1f", marginBottom: 4 }}>{item.title}</p>
               <p style={{ fontSize: 13, color: "#6e6e73", lineHeight: 1.5 }}>{item.desc}</p>
             </div>
@@ -503,7 +504,7 @@ export default function Card() {
             <div style={{ display: "flex", flexDirection: "column" }}>
               {FEATURES.map((f, i) => (
                 <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "24px 16px", borderBottom: i < FEATURES.length - 1 ? "1px solid #f0f0f0" : "none" }}>
-                  <span style={{ fontSize: 36, marginBottom: 10 }}>{f.icon}</span>
+                  <f.icon size={32} color="#1d1d1f" style={{ marginBottom: 10 }} />
                   <p style={{ fontSize: 15, fontWeight: 600, color: "#1d1d1f", marginBottom: 4 }}>{f.title}</p>
                   <p style={{ fontSize: 13, color: "#6e6e73", lineHeight: 1.5 }}>{f.desc}</p>
                 </div>
@@ -515,7 +516,7 @@ export default function Card() {
         {/* Specialist Setup */}
         <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 24px 40px" }}>
           <div style={{ background: "#fff", borderRadius: 18, padding: "28px 24px", display: "flex", gap: 20, alignItems: "flex-start" }}>
-            <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 22 }}>🎓</div>
+            <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><GraduationCap size={24} color="#1d1d1f" /></div>
             <p style={{ fontSize: 15, color: "#1d1d1f", lineHeight: 1.65 }}>
               Set up your identity card with a one-on-one session with a Specialist.{" "}
               <a href="mailto:hello@fschoolai.com" style={{ color: "#0071e3", textDecoration: "none" }}>Book a free Personal Setup session.</a>

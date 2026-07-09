@@ -6,6 +6,8 @@ import { groq }         from "../api/groq";
 import { useApp }        from "../context/AppContext";
 import { supabase }      from "../api/supabase";
 import { awardTokens }   from "../api/tokens";
+import { Check, X, AlertTriangle, Sparkles } from "lucide-react";
+import { groundingToast } from "../lib/studyGrounding";
 
 
 const SYSTEM =
@@ -274,11 +276,11 @@ function StudySession({ cards, onExit, updateUserField, userData }) {
         <span style={{
           fontSize: "12px", color: "rgba(255, 75, 65, 0.8)", fontWeight: "600",
           opacity: flipped ? 1 : 0, transition: "opacity 0.22s",
-        }}>✗ Missed</span>
+        }}><X size={12} style={{ verticalAlign: "-2px", marginRight: 3 }} />Missed</span>
         <span style={{
           fontSize: "12px", color: "rgba(52, 199, 89, 0.85)", fontWeight: "600",
           opacity: flipped ? 1 : 0, transition: "opacity 0.22s",
-        }}>Got it ✓</span>
+        }}>Got it<Check size={12} style={{ verticalAlign: "-2px", marginLeft: 3 }} /></span>
       </div>
 
       {/* Card area */}
@@ -408,7 +410,7 @@ function StudySession({ cards, onExit, updateUserField, userData }) {
           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255, 59, 48, 0.18)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255, 59, 48, 0.1)")}
         >
-          ✗  Missed
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><X size={16} />Missed</span>
         </button>
         <button
           onClick={() => judge(true)}
@@ -423,7 +425,7 @@ function StudySession({ cards, onExit, updateUserField, userData }) {
           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(52, 199, 89, 0.16)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(52, 199, 89, 0.08)")}
         >
-          Got it ✓
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Got it<Check size={16} /></span>
         </button>
       </div>
     </div>
@@ -546,6 +548,8 @@ export default function Study() {
   const [guide,      setGuide]      = useState("");
   const [inSession,  setInSession]  = useState(false);
   const [toast,      setToast]      = useState("");
+  const [toastKind,  setToastKind]  = useState("info"); // "warn" | "ok" | "info"
+  const showToast = (msg, kind = "info") => { setToastKind(kind); setToast(msg); };
 
   // Sync selected course when live courses load in
   useEffect(() => {
@@ -620,9 +624,9 @@ export default function Study() {
         const loadData = await loadRes.json();
         const loaded = loadData?.cards ?? [];
         if (loaded.length > 0) { setFlashcards(loaded); setGuide(""); }
-        else setToast("No saved flashcards yet — tap Add New Flashcards to create some.");
+        else showToast("No saved flashcards yet — tap Add New Flashcards to create some.", "info");
       } catch {
-        setToast("No saved flashcards yet — tap Add New Flashcards to create some.");
+        showToast("No saved flashcards yet — tap Add New Flashcards to create some.", "info");
       }
       setLoading(false);
     } else {
@@ -635,7 +639,7 @@ export default function Study() {
         .eq("data_type", `study_guide_${dbId}`)
         .maybeSingle();
       if (data?.payload?.text) setGuide(data.payload.text);
-      else setToast("No saved study guide yet — tap Update Study Guide to create one.");
+      else showToast("No saved study guide yet — tap Update Study Guide to create one.", "info");
       setFlashcards([]);
       setLoading(false);
     }
@@ -885,6 +889,11 @@ export default function Study() {
         if (courseContext) contextBlock = `\n\nHere is real content from the student's course:\n${courseContext}`;
       }
 
+      // Did we find ANY real course material (RAG / files / Canvas)? If not, the model is
+      // generating from the course name alone — convincing but ungrounded, and the student
+      // could end up studying the wrong topics. We still generate, but flag it clearly below.
+      const grounded = contextBlock.length > 0;
+
       const cardCount = 8;
 
       const prompt =
@@ -909,7 +918,7 @@ export default function Study() {
         }
 
         if (cards.length === 0) {
-          setToast("⚠️ Couldn't parse any flashcards — try generating again.");
+          showToast("Couldn't parse any flashcards — try generating again.", "warn");
           setLoading(false);
           return;
         }
@@ -922,7 +931,7 @@ export default function Study() {
         }
 
         if (cards.length === 0) {
-          setToast("⚠️ All generated cards were duplicates — try again for new topics.");
+          showToast("All generated cards were duplicates — try again for new topics.", "warn");
           setLoading(false);
           return;
         }
@@ -930,7 +939,7 @@ export default function Study() {
         if (!dbId) {
           // No course link — show only, don't save
           setFlashcards([...cards, ...existingCards]);
-          setToast("⚠️ Couldn't link to course — flashcards shown but not saved. Try re-syncing Canvas.");
+          showToast("Couldn't link to course — flashcards shown but not saved. Try re-syncing Canvas.", "warn");
         } else {
           const saveRes = await fetch("/api/flashcards", {
             method: "POST",
@@ -939,7 +948,7 @@ export default function Study() {
           });
           if (!saveRes.ok) {
             const saveErr = await saveRes.json().catch(() => ({}));
-            setToast("⚠️ Flashcards generated but couldn't save: " + (saveErr.error ?? "unknown error"));
+            showToast("Flashcards generated but couldn't save: " + (saveErr.error ?? "unknown error"), "warn");
             setFlashcards([...cards, ...existingCards]);
           } else {
             // Reload from DB to get real UUIDs and correct order (newest first)
@@ -949,29 +958,31 @@ export default function Study() {
               body: JSON.stringify({ action: "load", userId, courseId: dbId }),
             }).then(r => r.json()).catch(() => ({ cards: [] }));
             setFlashcards(reloaded?.cards?.length > 0 ? reloaded.cards : [...cards, ...existingCards]);
-            setToast(`✓ ${cards.length} new flashcards added!`);
+            const t = groundingToast("flashcards", grounded, cards.length);
+            showToast(t.message, t.kind);
             awardTokens("flashcards_generated", { courseId: String(dbId) }).catch(() => {});
           }
         }
       } else {
         setGuide(result);
         if (!dbId) {
-          setToast("⚠️ Couldn't link to course — guide shown but not saved. Try re-syncing Canvas.");
+          showToast("Couldn't link to course — guide shown but not saved. Try re-syncing Canvas.", "warn");
         } else {
           const { error: saveErr } = await supabase.from("canvas_data").upsert(
             { user_id: userId, data_type: `study_guide_${dbId}`, payload: { text: result }, synced_at: new Date().toISOString() },
             { onConflict: "user_id,data_type" }
           );
           if (saveErr) {
-            setToast("⚠️ Guide generated but couldn't save: " + saveErr.message);
+            showToast("Guide generated but couldn't save: " + saveErr.message, "warn");
           } else {
-            setToast("✓ Study guide saved!");
+            const t = groundingToast("guide", grounded);
+            showToast(t.message, t.kind);
           }
         }
       }
     } catch (err) {
       console.error("[Study] generate error:", err.message);
-      setToast("⚠️ Generation failed — " + (err.message ?? "unexpected error"));
+      showToast("Generation failed — " + (err.message ?? "unexpected error"), "warn");
     } finally {
       setLoading(false);
     }
@@ -1060,7 +1071,8 @@ export default function Study() {
           alignItems: "center",
           gap: "8px",
         }}>
-          {toast.startsWith("⚠️") && <span style={{ color: "rgba(255,200,80,0.8)", fontSize: "14px" }}>⚠</span>}
+          {toastKind === "warn" && <AlertTriangle size={14} style={{ color: "rgba(255,200,80,0.8)", flexShrink: 0 }} />}
+          {toastKind === "ok" && <Check size={14} style={{ color: "rgba(120,220,140,0.9)", flexShrink: 0 }} />}
           {toast}
         </div>
       )}
@@ -1088,7 +1100,7 @@ export default function Study() {
           onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; e.currentTarget.style.color = "var(--text-primary)"; }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
         >
-          {mode === "guide" ? "Read Guide" : "Study ✦"}
+          {mode === "guide" ? "Read Guide" : <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Study<Sparkles size={14} /></span>}
         </button>
 
         {/* Primary button — generate new */}
@@ -1121,8 +1133,8 @@ export default function Study() {
           {loading
             ? "Generating…"
             : mode === "guide"
-            ? "Update Study Guide ✦"
-            : "Add New Flashcards ✦"}
+            ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Update Study Guide<Sparkles size={14} /></span>
+            : <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Add New Flashcards<Sparkles size={14} /></span>}
         </button>
       </div>
 
@@ -1156,7 +1168,7 @@ export default function Study() {
                     borderRadius: "6px", color: "rgba(255,100,100,0.75)",
                     fontSize: "11px", padding: "3px 7px", cursor: "pointer", lineHeight: 1,
                   }}
-                >✕</button>
+                ><X size={12} /></button>
               </div>
             ))}
           </div>

@@ -2,6 +2,7 @@
 // Receives parsed quiz data, shows one question at a time, tracks score.
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Check, X } from "lucide-react";
 
 export interface QuizQuestion {
   question: string;
@@ -61,7 +62,7 @@ export default function DocQuiz({ questions, onDone }: Props) {
             {pct}% correct
           </p>
           <p style={{ fontSize: "13px", color: pct >= 70 ? "#7fae6e" : "rgba(255,255,255,0.4)", margin: 0 }}>
-            {pct >= 90 ? "Excellent! 🏆" : pct >= 70 ? "Good work! 🎉" : pct >= 50 ? "Keep studying 📚" : "Review this section"}
+            {pct >= 90 ? "Excellent!" : pct >= 70 ? "Good work!" : pct >= 50 ? "Keep studying" : "Review this section"}
           </p>
         </div>
 
@@ -145,7 +146,7 @@ export default function DocQuiz({ questions, onDone }: Props) {
                     color: answered && isCorrect ? "#7fae6e" : answered && isPicked ? "#d47878" : "rgba(255,255,255,0.4)",
                     background: answered && isCorrect ? "rgba(127,174,110,0.15)" : answered && isPicked ? "rgba(212,120,120,0.12)" : "transparent",
                   }}>
-                    {answered && isCorrect ? "✓" : answered && isPicked ? "✗" : String.fromCharCode(65 + i)}
+                    {answered && isCorrect ? <Check size={13} /> : answered && isPicked ? <X size={13} /> : String.fromCharCode(65 + i)}
                   </span>
                   <span style={{ fontSize: "13px", lineHeight: "1.5", color }}>{opt}</span>
                 </motion.button>

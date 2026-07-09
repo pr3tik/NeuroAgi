@@ -18,13 +18,16 @@
     "framer-motion": "^12.40.0",
     "html2canvas": "^1.4.1",
     "jszip": "^3.10.1",
+    "lucide-react": "^1.21.0",
     "mammoth": "^1.12.0",
+    "ogl": "^1.0.11",
     "pdfjs-dist": "^5.7.284",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "resend": "^6.12.4",
+    "three": "^0.184.0",
     "tweetnacl": "^1.0.3",
     "yjs": "^13.6.31"
   },
@@ -34,10 +37,10 @@
     "@types/node": "^25.9.3",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^5.2.0",
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
-    "vite": "^5.4.0",
+    "vite": "^8.1.0",
     "vitest": "^4.1.9"
   }
 }

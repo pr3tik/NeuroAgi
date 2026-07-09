@@ -315,14 +315,31 @@ async function lmsApiSync() {
           const toc = await dget(`/d2l/api/le/${leV}/${c.id}/content/toc`);
           const walk = (mod) => {
             for (const t of (mod.Topics || [])) {
-              if (t.TypeIdentifier === "File" && t.Url) {
+              if (t.TypeIdentifier === "File" && t.TopicId) {
+                // Use the D2L file download API endpoint rather than the viewer URL
+                // (/viewContent/.../View) — the viewer returns an HTML wrapper page,
+                // not the raw bytes the tutor needs (B3).
                 files.push({ course_ref: c.id, assignment_ref: null,
                   id: "d2l_file_" + c.id + "_" + t.TopicId,
                   name: t.Title || ("topic_" + t.TopicId),
-                  file_type: fileType(t.Title || t.Url, null),
+                  file_type: fileType(t.Title || (t.Url || ""), null),
                   size_bytes: null,
-                  source_url: t.Url.startsWith("http") ? t.Url : origin + t.Url,
+                  source_url: `${origin}/d2l/api/le/${leV}/${c.id}/content/topics/${t.TopicId}/file`,
                   folder: mod.Title || null, status: "course_material" });
+              }
+              // Capture external links (YouTube, Google Drive, etc.) so the tutor can
+              // list them and YouTube videos can be transcribed (B4).
+              if ((t.TypeIdentifier === "Link" || t.TypeIdentifier === "Url" || t.TypeIdentifier === "ResourceLink") && t.Url && t.TopicId) {
+                const url = t.Url.startsWith("http") ? t.Url : origin + t.Url;
+                const isYt = /youtu\.?be/i.test(url);
+                const isGd = /drive\.google|docs\.google/i.test(url);
+                files.push({ course_ref: c.id, assignment_ref: null,
+                  id: "d2l_link_" + c.id + "_" + t.TopicId,
+                  name: t.Title || ("link_" + t.TopicId),
+                  file_type: isYt ? "youtube" : isGd ? "gdrive" : "link",
+                  size_bytes: null,
+                  source_url: url,
+                  folder: mod.Title || null, status: "external_link" });
               }
             }
             for (const sub of (mod.Modules || [])) walk(sub);

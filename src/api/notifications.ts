@@ -11,7 +11,8 @@ export type NotifType =
   | "room_invite"
   | "assignment_due"
   | "milestone"
-  | "ranking";
+  | "ranking"
+  | "intervention";
 
 export interface AppNotification {
   id: string;
@@ -89,4 +90,28 @@ export async function createNotification(
     .from("notifications")
     .insert({ user_id: userId, type, title, body, data });
   if (error) console.error("[notifications] createNotification:", error.message);
+}
+
+// ── Effectiveness feedback loop (PRD §3.5.4) ────────────────────────────────────
+// Proactive notifications delivered by the Arbiter carry `data.queue_id` (the
+// notification_queue row). Stamping opened_at / action_taken closes the loop that
+// tunes each student's intervention thresholds and preferred channel.
+
+/** Stamp a proactive notification as SEEN. Idempotent (only sets opened_at once). */
+export async function markProactiveOpened(queueId: string): Promise<void> {
+  const { error } = await supabase
+    .from("notification_queue")
+    .update({ opened_at: new Date().toISOString() })
+    .eq("id", queueId)
+    .is("opened_at", null);
+  if (error) console.error("[notifications] markProactiveOpened:", error.message);
+}
+
+/** Stamp a proactive notification as ACTED ON (student tapped its action). */
+export async function markProactiveActioned(queueId: string): Promise<void> {
+  const { error } = await supabase
+    .from("notification_queue")
+    .update({ action_taken: true })
+    .eq("id", queueId);
+  if (error) console.error("[notifications] markProactiveActioned:", error.message);
 }

@@ -22,10 +22,12 @@ const ITEMS = {
   files:       { label: "Files" },
   rooms:       { label: "Rooms" },
   spaces:      { label: "Spaces" },
+  studyAssistant: { label: "Study Assistant", short: "Assistant" },
+  connections: { label: "Connections", short: "Connect" },
 };
 
 const PRIMARY   = ["work", "canvas", "study", "leaderboard", "identity"];
-const SECONDARY = ["assignment", "toolkit", "files", "rooms", "spaces"];
+const SECONDARY = ["assignment", "toolkit", "files", "rooms", "spaces", "studyAssistant", "connections"];
 const SECONDARY_SET = new Set(SECONDARY);
 
 // Re-render when crossing the web/mobile breakpoint.
@@ -57,6 +59,8 @@ function Icon({ name }) {
     case "files":       return <svg {...common}><path d="M4 7h6l2 2h8v9a1 1 0 0 1-1 1H4z" /></svg>;
     case "rooms":       return <svg {...common}><circle cx="9" cy="9" r="2.6" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0" /><path d="M16 7.5a2.6 2.6 0 0 1 0 5" /><path d="M17 14.5a5.5 5.5 0 0 1 3.5 4.5" /></svg>;
     case "spaces":      return <svg {...common}><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7l7-4z" /></svg>;
+    case "studyAssistant": return <svg {...common}><path d="M4 19V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13" /><path d="M4 19h16" /><path d="M9 4v9l3-2 3 2V4" /></svg>;
+    case "connections": return <svg {...common}><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" /></svg>;
     default:            return null;
   }
 }

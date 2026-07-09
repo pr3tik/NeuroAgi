@@ -6,6 +6,7 @@
 //   4. react-markdown → properly formatted AI responses
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import { useApp } from "../context/AppContext";
@@ -227,7 +228,7 @@ export default function DocChat({
       setMsgs([{
         id: `fc-${++idRef.current}`,
         role: "assistant",
-        content: `✓ Created ${cards.length} flashcards${saved ? " and saved to your deck" : ""}:\n\n${preview}${cards.length > 3 ? `\n\n…and ${cards.length - 3} more` : ""}\n\nOpening Study section…`,
+        content: `Created ${cards.length} flashcards${saved ? " and saved to your deck" : ""}:\n\n${preview}${cards.length > 3 ? `\n\n…and ${cards.length - 3} more` : ""}\n\nOpening Study section…`,
       }]);
       setFcStatus("saved");
       setStudyConfig({ mode: "flashcards", docId, docTitle });
@@ -339,7 +340,7 @@ export default function DocChat({
       >
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
-          <div style={{ width: 28, height: 28, borderRadius: "8px", background: "rgba(196,154,60,0.13)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", color: "#C49A3C", fontWeight: "700" }}>✦</div>
+          <div style={{ width: 28, height: 28, borderRadius: "8px", background: "rgba(196,154,60,0.13)", display: "flex", alignItems: "center", justifyContent: "center", color: "#C49A3C", fontWeight: "700" }}><Sparkles size={14} /></div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: "13px", fontWeight: "600", color: "rgba(245,245,245,0.9)" }}>{actionLabel}</p>
             <p style={{ margin: 0, fontSize: "11px", color: "rgba(255,255,255,0.3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{docTitle}</p>
@@ -417,7 +418,7 @@ export default function DocChat({
                     ) : (
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "7px" }}>
-                          <div style={{ width: 18, height: 18, borderRadius: "5px", background: "rgba(196,154,60,0.14)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "9px", color: "#C49A3C", fontWeight: "700" }}>✦</div>
+                          <div style={{ width: 18, height: 18, borderRadius: "5px", background: "rgba(196,154,60,0.14)", display: "flex", alignItems: "center", justifyContent: "center", color: "#C49A3C", fontWeight: "700" }}><Sparkles size={11} /></div>
                           <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.28)", fontWeight: "600" }}>AI Tutor</span>
                         </div>
                         <div style={{ paddingLeft: "24px", fontSize: "14px", color: "rgba(245,245,245,0.88)" }}>

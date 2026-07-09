@@ -13,7 +13,7 @@ import {
   inviteToRoom, leaveRoom, setRoomAccess,
 } from "../api/rooms";
 import type { AccessFilters } from "../api/rooms";
-import { loadRecentMessages, postRoomMessage } from "../api/chat";
+import { loadRecentMessages, postRoomMessage, uploadChatImage } from "../api/chat";
 import type { ChatMessage } from "../api/chat";
 import type { Stroke, Point, PenStyle } from "../api/whiteboard";
 import * as Y from "yjs";
@@ -22,15 +22,21 @@ import Whiteboard, { PEN_COLORS, PEN_WIDTHS, ERASER_SIZES, DEFAULT_BG } from "..
 import type { Tool } from "../components/Whiteboard";
 import StudyOrb from "../components/StudyOrb";
 import VoiceRoom from "../components/VoiceRoom";
+import {
+  School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
+  MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
+  Timer, Coins, ThumbsUp, ThumbsDown, Image as ImageIcon, Hand, Zap, Hourglass,
+  RefreshCw, LogOut,
+} from "lucide-react";
 
 // ── Access filters ────────────────────────────────────────────────────────────
 // Which eligibility rules an owner can put on a room. Server enforces these via
 // the join_room / list_accessible_rooms RPCs; this is just the UI vocabulary.
-const ACCESS_OPTIONS: { key: keyof AccessFilters; icon: string; label: string; desc: string; needsCourse?: boolean }[] = [
-  { key: "university", icon: "🏫", label: "Same university",   desc: "Only students at your school" },
-  { key: "friends",    icon: "👥", label: "Friends only",       desc: "Only your friends" },
-  { key: "fof",        icon: "🔗", label: "Friends of friends", desc: "Friends and their friends" },
-  { key: "course",     icon: "📚", label: "Course-mates",       desc: "Students taking the linked course", needsCourse: true },
+const ACCESS_OPTIONS: { key: keyof AccessFilters; icon: any; label: string; desc: string; needsCourse?: boolean }[] = [
+  { key: "university", icon: School,   label: "Same university",   desc: "Only students at your school" },
+  { key: "friends",    icon: Users,    label: "Friends only",       desc: "Only your friends" },
+  { key: "fof",        icon: Link2,    label: "Friends of friends", desc: "Friends and their friends" },
+  { key: "course",     icon: BookOpen, label: "Course-mates",       desc: "Students taking the linked course", needsCourse: true },
 ];
 
 function activeFilterKeys(filters?: AccessFilters | null): (keyof AccessFilters)[] {
@@ -54,7 +60,7 @@ function FilterBadges({ filters, small = false }: { filters?: AccessFilters | nu
             background: "rgba(196,154,60,0.08)", color: "var(--color-accent)",
             border: "1px solid rgba(196,154,60,0.18)", whiteSpace: "nowrap",
           }}>
-            {meta.icon} {meta.label}
+            <meta.icon size={small ? 12 : 13} /> {meta.label}
           </span>
         );
       })}
@@ -86,7 +92,7 @@ function AccessToggles({ value, onChange, hasCourse }: {
               opacity: disabled ? 0.4 : 1, transition: "all 0.15s",
             }}
           >
-            <span style={{ fontSize: "17px", flexShrink: 0 }}>{opt.icon}</span>
+            <span style={{ display: "flex", flexShrink: 0 }}><opt.icon size={17} /></span>
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: "block", fontSize: "13px", fontWeight: 600, color: on ? "var(--color-accent)" : "var(--text-primary)" }}>
                 {opt.label}
@@ -101,7 +107,7 @@ function AccessToggles({ value, onChange, hasCourse }: {
               background: on ? "var(--color-accent)" : "transparent",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
-              {on && <span style={{ color: "#111", fontSize: "11px", fontWeight: 700, lineHeight: 1 }}>✓</span>}
+              {on && <Check size={12} color="#111" strokeWidth={3} />}
             </span>
           </button>
         );
@@ -161,7 +167,7 @@ async function getFriendsForInvite(userId) {
 // Root — owns global-studying presence channel shared across Lobby ↔ RoomView
 // ─────────────────────────────────────────────────────────────────────────────
 export default function StudyRooms() {
-  const { userId, userData } = useApp();
+  const { userId, userData, setActiveRoomId, setWhiteboardSnapshot } = useApp();
   const [view,        setView]        = useState("lobby");
   const [activeRoom,  setActiveRoom]  = useState(null);
   const [globalState, setGlobalState] = useState({});
@@ -243,6 +249,11 @@ export default function StudyRooms() {
     await trackGlobal(null);
     setActiveRoom(null);
     setView("lobby");
+    // This is the actual "no longer in a room" signal — unlike RoomView
+    // unmounting from a page switch, this only fires when the student truly
+    // leaves, so it's the right place to drop the Study Assistant bridge.
+    setActiveRoomId(null);
+    setWhiteboardSnapshot(null);
   }, [userId]); // eslint-disable-line
 
   const dismissInviteRoot = useCallback((id) => {
@@ -269,10 +280,19 @@ export default function StudyRooms() {
 // Lobby
 // ─────────────────────────────────────────────────────────────────────────────
 function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvites = [], onDismissInvite }) {
-  const { userId, userData, courses } = useApp();
+  const { userId, userData, courses, studyConfig, setStudyConfig } = useApp();
   const [rooms,       setRooms]       = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [showCreate,  setShowCreate]  = useState(false);
+  const [createInitCourse, setCreateInitCourse] = useState("");
+
+  useEffect(() => {
+    if (studyConfig?.action === "create") {
+      setCreateInitCourse(studyConfig.course ?? "");
+      setShowCreate(true);
+      setStudyConfig(null);
+    }
+  }, []); // eslint-disable-line
   const [joiningId,    setJoiningId]    = useState(null);
   const [pendingReqs,  setPendingReqs]  = useState({});
   const [codeInput,    setCodeInput]    = useState("");
@@ -547,7 +567,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
           onFocusCapture={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.45)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "0 0 0 3px rgba(196,154,60,0.08)"; }}
           onBlurCapture={e  => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.18)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "none"; }}
         >
-          <span style={{ fontSize:"18px", flexShrink:0 }}>🔑</span>
+          <span style={{ display:"flex", flexShrink:0, color:"var(--color-accent)" }}><KeyRound size={18} /></span>
           <input
             value={codeInput}
             onChange={e => { setCodeInput(e.target.value.toUpperCase().slice(0, 6)); setCodeError(""); }}
@@ -578,7 +598,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
           borderRadius:"12px", padding:"11px 16px", margin:"4px 0 10px",
           fontSize:"13px", color:"rgba(255,120,110,0.95)",
         }}>
-          🔒 {joinError}
+          <Lock size={14} style={{ verticalAlign:"-2px", marginRight:6 }} />{joinError}
         </div>
       )}
 
@@ -592,7 +612,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
               display:"flex", alignItems:"center", justifyContent:"space-between", gap:"12px",
             }}>
               <p style={{ fontSize:"13px", color:"var(--text-secondary)", flex:1, minWidth:0 }}>
-                📩 <b style={{ color:"var(--text-primary)" }}>{inv.fromName || "Someone"}</b> invited you to their study room
+                <Mail size={14} style={{ verticalAlign:"-2px", marginRight:6 }} /><b style={{ color:"var(--text-primary)" }}>{inv.fromName || "Someone"}</b> invited you to their study room
               </p>
               <div style={{ display:"flex", gap:"8px", flexShrink:0 }}>
                 <button onClick={() => acceptInvite(inv)} style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px" }}>Join</button>
@@ -639,7 +659,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
                       ...(nudgedDone ? { background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.3)", color:"#4ade80", opacity:1 } : { opacity: st ? 0.5 : 1 }),
                     }}
                   >
-                    {st === "sent" ? "Nudged ✓" : st === "limited" ? "Limit reached" : st === "sending" ? "…" : "Nudge"}
+                    {st === "sent" ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>Nudged<Check size={13} /></span> : st === "limited" ? "Limit reached" : st === "sending" ? "…" : "Nudge"}
                   </button>
                 </div>
               );
@@ -669,7 +689,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
             </button>
           ))}
         </div>
-        <button onClick={fetchRooms} style={{ ...S.ghostBtn, marginTop:0, padding:"5px 10px", fontSize:"13px" }}>↻</button>
+        <button onClick={fetchRooms} title="Refresh" style={{ ...S.ghostBtn, marginTop:0, padding:"5px 10px", fontSize:"13px", display:"inline-flex", alignItems:"center" }}><RefreshCw size={13} /></button>
       </div>
 
       {/* ── Room grid ───────────────────────────────────────────── */}
@@ -707,6 +727,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
           courses={courses}
           onCreate={handleCreate}
           onClose={() => setShowCreate(false)}
+          initialCourseId={createInitCourse}
         />
       )}
     </div>
@@ -824,9 +845,9 @@ function RoomCard({ room, liveCount, joining, pendingStatus, courseLabel, onJoin
 // ─────────────────────────────────────────────────────────────────────────────
 // CreateRoomModal
 // ─────────────────────────────────────────────────────────────────────────────
-function CreateRoomModal({ courses, onCreate, onClose }) {
+function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
   const [name,     setName]     = useState("");
-  const [courseId, setCourseId] = useState("");
+  const [courseId, setCourseId] = useState(initialCourseId);
   const [roomType, setRoomType] = useState("public");
   const [accessFilters, setAccessFilters] = useState<AccessFilters>({});
   const [saving,   setSaving]   = useState(false);
@@ -873,7 +894,9 @@ function CreateRoomModal({ courses, onCreate, onClose }) {
               border: `1px solid ${roomType===t ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.08)"}`,
               transition:"all 0.15s",
             }}>
-              {t==="public" ? "🌐 Public" : "🔒 Invite only"}
+              {t==="public"
+                ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Globe size={13} />Public</span>
+                : <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Lock size={13} />Invite only</span>}
             </button>
           ))}
         </div>
@@ -948,7 +971,7 @@ function cursorColor(uid: string) {
 // RoomView — Phase 2A: + Pomodoro, Goal prompt, Session summary
 // ─────────────────────────────────────────────────────────────────────────────
 function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
-  const { userId, userData } = useApp();
+  const { userId, userData, setActiveRoomId, setWhiteboardSnapshot } = useApp();
   const [members,            setMembers]            = useState([]);
   const [workingOn,          setWorkingOn]          = useState("");
   const [requests,           setRequests]           = useState([]);
@@ -960,13 +983,17 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [showGoalPrompt,     setShowGoalPrompt]     = useState(false);
   const [showSummary,        setShowSummary]        = useState(false);
   const [summaryDurationSecs,setSummaryDurationSecs]= useState(0);
-  // Phase 2C — AI Study Buddy
-  const [showBuddy,          setShowBuddy]          = useState(false);
-  const [buddyQAs,           setBuddyQAs]           = useState([]);
-  const [buddyStreaming,     setBuddyStreaming]     = useState(false);
   const [courseName,         setCourseName]         = useState("");
-  // Voice chat (Daily.co placeholder)
+  // Voice chat (Daily.co)
   const [showVoice,          setShowVoice]          = useState(false);
+  const [activeSpeakerName,  setActiveSpeakerName]  = useState<string | null>(null);
+  // Focus Sprint — configurable duration, no break phase
+  const [sprintDuration,     setSprintDuration]     = useState(25 * 60);
+  const sprintDurationRef = useRef(25 * 60);
+  // Raise hand
+  const [raisedHands,        setRaisedHands]        = useState<Record<string, boolean>>({});
+  const [myHandRaised,       setMyHandRaised]       = useState(false);
+  const handTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Room header overflow menu (admin actions)
   const [showRoomMenu,       setShowRoomMenu]       = useState(false);
   const roomMenuRef = useRef<HTMLDivElement>(null);
@@ -975,6 +1002,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [chatMessages,       setChatMessages]       = useState<ChatMessage[]>([]);
   const [chatInput,          setChatInput]          = useState("");
   const [chatSending,        setChatSending]        = useState(false);
+  const [imageUploading,     setImageUploading]     = useState(false);
   const chatLoadedRef = useRef(false);
   // Phase 3 — Whiteboard
   const [showBoard,          setShowBoard]          = useState(false);
@@ -1011,10 +1039,20 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const pomoRef             = useRef(null);
   const pomoAutoAdvancedRef = useRef(null);
   const goalTextRef         = useRef("");
-  const buddyCallsRef       = useRef([]);   // timestamps for rate limiting (5/5min)
-  const buddyAbortRef       = useRef(null); // AbortController for current buddy stream
 
   const isHost = room.created_by === userId;
+
+  // Let Study Assistant (a separate page) know which room this student is
+  // currently in, so it can pull room chat / whiteboard context on request.
+  // Deliberately NOT cleared on unmount: only one page mounts at a time (see
+  // App.tsx), so navigating to Study Assistant unmounts this component too —
+  // clearing here would wipe the bridge the instant the student left to go
+  // ask about it. Actually leaving the room is handled by the root
+  // StudyRooms component's handleLeave, which is the real "no longer in a
+  // room" signal.
+  useEffect(() => {
+    setActiveRoomId(room.id);
+  }, [room.id, setActiveRoomId]);
 
   // Close the ⋯ room menu when clicking outside
   useEffect(() => {
@@ -1043,8 +1081,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       clearInterval(timer);
       clearTimeout(workingOnDebounce.current);
       window.removeEventListener("beforeunload", handleUnload);
-      // Abort any in-flight buddy stream on unmount
-      buddyAbortRef.current?.abort();
       yjsProviderRef.current?.destroy();
       yjsDocRef.current?.destroy();
       try { wbChRef.current?.unsubscribe(); } catch {}
@@ -1054,6 +1090,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 
   // Keep pomoRef in sync for use in effects without stale closure
   useEffect(() => { pomoRef.current = pomo; }, [pomo]);
+
+  // Clear hand-raise timer on unmount to avoid state updates on an unmounted component.
+  useEffect(() => () => { if (handTimerRef.current) clearTimeout(handTimerRef.current); }, []);
 
   // Show goal prompt 500ms after entering, only once
   useEffect(() => {
@@ -1069,9 +1108,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     const rem = getRemaining(p);
     if (rem !== null && rem <= 0 && pomoAutoAdvancedRef.current !== p.startedAt) {
       pomoAutoAdvancedRef.current = p.startedAt;
-      const nextPhase = p.phase === "focus" ? "break" : "focus";
-      const nextDur   = nextPhase === "focus" ? 25 * 60 : 5 * 60;
-      const next = { phase: nextPhase, paused: false, startedAt: Date.now(), durationSec: nextDur, pausedRemaining: null };
+      const next = { phase: "idle", paused: false, startedAt: null, durationSec: sprintDurationRef.current, pausedRemaining: null };
       setPomo(next);
       pomoRef.current = next;
       if (channelRef.current) {
@@ -1089,7 +1126,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       const rem = getRemaining(p);
       // If the phase expired while the user was navigating in, treat as idle
       if (p.phase !== "idle" && !p.paused && rem !== null && rem <= 0) {
-        setPomo({ phase: "idle", paused: false, startedAt: null, durationSec: 25 * 60, pausedRemaining: null });
+        setPomo({ phase: "idle", paused: false, startedAt: null, durationSec: sprintDurationRef.current, pausedRemaining: null });
       } else {
         setPomo(p);
       }
@@ -1106,7 +1143,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   }
 
   function handlePomoStart() {
-    broadcastAndSavePomo({ phase: "focus", paused: false, startedAt: Date.now(), durationSec: 25 * 60, pausedRemaining: null });
+    broadcastAndSavePomo({ phase: "focus", paused: false, startedAt: Date.now(), durationSec: sprintDurationRef.current, pausedRemaining: null });
   }
   function handlePomoPause() {
     const p = pomoRef.current;
@@ -1119,14 +1156,58 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     broadcastAndSavePomo({ phase: p.phase, paused: false, startedAt: Date.now(), durationSec: p.pausedRemaining ?? p.durationSec, pausedRemaining: null });
   }
   function handlePomoReset() {
-    broadcastAndSavePomo({ phase: "idle", paused: false, startedAt: null, durationSec: 25 * 60, pausedRemaining: null });
+    broadcastAndSavePomo({ phase: "idle", paused: false, startedAt: null, durationSec: sprintDurationRef.current, pausedRemaining: null });
   }
   function handlePomoSkip() {
     const p = pomoRef.current;
     if (!p || p.phase === "idle") return;
-    const nextPhase = p.phase === "focus" ? "break" : "focus";
-    const nextDur   = nextPhase === "focus" ? 25 * 60 : 5 * 60;
-    broadcastAndSavePomo({ phase: nextPhase, paused: false, startedAt: Date.now(), durationSec: nextDur, pausedRemaining: null });
+    broadcastAndSavePomo({ phase: "idle", paused: false, startedAt: null, durationSec: sprintDurationRef.current, pausedRemaining: null });
+  }
+
+  function handleSprintDurationChange(secs: number) {
+    setSprintDuration(secs);
+    sprintDurationRef.current = secs;
+  }
+
+  function handleToggleHand() {
+    const raised = !myHandRaised;
+    setMyHandRaised(raised);
+    setRaisedHands(prev => raised ? { ...prev, [userId]: true } : (() => { const n = { ...prev }; delete n[userId]; return n; })());
+    channelRef.current?.send({ type: "broadcast", event: "raise_hand", payload: { userId, raised } }).catch(() => {});
+    if (raised) {
+      if (handTimerRef.current) clearTimeout(handTimerRef.current);
+      handTimerRef.current = setTimeout(() => {
+        setMyHandRaised(false);
+        setRaisedHands(prev => { const n = { ...prev }; delete n[userId]; return n; });
+        channelRef.current?.send({ type: "broadcast", event: "raise_hand", payload: { userId, raised: false } }).catch(() => {});
+      }, 90000);
+    } else {
+      if (handTimerRef.current) clearTimeout(handTimerRef.current);
+    }
+  }
+
+  function handleMoveStroke(strokeId: string, dx: number, dy: number) {
+    const arr = yjsStrokesRef.current;
+    if (!arr) return;
+    const list = arr.toArray() as any[];
+    const idx = list.findIndex((s: any) => s.id === strokeId);
+    if (idx === -1) return;
+    const s = list[idx];
+    const moved = s.mode === "image"
+      ? { ...s, x: (s.x ?? 0) + dx, y: (s.y ?? 0) + dy }
+      : { ...s, points: (s.points ?? []).map((p: Point) => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+    arr.doc?.transact(() => { arr.delete(idx, 1); arr.insert(idx, [moved]); });
+  }
+
+  function handleReplaceImageStroke(oldId: string, newData: { mode: "image"; url: string; x: number; y: number; w: number; h: number }) {
+    const arr = yjsStrokesRef.current;
+    if (!arr) return;
+    const list = arr.toArray() as any[];
+    const idx = list.findIndex((s: any) => s.id === oldId);
+    if (idx === -1) return;
+    const updated = { ...list[idx], x: newData.x, y: newData.y, w: newData.w, h: newData.h };
+    arr.doc?.transact(() => { arr.delete(idx, 1); arr.insert(idx, [updated]); });
+    setStrokes(prev => prev.map(s => s.id === oldId ? { ...s, x: newData.x, y: newData.y, w: newData.w, h: newData.h } : s));
   }
 
   async function startSession() {
@@ -1190,6 +1271,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         for (const id of Object.keys(next)) if (!presentIds.has(id)) delete next[id];
         return Object.keys(next).length === Object.keys(prev).length ? prev : next;
       });
+      // Clear raised-hand state for members who have left the room.
+      setRaisedHands(prev => {
+        const next = { ...prev };
+        let changed = false;
+        for (const id of Object.keys(next)) { if (!presentIds.has(id)) { delete next[id]; changed = true; } }
+        return changed ? next : prev;
+      });
     })
     .on("broadcast", { event: "room_closed" }, () => {
       if (!leftRef.current) endSession().then(() => onLeave());
@@ -1197,22 +1285,14 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     .on("broadcast", { event: "pomodoro" }, ({ payload }) => {
       setPomo(payload);
     })
+    .on("broadcast", { event: "raise_hand" }, ({ payload }) => {
+      setRaisedHands(prev => {
+        if (payload.raised) return { ...prev, [payload.userId]: true };
+        const next = { ...prev }; delete next[payload.userId]; return next;
+      });
+    })
     .on("broadcast", { event: "access_changed" }, ({ payload }) => {
       setAccessFilters(payload?.filters || {});
-    })
-    // AI Buddy — shared Q&A events
-    .on("broadcast", { event: "buddy_question" }, ({ payload }) => {
-      setBuddyQAs(prev => {
-        if (prev.some(q => q.id === payload.qaId)) return prev;
-        return [...prev, { id: payload.qaId, question: payload.question, askerName: payload.askerName, answer: "", done: false, streaming: true }];
-      });
-      setShowBuddy(true);
-    })
-    .on("broadcast", { event: "buddy_stream" }, ({ payload }) => {
-      setBuddyQAs(prev => prev.map(qa => qa.id === payload.qaId ? { ...qa, answer: payload.text } : qa));
-    })
-    .on("broadcast", { event: "buddy_done" }, ({ payload }) => {
-      setBuddyQAs(prev => prev.map(qa => qa.id === payload.qaId ? { ...qa, answer: payload.text, done: true, streaming: false } : qa));
     })
     .on("broadcast", { event: "chat_message" }, ({ payload }) => {
       setChatMessages(prev => {
@@ -1317,7 +1397,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 
   async function enrichRequests(rows) {
     const ids = rows.map(r => r.user_id);
-    const { data: users } = await supabase.from("users").select("id, name").in("id", ids);
+    // users_public = safe-columns view (id, name, ...); keeps working once public.users RLS is strict
+    const { data: users } = await supabase.from("users_public").select("id, name").in("id", ids);
     const nameMap = {};
     (users || []).forEach(u => { nameMap[u.id] = u.name; });
     setRequests(prev => {
@@ -1416,114 +1497,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     if (data) setCourseName(data.course_code ? `${data.course_code} — ${data.name}` : data.name);
   }
 
-  async function handleBuddyAsk(question) {
-    if (buddyStreaming) return;
-    // Rate limit: 5 calls per 5-minute window, per client
-    const now = Date.now();
-    buddyCallsRef.current = buddyCallsRef.current.filter(t => now - t < 5 * 60 * 1000);
-    if (buddyCallsRef.current.length >= 5) return;
-    buddyCallsRef.current.push(now);
-
-    const qaId       = `${userId}-${now}`;
-    const askerName  = userData?.name ?? "Someone";
-
-    // Add to local state immediately (asker doesn't receive own broadcast)
-    setBuddyQAs(prev => [...prev, { id: qaId, question, askerName, answer: "", done: false, streaming: true }]);
-
-    // Notify room that a question was asked
-    if (channelRef.current) {
-      channelRef.current.send({ type: "broadcast", event: "buddy_question",
-        payload: { qaId, question, askerName } }).catch(() => {});
-    }
-
-    // System prompt: inject room context the buddy knows automatically
-    const workingOnLines = members
-      .filter(m => m.workingOn)
-      .map(m => `  • ${m.name}: ${m.workingOn}`)
-      .join("\n") || "  (no goals set yet)";
-    const system = [
-      "You are an AI study buddy in a shared study room. Be concise (2-4 sentences unless depth truly warrants more), encouraging, and academically accurate. Format for readability — use a short list if it helps, but default to prose.",
-      "",
-      "ROOM CONTEXT (injected automatically — do not repeat this back):",
-      `Course: ${courseName || "General study session"}`,
-      "Students currently studying:",
-      workingOnLines,
-      "",
-      "Answer the question directly. If you don't have enough information, say what you know and suggest where to find more.",
-    ].join("\n");
-
-    setBuddyStreaming(true);
-    buddyAbortRef.current = new AbortController();
-
-    try {
-      const resp = await fetch("/api/claude", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stream: true, messages: [{ role: "user", content: question }], system, max_tokens: 600 }),
-        signal: buddyAbortRef.current.signal,
-      });
-
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        setBuddyQAs(prev => prev.map(qa => qa.id === qaId
-          ? { ...qa, answer: errData.error || "Sorry, I couldn't answer that right now. Try again.", done: true, streaming: false }
-          : qa));
-        return;
-      }
-
-      const reader  = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let sseBuffer = "", fullText = "";
-      let broadcastTimer = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        sseBuffer += decoder.decode(value, { stream: true });
-        const lines = sseBuffer.split("\n");
-        sseBuffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (!data || data === "[DONE]") continue;
-          try {
-            const evt = JSON.parse(data);
-            if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-              fullText += evt.delta.text ?? "";
-              setBuddyQAs(prev => prev.map(qa => qa.id === qaId ? { ...qa, answer: fullText } : qa));
-              // Broadcast accumulated text every 300ms (debounced) — not per-token
-              clearTimeout(broadcastTimer);
-              broadcastTimer = setTimeout(() => {
-                if (channelRef.current) {
-                  channelRef.current.send({ type: "broadcast", event: "buddy_stream",
-                    payload: { qaId, text: fullText } }).catch(() => {});
-                }
-              }, 300);
-            }
-          } catch {}
-        }
-      }
-
-      // Final: mark done locally + broadcast complete answer
-      clearTimeout(broadcastTimer);
-      setBuddyQAs(prev => prev.map(qa => qa.id === qaId
-        ? { ...qa, answer: fullText, done: true, streaming: false } : qa));
-      if (channelRef.current) {
-        channelRef.current.send({ type: "broadcast", event: "buddy_done",
-          payload: { qaId, text: fullText } }).catch(() => {});
-      }
-    } catch (err) {
-      if (err?.name !== "AbortError") {
-        setBuddyQAs(prev => prev.map(qa => qa.id === qaId
-          ? { ...qa, answer: "Connection error. Please try again.", done: true, streaming: false }
-          : qa));
-      }
-    } finally {
-      setBuddyStreaming(false);
-      buddyAbortRef.current = null;
-    }
-  }
-
   async function handleCloseRoom() {
     await supabase.from("study_rooms").update({ is_active: false }).eq("id", room.id);
     if (channelRef.current) {
@@ -1575,6 +1548,27 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     return () => window.removeEventListener('popstate', onPop);
   }, [showBoard]);
 
+  // Snapshot bridge for Study Assistant: the whiteboard is session-only and
+  // never persisted, and Study Assistant is a separate page (this component
+  // unmounts on navigation) — so periodically capture the canvas into
+  // AppContext while the Board panel is open, which is the only place that
+  // survives the page switch. Captured on an interval (not per-stroke) to
+  // avoid re-encoding a full PNG on every pointer move.
+  useEffect(() => {
+    if (!showBoard) return;
+    function capture() {
+      const canvas = document.querySelector("canvas[data-whiteboard-canvas]") as HTMLCanvasElement | null;
+      if (!canvas) return;
+      try {
+        const dataUrl = canvas.toDataURL("image/png");
+        setWhiteboardSnapshot({ dataUrl, capturedAt: Date.now(), roomId: room.id });
+      } catch { /* tainted canvas or similar — skip this tick */ }
+    }
+    capture();
+    const interval = setInterval(capture, 4000);
+    return () => clearInterval(interval);
+  }, [showBoard, room.id, setWhiteboardSnapshot]);
+
   // Ctrl/Cmd+Z → undo, Ctrl/Cmd+Shift+Z or Ctrl+Y → redo (whiteboard only).
   const undoHandlerRef = useRef(handleUndoStroke);
   const redoHandlerRef = useRef(handleRedoStroke);
@@ -1591,7 +1585,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [showBoard]);
 
-  function handleStrokeComplete(stroke: { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }) {
+  function handleStrokeComplete(stroke:
+    | { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }
+    | { mode: "image"; url: string; x: number; y: number; w: number; h: number }
+  ) {
     const newStroke = {
       id: (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36)),
       room_id: room.id,
@@ -1599,7 +1596,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       name: userData?.name ?? "Anonymous",
       created_at: new Date().toISOString(),
       ...stroke,
-    };
+    } as Stroke;
     setStrokes(prev => [...prev, newStroke]);
     yjsStrokesRef.current?.push([newStroke]);
     // Track for undo; new stroke invalidates the redo history.
@@ -1696,6 +1693,30 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     }
   }
 
+  async function handleImageUpload(file: File) {
+    if (imageUploading) return;
+    const MAX_MB = 5;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      alert(`Image must be under ${MAX_MB} MB.`);
+      return;
+    }
+    setImageUploading(true);
+    try {
+      const url = await uploadChatImage(room.id, file);
+      const body = `[img]${url}`;
+      const msg = await postRoomMessage(userId, room.id, userData?.name ?? "Anonymous", body);
+      setChatMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+      channelRef.current?.send({
+        type: "broadcast", event: "chat_message", payload: msg,
+      }).catch(() => {});
+    } catch (err) {
+      console.error("[chat] image upload:", (err as any)?.message);
+      alert("Image upload failed. Check that the Supabase media-uploads bucket allows uploads.");
+    } finally {
+      setImageUploading(false);
+    }
+  }
+
   const totalFocusMins = members.reduce((sum, m) => {
     return sum + Math.floor((Date.now() - m.joinedAt) / 60000);
   }, 0);
@@ -1711,7 +1732,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <p style={S.sectionLabel}>Study Room</p>
           <h1 style={{ ...S.pageTitle, fontSize:"22px" }}>{room.name}</h1>
           <p style={{ fontSize:"12px", color:"var(--text-dim)", marginTop:"3px" }}>
-            {room.room_type === "invite" ? "🔒 Invite only" : "🌐 Public"}
+            {room.room_type === "invite"
+              ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Lock size={12} />Invite only</span>
+              : <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Globe size={12} />Public</span>}
             {members.length > 0 && (
               <span style={{ marginLeft:"10px", color:"var(--color-accent)" }}>
                 · {members.length} focusing now
@@ -1726,11 +1749,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         </div>
         <div style={{ display:"flex", gap:"6px", alignItems:"center", flexWrap:"wrap" }}>
           {/* Panel toggles */}
-          <button onClick={() => setShowBuddy(b => !b)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBuddy ? "rgba(111,179,196,0.1)" : "none", borderColor: showBuddy ? "rgba(111,179,196,0.3)" : "rgba(255,255,255,0.09)", color: showBuddy ? "#6fb3c4" : "var(--text-dim)" }}>🤖 AI</button>
-          <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}>💬 Chat</button>
-          <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(196,154,60,0.1)" : "none", borderColor: showBoard ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "#c49a3c" : "var(--text-dim)" }}>🖊 Board</button>
-          <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}>🎙 Voice</button>
-          <button onClick={() => setShowInvite(true)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px" }}>+ Invite</button>
+          <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><MessageCircle size={13} />Chat</span></button>
+          <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(196,154,60,0.1)" : "none", borderColor: showBoard ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "#c49a3c" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Pen size={13} />Board</span></button>
+          <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Mic size={13} />Voice</span></button>
+          <button onClick={() => setShowInvite(true)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Plus size={13} />Invite</span></button>
 
           {/* ⋯ overflow — admin actions + leave */}
           <div ref={roomMenuRef} style={{ position:"relative" }}>
@@ -1739,7 +1761,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               style={{ ...S.ghostBtn, marginTop:0, padding:"8px 12px", fontSize:"14px", letterSpacing:"1px", background: showRoomMenu ? "rgba(255,255,255,0.07)" : "none" }}
               title="More options"
             >
-              ⋯
+              <MoreHorizontal size={16} />
             </button>
             {showRoomMenu && (
               <div style={{
@@ -1752,19 +1774,19 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   <button onClick={() => { setShowAccess(true); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"var(--text-secondary)", cursor:"pointer", fontFamily:"inherit" }}
                     onMouseEnter={e => (e.currentTarget.style.background="rgba(255,255,255,0.06)")}
                     onMouseLeave={e => (e.currentTarget.style.background="none")}
-                  >⚙ Access settings</button>
+                  ><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><Settings size={14} />Access settings</span></button>
                 )}
                 {isHost && (
                   <button onClick={() => { handleCloseRoom(); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"rgba(255,100,90,0.8)", cursor:"pointer", fontFamily:"inherit" }}
                     onMouseEnter={e => (e.currentTarget.style.background="rgba(255,59,48,0.07)")}
                     onMouseLeave={e => (e.currentTarget.style.background="none")}
-                  >✕ Close room</button>
+                  ><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><X size={14} />Close room</span></button>
                 )}
                 <div style={{ height:"1px", background:"var(--color-border)", margin:"4px 0" }} />
                 <button onClick={() => { handleLeave(); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"rgba(255,100,90,0.8)", cursor:"pointer", fontFamily:"inherit" }}
                   onMouseEnter={e => (e.currentTarget.style.background="rgba(255,59,48,0.07)")}
                   onMouseLeave={e => (e.currentTarget.style.background="none")}
-                >↩ Leave room</button>
+                ><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><LogOut size={14} />Leave room</span></button>
               </div>
             )}
           </div>
@@ -1775,18 +1797,21 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       <StudyOrb
         active={!!pomo && pomo.phase === "focus" && !pomo.paused}
         members={members}
+        speakingNames={activeSpeakerName ? [activeSpeakerName] : []}
       />
 
-      {/* Pomodoro Timer — centerpiece */}
-      <PomodoroPanel
+      {/* Focus Sprint — configurable duration, no break phase */}
+      <FocusSprintPanel
         pomo={pomo}
         remaining={remaining}
         isHost={isHost}
+        sprintDuration={sprintDuration}
+        onDurationChange={handleSprintDurationChange}
         onStart={handlePomoStart}
         onPause={handlePomoPause}
         onResume={handlePomoResume}
         onReset={handlePomoReset}
-        onSkip={handlePomoSkip}
+        onEnd={handlePomoSkip}
       />
 
       {/* Collective focus strip */}
@@ -1799,7 +1824,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <span style={{ fontSize:"12px", color:"var(--text-secondary)" }}>
             Focus pact · {members.length} people, {totalFocusMins} min total this session
           </span>
-          <span style={{ fontSize:"12px", fontWeight:"600", color:"var(--color-accent)" }}>Together 💪</span>
+          <span style={{ fontSize:"12px", fontWeight:"600", color:"var(--color-accent)" }}>Together</span>
         </div>
       )}
 
@@ -1870,25 +1895,22 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:"10px" }}>
           {members.map(m => (
-            <MemberCard key={m.userId} member={m} isMe={m.userId === userId} />
+            <MemberCard key={m.userId} member={m} isMe={m.userId === userId} isSpeaking={activeSpeakerName === m.name} handRaised={!!raisedHands[m.userId]} />
           ))}
         </div>
       )}
 
-      {/* AI Study Buddy panel — collapsible, shared Q&A */}
-      {showBuddy && (
-        <BuddyPanel
-          qaItems={buddyQAs}
-          streaming={buddyStreaming}
-          callsLeft={Math.max(0, 5 - buddyCallsRef.current.filter(t => Date.now() - t < 5 * 60 * 1000).length)}
-          onAsk={handleBuddyAsk}
-          onClose={() => setShowBuddy(false)}
-        />
-      )}
-
-      {/* Voice chat panel — Daily.co placeholder, audio-first */}
+      {/* Voice chat panel — collapses to slim bar when the whiteboard is open */}
       {showVoice && (
-        <VoiceRoom roomId={room.id} userName={userData?.name ?? ""} onClose={() => setShowVoice(false)} />
+        <VoiceRoom
+          roomId={room.id}
+          userName={userData?.name ?? ""}
+          onClose={() => { setShowVoice(false); setActiveSpeakerName(null); }}
+          onSpeakingChange={setActiveSpeakerName}
+          handRaised={myHandRaised}
+          onToggleHand={handleToggleHand}
+          forceMinimized={showBoard}
+        />
       )}
 
       {/* Chat panel — persisted, WhatsApp-style */}
@@ -1898,8 +1920,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           myUserId={userId}
           input={chatInput}
           sending={chatSending}
+          imageUploading={imageUploading}
           onInputChange={setChatInput}
           onSend={sendChatMessage}
+          onImageUpload={handleImageUpload}
           onClose={() => setShowChat(false)}
         />
       )}
@@ -1923,6 +1947,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           onBgChange={handleBgChange}
           onStrokeComplete={handleStrokeComplete}
           onEraseStroke={handleEraseStroke}
+          onMoveStroke={handleMoveStroke}
+          onReplaceImageStroke={handleReplaceImageStroke}
           onLiveStroke={handleLiveStroke}
           onClear={handleClearBoard}
           canUndo={canUndo}
@@ -1934,6 +1960,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           onCursorMove={handleCursorMove}
           onLaserMove={handleLaserMove}
           onClose={() => setShowBoard(false)}
+          activeSpeaker={activeSpeakerName}
+          roomId={room.id}
         />
       )}
 
@@ -1976,9 +2004,16 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PomodoroPanel — synced timer display + host controls
+// FocusSprintPanel — no break phase, configurable 15/25/45/60 min sprints
 // ─────────────────────────────────────────────────────────────────────────────
-function pomoCtrlStyle(variant) {
+const SPRINT_DURATIONS = [
+  { label: "15 min", secs: 15 * 60 },
+  { label: "25 min", secs: 25 * 60 },
+  { label: "45 min", secs: 45 * 60 },
+  { label: "60 min", secs: 60 * 60 },
+];
+
+function sprintCtrlStyle(variant) {
   const v = {
     dim:    { bg:"rgba(255,255,255,0.05)", color:"var(--text-dim)",      border:"rgba(255,255,255,0.09)" },
     accent: { bg:"rgba(196,154,60,0.12)", color:"#C49A3C",              border:"rgba(196,154,60,0.3)"   },
@@ -1991,31 +2026,26 @@ function pomoCtrlStyle(variant) {
   };
 }
 
-function PomodoroPanel({ pomo, remaining, isHost, onStart, onPause, onResume, onReset, onSkip }) {
-  const isIdle    = !pomo || pomo.phase === "idle";
+function FocusSprintPanel({ pomo, remaining, isHost, sprintDuration, onDurationChange, onStart, onPause, onResume, onReset, onEnd }) {
+  const isIdle    = !pomo || pomo.phase === "idle" || pomo.phase === "break";
   const isFocus   = pomo?.phase === "focus";
-  const isBreak   = pomo?.phase === "break";
   const isPaused  = !!pomo?.paused;
-  const isRunning = !isIdle && !isPaused;
-
-  const accentColor = isFocus ? "#C49A3C" : isBreak ? "#6fb3c4" : "var(--text-dim)";
-  const bgColor     = isFocus ? "rgba(196,154,60,0.05)" : isBreak ? "rgba(111,179,196,0.05)" : "rgba(255,255,255,0.02)";
-  const borderColor = isFocus ? "rgba(196,154,60,0.18)" : isBreak ? "rgba(111,179,196,0.18)" : "rgba(255,255,255,0.07)";
-  const phaseLabel  = isFocus ? "Focus" : isBreak ? "Break" : "Pomodoro";
-  const phaseEmoji  = isFocus ? "🍅" : isBreak ? "☕" : "⏱";
+  const isRunning = isFocus && !isPaused;
+  const defaultDurLabel = SPRINT_DURATIONS.find(d => d.secs === sprintDuration)?.label ?? "25 min";
 
   return (
     <div style={{
-      background:bgColor, border:`1px solid ${borderColor}`,
+      background: isFocus ? "rgba(196,154,60,0.05)" : "rgba(255,255,255,0.02)",
+      border: `1px solid ${isFocus ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.07)"}`,
       borderRadius:"14px", padding:"20px 20px 16px", marginBottom:"18px",
       transition:"background 0.4s, border-color 0.4s",
     }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"10px" }}>
-        <span style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:accentColor, fontWeight:"600" }}>
-          {phaseEmoji} {phaseLabel}{isPaused ? " · Paused" : ""}
+        <span style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color: isFocus ? "#C49A3C" : "var(--text-dim)", fontWeight:"600" }}>
+          <BookOpen size={12} style={{ verticalAlign:"-2px", marginRight:6 }} />Focus Sprint{isPaused ? " · Paused" : ""}
         </span>
         <span style={{ fontSize:"11px", color:"var(--text-dim)" }}>
-          {isIdle ? "25 min focus / 5 min break" : isFocus ? "Stay focused" : "Rest up ☕"}
+          {isFocus ? "Study, discuss, or go mute — together" : "Choose your sprint length"}
         </span>
       </div>
 
@@ -2024,46 +2054,59 @@ function PomodoroPanel({ pomo, remaining, isHost, onStart, onPause, onResume, on
         <span style={{
           fontSize:"56px", fontWeight:"700", letterSpacing:"-2px",
           fontVariantNumeric:"tabular-nums", display:"block", lineHeight:1,
-          color: isIdle ? "rgba(255,255,255,0.15)" : accentColor,
+          color: isIdle ? "rgba(255,255,255,0.15)" : "#C49A3C",
           opacity: isPaused ? 0.55 : 1,
           transition:"color 0.4s",
         }}>
-          {isIdle ? "25:00" : formatPomoTime(remaining)}
+          {isIdle ? formatPomoTime(sprintDuration) : formatPomoTime(remaining)}
         </span>
       </div>
 
       {/* Controls */}
       {isHost ? (
-        <div style={{ display:"flex", gap:"8px", justifyContent:"center", flexWrap:"wrap" }}>
+        <div style={{ display:"flex", gap:"8px", justifyContent:"center", flexWrap:"wrap", alignItems:"center" }}>
           {isIdle && (
-            <button onClick={onStart} style={{
-              background:"rgba(196,154,60,0.14)", color:"#C49A3C",
-              border:"1px solid rgba(196,154,60,0.35)", borderRadius:"9px",
-              padding:"9px 24px", fontSize:"13px", fontWeight:"600",
-              cursor:"pointer", fontFamily:"inherit",
-            }}>
-              Start Focus →
-            </button>
+            <>
+              {/* Duration selector */}
+              <div style={{ display:"flex", gap:"4px", marginRight:"8px" }}>
+                {SPRINT_DURATIONS.map(d => (
+                  <button key={d.secs} onClick={() => onDurationChange(d.secs)} style={{
+                    background: sprintDuration === d.secs ? "rgba(196,154,60,0.14)" : "rgba(255,255,255,0.04)",
+                    color: sprintDuration === d.secs ? "#C49A3C" : "var(--text-dim)",
+                    border: `1px solid ${sprintDuration === d.secs ? "rgba(196,154,60,0.35)" : "rgba(255,255,255,0.09)"}`,
+                    borderRadius:"7px", padding:"5px 10px", fontSize:"11px",
+                    cursor:"pointer", fontFamily:"inherit",
+                  }}>{d.label}</button>
+                ))}
+              </div>
+              <button onClick={onStart} style={{
+                background:"rgba(196,154,60,0.14)", color:"#C49A3C",
+                border:"1px solid rgba(196,154,60,0.35)", borderRadius:"9px",
+                padding:"9px 24px", fontSize:"13px", fontWeight:"600",
+                cursor:"pointer", fontFamily:"inherit",
+              }}>
+                Start Sprint →
+              </button>
+            </>
           )}
           {isRunning && (
             <>
-              <button onClick={onPause}  style={pomoCtrlStyle("dim")}>Pause</button>
-              <button onClick={onSkip}   style={pomoCtrlStyle("dim")}>Skip ›</button>
-              <button onClick={onReset}  style={pomoCtrlStyle("red")}>Reset</button>
+              <button onClick={onPause}  style={sprintCtrlStyle("dim")}>Pause</button>
+              <button onClick={onEnd}    style={sprintCtrlStyle("dim")}>End sprint</button>
+              <button onClick={onReset}  style={sprintCtrlStyle("red")}>Reset</button>
             </>
           )}
           {isPaused && (
             <>
-              <button onClick={onResume} style={pomoCtrlStyle("accent")}>Resume</button>
-              <button onClick={onReset}  style={pomoCtrlStyle("red")}>Reset</button>
+              <button onClick={onResume} style={sprintCtrlStyle("accent")}>Resume</button>
+              <button onClick={onReset}  style={sprintCtrlStyle("red")}>Reset</button>
             </>
           )}
         </div>
       ) : (
         <p style={{ textAlign:"center", fontSize:"12px", color:"var(--text-dim)", margin:0 }}>
-          {isIdle ? "Waiting for host to start the timer…" :
-           isFocus ? "Stay focused — you've got this." :
-           "Enjoy your break!"}
+          {isIdle ? `Waiting for host to start a ${defaultDurLabel} sprint…` :
+           "Focus up — sprint in progress."}
         </p>
       )}
     </div>
@@ -2082,7 +2125,7 @@ function GoalPromptModal({ onSet, onSkip }) {
     <div style={S.modalOverlay}>
       <div style={{ ...S.modalCard, maxWidth:"360px" }}>
         <div style={{ textAlign:"center", marginBottom:"20px" }}>
-          <p style={{ fontSize:"30px", marginBottom:"10px" }}>🎯</p>
+          <p style={{ marginBottom:"10px", display:"flex", justifyContent:"center" }}><Target size={30} style={{ color:"var(--color-accent)" }} /></p>
           <h2 style={{ fontSize:"18px", fontWeight:"700", color:"var(--text-primary)", marginBottom:"6px" }}>
             Set your session goal
           </h2>
@@ -2135,13 +2178,13 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
         <button
           onClick={onBack}
           title="Back to room"
-          style={{ position:"absolute", top:"14px", right:"18px", background:"none", border:"none", color:"var(--text-dim)", fontSize:"20px", cursor:"pointer", lineHeight:1, padding:"2px 4px" }}
+          style={{ position:"absolute", top:"14px", right:"18px", background:"none", border:"none", color:"var(--text-dim)", cursor:"pointer", lineHeight:1, padding:"2px 4px", display:"flex" }}
         >
-          ×
+          <X size={20} />
         </button>
 
-        <p style={{ fontSize:"34px", marginBottom:"8px" }}>
-          {durationSecs >= 1200 ? "🔥" : "⏱"}
+        <p style={{ marginBottom:"8px", display:"flex", justifyContent:"center" }}>
+          {durationSecs >= 1200 ? <Flame size={34} style={{ color:"#f59e0b" }} /> : <Timer size={34} style={{ color:"var(--color-accent)" }} />}
         </p>
         <h2 style={{ fontSize:"19px", fontWeight:"700", color:"var(--text-primary)", marginBottom:"6px" }}>
           {durationSecs >= 1200 ? "Great session!" : "Session complete"}
@@ -2157,7 +2200,7 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: goal ? "10px" : 0 }}>
             <span style={{ fontSize:"12px", color:"var(--text-dim)" }}>Tokens earned</span>
-            <span style={{ fontSize:"14px", fontWeight:"700", color:"var(--color-accent)" }}>🪙 {tokensEarned}</span>
+            <span style={{ fontSize:"14px", fontWeight:"700", color:"var(--color-accent)", display:"inline-flex", alignItems:"center", gap:4 }}><Coins size={14} />{tokensEarned}</span>
           </div>
           {goal && (
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:"12px" }}>
@@ -2180,7 +2223,7 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
               cursor:"pointer", fontFamily:"inherit", color:"var(--text-dim)",
             }}
           >
-            👎 Not quite
+            <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><ThumbsDown size={15} />Not quite</span>
           </button>
           <button
             onClick={() => onConfirm(true)}
@@ -2190,137 +2233,12 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
               cursor:"pointer", fontFamily:"inherit", color:"var(--color-accent)",
             }}
           >
-            👍 Got it!
+            <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><ThumbsUp size={15} />Got it!</span>
           </button>
         </div>
       </div>
     </div>,
     document.body
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BuddyPanel — AI Study Buddy: shared Q&A, streaming, rate-limited
-// ─────────────────────────────────────────────────────────────────────────────
-function BuddyPanel({ qaItems, streaming, callsLeft, onAsk, onClose }) {
-  const [input, setInput] = useState("");
-  const bottomRef = useRef(null);
-
-  // Auto-scroll to latest answer
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [qaItems]);
-
-  function handleSend() {
-    const q = input.trim();
-    if (!q || streaming || callsLeft <= 0) return;
-    setInput("");
-    onAsk(q);
-  }
-
-  return (
-    <div style={{
-      border: "1px solid rgba(111,179,196,0.2)",
-      borderRadius: "14px",
-      background: "rgba(111,179,196,0.03)",
-      marginBottom: "20px",
-      overflow: "hidden",
-    }}>
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "12px 16px",
-        borderBottom: "1px solid rgba(111,179,196,0.12)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "15px" }}>🤖</span>
-          <span style={{ fontSize: "13px", fontWeight: "600", color: "#6fb3c4" }}>AI Study Buddy</span>
-          <span style={{ fontSize: "11px", color: "var(--text-dim)", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
-            shared with room
-          </span>
-        </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dim)", fontSize: "18px", cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
-      </div>
-
-      {/* Q&A history */}
-      <div style={{ maxHeight: "340px", overflowY: "auto", padding: qaItems.length ? "12px 16px" : "0" }}>
-        {qaItems.length === 0 && !streaming && (
-          <div style={{ padding: "20px 16px", textAlign: "center" }}>
-            <p style={{ fontSize: "13px", color: "var(--text-dim)", lineHeight: 1.5 }}>
-              Ask anything about the coursework.<br />
-              <span style={{ fontSize: "12px", opacity: 0.7 }}>Everyone in the room sees the answer.</span>
-            </p>
-          </div>
-        )}
-        {qaItems.map((qa, i) => (
-          <div key={qa.id} style={{ marginBottom: i < qaItems.length - 1 ? "18px" : "4px" }}>
-            {/* Question */}
-            <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "6px" }}>
-              <span style={{ fontSize: "11px", color: "var(--text-dim)", flexShrink: 0 }}>{qa.askerName}</span>
-              <p style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: "500", margin: 0 }}>{qa.question}</p>
-            </div>
-            {/* Answer */}
-            <div style={{
-              background: "rgba(111,179,196,0.06)", border: "1px solid rgba(111,179,196,0.12)",
-              borderRadius: "10px", padding: "10px 14px",
-              fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.65",
-              whiteSpace: "pre-wrap",
-            }}>
-              {qa.answer ? (
-                <>
-                  {qa.answer}
-                  {qa.streaming && <span style={{ opacity: 0.4, animation: "blink 1s step-end infinite" }}>|</span>}
-                </>
-              ) : (
-                <span style={{ color: "var(--text-dim)", fontStyle: "italic" }}>
-                  {qa.streaming ? "Thinking…" : "—"}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div style={{ padding: "10px 16px 14px", borderTop: qaItems.length ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder={callsLeft <= 0 ? "Rate limit reached — try again in a few minutes" : "Ask about the coursework…"}
-            disabled={streaming || callsLeft <= 0}
-            maxLength={400}
-            style={{
-              flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",
-              borderRadius: "9px", padding: "9px 12px", color: "var(--text-primary)", fontSize: "13px",
-              outline: "none", fontFamily: "inherit", opacity: (streaming || callsLeft <= 0) ? 0.5 : 1,
-              transition: "border-color 0.15s",
-            }}
-            onFocus={e => (e.target.style.borderColor = "rgba(111,179,196,0.3)")}
-            onBlur={e  => (e.target.style.borderColor = "rgba(255,255,255,0.09)")}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || streaming || callsLeft <= 0}
-            style={{
-              background: "rgba(111,179,196,0.12)", color: "#6fb3c4",
-              border: "1px solid rgba(111,179,196,0.28)", borderRadius: "9px",
-              padding: "9px 16px", fontSize: "13px", fontWeight: "600",
-              cursor: (!input.trim() || streaming || callsLeft <= 0) ? "default" : "pointer",
-              fontFamily: "inherit", opacity: (!input.trim() || streaming || callsLeft <= 0) ? 0.4 : 1,
-              flexShrink: 0,
-            }}
-          >
-            {streaming ? "…" : "Ask →"}
-          </button>
-        </div>
-        <p style={{ fontSize: "11px", color: "var(--text-dim)", marginTop: "6px" }}>
-          {callsLeft <= 0 ? "Rate limit reached — resets in a few minutes" : `${callsLeft} question${callsLeft === 1 ? "" : "s"} remaining this window`}
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -2439,7 +2357,7 @@ function InviteModal({ room, userId, userData, onlineIds = [], onClose }) {
                     disabled={!!status}
                     style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px", opacity: status ? 0.5 : 1, cursor: status ? "default" : "pointer" }}
                   >
-                    {status === "sent" ? "Invited ✓" : status === "limited" ? "Limit reached" : status === "sending" ? "…" : "Invite"}
+                    {status === "sent" ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>Invited<Check size={13} /></span> : status === "limited" ? "Limit reached" : status === "sending" ? "…" : "Invite"}
                   </button>
                 </div>
               );
@@ -2454,17 +2372,21 @@ function InviteModal({ room, userId, userData, onlineIds = [], onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ChatPanel — persisted room chat, WhatsApp-style
 // ─────────────────────────────────────────────────────────────────────────────
-function ChatPanel({ messages, myUserId, input, sending, onInputChange, onSend, onClose }: {
+function ChatPanel({ messages, myUserId, input, sending, imageUploading, onInputChange, onSend, onImageUpload, onClose }: {
   messages: ChatMessage[]; myUserId: string;
-  input: string; sending: boolean;
-  onInputChange: (v: string) => void; onSend: () => void; onClose: () => void;
+  input: string; sending: boolean; imageUploading?: boolean;
+  onInputChange: (v: string) => void; onSend: () => void;
+  onImageUpload?: (file: File) => void; onClose: () => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
-  const S = styles;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  function isImageMsg(body: string) { return body.startsWith("[img]"); }
+  function getImageUrl(body: string) { return body.slice(5); }
 
   return (
     <div style={{
@@ -2481,7 +2403,7 @@ function ChatPanel({ messages, myUserId, input, sending, onInputChange, onSend, 
         borderBottom: "1px solid rgba(127,174,110,0.12)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "15px" }}>💬</span>
+          <span style={{ display: "flex", color: "#7fae6e" }}><MessageCircle size={15} /></span>
           <span style={{ fontSize: "13px", fontWeight: "600", color: "#7fae6e" }}>Room Chat</span>
           <span style={{ fontSize: "11px", color: "var(--text-dim)", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
             persists across refresh
@@ -2502,6 +2424,7 @@ function ChatPanel({ messages, myUserId, input, sending, onInputChange, onSend, 
         ) : (
           messages.map(msg => {
             const isMe = msg.user_id === myUserId;
+            const isImg = isImageMsg(msg.body);
             return (
               <div key={msg.id} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start" }}>
                 {!isMe && (
@@ -2510,13 +2433,25 @@ function ChatPanel({ messages, myUserId, input, sending, onInputChange, onSend, 
                   </span>
                 )}
                 <div style={{
-                  maxWidth: "78%", padding: "8px 12px", wordBreak: "break-word",
+                  maxWidth: "78%",
+                  padding: isImg ? "4px" : "8px 12px",
+                  wordBreak: "break-word",
                   borderRadius: isMe ? "12px 12px 3px 12px" : "12px 12px 12px 3px",
                   background: isMe ? "rgba(196,154,60,0.14)" : "rgba(255,255,255,0.06)",
                   border: `1px solid ${isMe ? "rgba(196,154,60,0.22)" : "rgba(255,255,255,0.09)"}`,
                   fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.5,
+                  overflow: "hidden",
                 }}>
-                  {msg.body}
+                  {isImg ? (
+                    <a href={getImageUrl(msg.body)} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={getImageUrl(msg.body)}
+                        alt="shared image"
+                        style={{ display: "block", maxWidth: "100%", maxHeight: "240px", borderRadius: "8px", cursor: "zoom-in" }}
+                        onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                      />
+                    </a>
+                  ) : msg.body}
                 </div>
                 <span style={{ fontSize: "10px", color: "var(--text-dim)", marginTop: "2px", paddingRight: isMe ? "2px" : 0, paddingLeft: isMe ? 0 : "4px" }}>
                   {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -2530,6 +2465,32 @@ function ChatPanel({ messages, myUserId, input, sending, onInputChange, onSend, 
 
       {/* Input */}
       <div style={{ borderTop: "1px solid rgba(127,174,110,0.12)", padding: "10px 12px", display: "flex", gap: "8px", alignItems: "center" }}>
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (file) onImageUpload?.(file);
+            e.target.value = "";
+          }}
+        />
+        {/* Image upload button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={imageUploading}
+          title="Send image"
+          style={{
+            background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",
+            borderRadius: "9px", padding: "9px 11px", fontSize: "15px", lineHeight: 1,
+            cursor: imageUploading ? "default" : "pointer", flexShrink: 0,
+            opacity: imageUploading ? 0.5 : 0.8, transition: "opacity 0.15s",
+          }}
+        >
+          {imageUploading ? <Hourglass size={15} /> : <ImageIcon size={15} />}
+        </button>
         <input
           value={input}
           onChange={e => onInputChange(e.target.value)}
@@ -2567,7 +2528,7 @@ function ChatPanel({ messages, myUserId, input, sending, onInputChange, onSend, 
 // ─────────────────────────────────────────────────────────────────────────────
 // MemberCard
 // ─────────────────────────────────────────────────────────────────────────────
-function MemberCard({ member, isMe }) {
+function MemberCard({ member, isMe, isSpeaking = false, handRaised = false }) {
   const elapsed = Math.max(0, Math.floor((Date.now() - member.joinedAt) / 1000));
   const h = Math.floor(elapsed / 3600);
   const m = Math.floor((elapsed % 3600) / 60);
@@ -2594,9 +2555,12 @@ function MemberCard({ member, isMe }) {
     }}>
       <div style={{
         width:40, height:40, borderRadius:"50%", flexShrink:0,
-        background:col.bg, color:col.fg, fontWeight:"700", fontSize:"15px",
+        background:col.bg, color: isSpeaking ? "#4ade80" : col.fg, fontWeight:"700", fontSize:"15px",
         display:"flex", alignItems:"center", justifyContent:"center",
-        border:`1.5px solid ${col.fg}30`, position:"relative",
+        border: isSpeaking ? "1.5px solid rgba(74,222,128,0.8)" : `1.5px solid ${col.fg}30`,
+        boxShadow: isSpeaking ? "0 0 0 3px rgba(74,222,128,0.2)" : "none",
+        position:"relative",
+        transition: "border-color 0.2s, box-shadow 0.2s",
       }}>
         {member.initial}
         <div style={{ position:"absolute", bottom:0, right:0, width:10, height:10, borderRadius:"50%", background:"#7fae6e", border:"2px solid var(--color-surface)" }}/>
@@ -2605,6 +2569,20 @@ function MemberCard({ member, isMe }) {
         <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
           <span style={{ fontWeight:"600", fontSize:"14px", color:"var(--text-primary)" }}>{member.name}</span>
           {isMe && <span style={{ fontSize:"10px", color:"var(--text-dim)", background:"rgba(255,255,255,0.06)", borderRadius:"8px", padding:"2px 7px" }}>you</span>}
+          {isSpeaking && (
+            <span style={{ display:"inline-flex", alignItems:"flex-end", gap:"2px", height:"14px", marginLeft:"2px" }}>
+              <style>{`@keyframes mc-bar{from{transform:scaleY(0.25)}to{transform:scaleY(1)}}`}</style>
+              {[0, 0.18, 0.09].map((delay, i) => (
+                <span key={i} style={{
+                  display:"block", width:"3px", height:"12px", background:"#4ade80", borderRadius:"2px",
+                  transformOrigin:"bottom", animation:`mc-bar 0.55s ease-in-out ${delay}s infinite alternate`,
+                }} />
+              ))}
+            </span>
+          )}
+          {handRaised && (
+            <span title="Hand raised" style={{ display:"inline-flex", marginLeft:"2px" }}><Hand size={14} /></span>
+          )}
         </div>
         <p style={{
           fontSize:"12px", marginTop:"3px",
@@ -2618,7 +2596,11 @@ function MemberCard({ member, isMe }) {
       <div style={{ textAlign:"right", flexShrink:0 }}>
         <p style={{ fontSize:"14px", fontWeight:"700", color: elapsed >= 3600 ? "#f59e0b" : elapsed >= 1800 ? "#c49a3c" : "var(--color-accent)", fontVariantNumeric:"tabular-nums" }}>{time}</p>
         <p style={{ fontSize:"10px", color:"var(--text-dim)", marginTop:"2px" }}>
-          {elapsed >= 3600 ? "🔥 focused" : elapsed >= 1800 ? "⚡ focused" : "focused"}
+          {elapsed >= 3600
+            ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}><Flame size={11} />focused</span>
+            : elapsed >= 1800
+            ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}><Zap size={11} />focused</span>
+            : "focused"}
         </p>
       </div>
     </div>

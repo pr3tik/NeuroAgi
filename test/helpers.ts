@@ -12,12 +12,19 @@ import { resolve } from "path";
 export function makeSupabaseMock(router: (ctx: any) => any = () => ({ data: null, error: null })) {
   const calls: any[] = [];
   const TERMINALS = ["insert", "upsert", "update", "delete", "select"];
-  const FILTERS = ["eq", "neq", "is", "in", "limit", "order", "match", "range", "gte", "lte", "maybeSingle", "single", "filter"];
+  const FILTERS = ["eq", "neq", "is", "in", "gt", "lt", "gte", "lte", "not", "limit", "order", "match", "range", "maybeSingle", "single", "filter"];
 
   function builder(ctx: any) {
     const b: any = {};
+    const WRITES = ["insert", "upsert", "update", "delete"];
     for (const op of TERMINALS) {
-      b[op] = vi.fn((arg: any) => { ctx.op = op; ctx.payload = arg; calls.push({ ...ctx }); return b; });
+      b[op] = vi.fn((arg: any) => {
+        // `.insert(...).select()` / `.update(...).select()` — a trailing select must not
+        // downgrade the write op the router keys on.
+        if (!(op === "select" && WRITES.includes(ctx.op))) { ctx.op = op; ctx.payload = arg; }
+        calls.push({ ...ctx });
+        return b;
+      });
     }
     for (const f of FILTERS) {
       b[f] = vi.fn((...args: any[]) => { ctx.filters.push([f, ...args]); return b; });

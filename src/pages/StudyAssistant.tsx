@@ -1,0 +1,859 @@
+// StudyAssistant.tsx — Spotlight-style full-screen study assistant.
+// Empty state: large centered input + suggestion chips.
+// Conversation state: messages scroll above a pinned input.
+// Powered by RAG (indexed imported materials) + Claude. History persists to
+// chat_logs (page="study-assistant") — the same table NeuralRing's tutor chat
+// uses, just a different `page` value — so returning students keep context.
+//
+// This is the student's main private tutor (internally the team calls it
+// "study rooms" — renamed on this page to avoid confusion with the separate
+// collaborative Rooms feature, which has no AI at all). It carries:
+//   - living mind (tutor_mind) + recent impressions — cross-session profile
+//   - teaching-strategy hints (via tutor-context's pattern-recognition layer)
+//   - a privacy-scoped system prompt (own materials + own data only)
+//   - whiteboard vision: if the student is currently in a Study Room with the
+//     Board panel open, AppContext carries a live snapshot (see StudyRooms.tsx)
+//     that this page can read and send as an image on explicit request
+//   - room chat visibility: reads the shared chat of whatever room they're in
+//     (already persisted via list_room_messages) — never the reverse
+
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useApp } from "../context/AppContext";
+import { supabase } from "../api/supabase";
+import { loadRecentMessages } from "../api/chat";
+import { sanitizeApiMessages } from "../lib/chatMessages";
+import { renderMessageHTML } from "../lib/markdown";
+
+const ACCENT = "rgba(0,210,190,0.9)";
+const ACCENT_DIM = "rgba(0,210,190,0.18)";
+const ACCENT_BORDER = "rgba(0,210,190,0.3)";
+const PAGE = "study-assistant";
+// Bound how much persisted history we replay into Claude's context per turn —
+// full history still renders on screen, this only caps what's sent upstream.
+const MAX_CONTEXT_TURNS = 20;
+
+const SUGGESTIONS = [
+  "Summarize what I've imported recently",
+  "What topics appear most in my library?",
+  "Explain the key concepts from my materials",
+  "Quiz me on something from my library",
+];
+
+// Explicit-trigger only — the assistant doesn't always watch the whiteboard,
+// only captures/sends it when the student asks about it directly.
+const WHITEBOARD_INTENT_RE = /\b(whiteboard|white\s*board|the\s+board|diagram|sketch|drawing)\b/i;
+// Explicit-trigger for reading back the room's shared chat.
+const ROOM_CHAT_INTENT_RE = /\b(room\s*chat|the\s+chat|what.*(said|say)|shared\s+discussion|everyone.*said)\b/i;
+
+// ── Slash commands — Claude-style "/" popup menu ────────────────────────────
+type SlashCommandId = "clear-memory" | "clear-chat" | "clear-all";
+interface SlashCommand {
+  id: SlashCommandId;
+  label: string;
+  aliases: string[];
+  description: string;
+  confirmText: string;
+}
+const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    id: "clear-memory",
+    label: "/clear-memory",
+    aliases: ["/clear-memory", "/forget-me"],
+    description: "Erase what I've learned about you across sessions — keeps this chat visible",
+    confirmText: "Clear your memory? This erases the living-mind profile and recent impressions built up across sessions. This can't be undone.",
+  },
+  {
+    id: "clear-chat",
+    label: "/clear-chat",
+    aliases: ["/clear-chat", "/new-chat"],
+    description: "Clear this conversation — keeps what I've learned about you",
+    confirmText: "Clear this chat? The visible conversation and its history will be deleted. This can't be undone.",
+  },
+  {
+    id: "clear-all",
+    label: "/clear-all",
+    aliases: ["/clear-all", "/reset"],
+    description: "Clear both this chat and everything I've learned about you",
+    confirmText: "Clear everything? This deletes the chat and your memory profile. This can't be undone.",
+  },
+];
+
+function matchSlashCommand(raw: string): SlashCommand | null {
+  const q = raw.trim().toLowerCase();
+  return SLASH_COMMANDS.find(c => c.aliases.includes(q)) ?? null;
+}
+
+interface Message {
+  role: "user" | "assistant";
+  content: string;
+  sources?: { title: string; heading?: string }[];
+  system?: boolean; // local-only notice (e.g. "Chat cleared.") — never persisted or sent to Claude
+}
+
+async function loadHistory(userId: string): Promise<Message[]> {
+  try {
+    const { data } = await supabase
+      .from("chat_logs")
+      .select("role, content, created_at")
+      .eq("user_id", userId)
+      .eq("page", PAGE)
+      .order("created_at", { ascending: true })
+      .limit(200);
+    return (data ?? []).map(r => ({ role: r.role as Message["role"], content: r.content }));
+  } catch {
+    return [];
+  }
+}
+
+/** Fire-and-forget log — never blocks the chat UI on a slow/failed write. */
+function logMessage(userId: string, role: string, content: string) {
+  supabase.from("chat_logs").insert({ user_id: userId, role, content, page: PAGE }).then(() => {}, () => {});
+}
+
+/** Delete this page's persisted chat history. Does not touch tutor_mind/tutor_impressions. */
+async function clearChatHistory(userId: string) {
+  await supabase.from("chat_logs").delete().eq("user_id", userId).eq("page", PAGE);
+}
+
+/** Delete the living-mind doc + recent impressions. Does not touch chat_logs. */
+async function clearMemory(userId: string) {
+  await Promise.all([
+    supabase.from("tutor_mind").delete().eq("user_id", userId),
+    supabase.from("tutor_impressions").delete().eq("user_id", userId),
+  ]);
+}
+
+async function ragQuery(userId: string, query: string) {
+  try {
+    const res = await fetch("/api/rag?action=query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, query, rerank: false }),
+    });
+    if (!res.ok) return [];
+    const d = await res.json();
+    return d?.passages ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Living mind + recent impressions — the cross-session behavioral model. */
+async function loadStudentModel(userId: string) {
+  try {
+    const [{ data: mindData }, { data: impData }] = await Promise.all([
+      supabase.from("tutor_mind").select("mind_doc").eq("user_id", userId).maybeSingle(),
+      supabase.from("tutor_impressions").select("impression, created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
+    ]);
+    return { livingMind: mindData?.mind_doc ?? null, impressions: impData ?? [] };
+  } catch {
+    return { livingMind: null, impressions: [] };
+  }
+}
+
+/** Teaching-strategy hint + brain/library context — same endpoint NeuralRing uses. */
+async function fetchTutorContext(userId: string, userMessage: string, brainPersonId: string | null) {
+  try {
+    const res = await fetch("/api/tutor-context", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, userMessage, brainPersonId }),
+    });
+    if (!res.ok) return { context: null, strategyHintId: null, strategyHintKind: null };
+    return await res.json();
+  } catch {
+    return { context: null, strategyHintId: null, strategyHintKind: null };
+  }
+}
+
+async function claudeReply(messages: any[], system: string): Promise<string> {
+  const res = await fetch("/api/claude", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, system, model: "claude-haiku-4-5-20251001", max_tokens: 1024 }),
+  });
+  if (!res.ok) throw new Error("Claude error");
+  const d = await res.json();
+  return d.content ?? "";
+}
+
+function UserBubble({ text }: { text: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
+      <div style={{
+        maxWidth: "72%",
+        background: "rgba(255,255,255,0.07)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "18px 18px 4px 18px",
+        padding: "12px 16px",
+        fontSize: "14px",
+        lineHeight: "1.55",
+        color: "var(--text-primary)",
+      }}>
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function AssistantBubble({ text, sources }: { text: string; sources?: { title: string; heading?: string }[] }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", marginBottom: "20px" }}>
+      {/* Orb indicator */}
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+        <div style={{
+          width: 22, height: 22, borderRadius: "50%",
+          background: "radial-gradient(circle at 35% 35%, rgba(0,210,190,0.8), rgba(0,100,100,0.6))",
+          boxShadow: "0 0 8px rgba(0,210,190,0.3)",
+          flexShrink: 0,
+        }} />
+        <span style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "0.5px", fontWeight: 600 }}>
+          STUDY ASSISTANT
+        </span>
+      </div>
+
+      <div
+        className="sa-md"
+        style={{
+          maxWidth: "88%",
+          fontSize: "14px",
+          lineHeight: "1.65",
+          color: "var(--text-primary)",
+        }}
+        dangerouslySetInnerHTML={{ __html: renderMessageHTML(text) }}
+      />
+
+      {sources && sources.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+          {sources.map((s, i) => (
+            <span key={i} style={{
+              fontSize: "11px",
+              padding: "3px 10px",
+              borderRadius: "20px",
+              background: ACCENT_DIM,
+              border: `1px solid ${ACCENT_BORDER}`,
+              color: ACCENT,
+              fontWeight: 500,
+            }}>
+              {s.title}{s.heading ? ` — ${s.heading}` : ""}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommandMenu({ commands, highlightedIndex, onSelect }: {
+  commands: SlashCommand[];
+  highlightedIndex: number;
+  onSelect: (cmd: SlashCommand) => void;
+}) {
+  if (commands.length === 0) return null;
+  return (
+    <div style={{
+      position: "absolute", bottom: "calc(100% + 8px)", left: 0, right: 0,
+      background: "rgba(24,26,28,0.98)", border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: "12px", overflow: "hidden", boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
+      zIndex: 20,
+    }}>
+      {commands.map((cmd, i) => (
+        <div
+          key={cmd.id}
+          onMouseDown={e => { e.preventDefault(); onSelect(cmd); }}
+          style={{
+            padding: "10px 14px",
+            background: i === highlightedIndex ? "rgba(0,210,190,0.1)" : "transparent",
+            cursor: "pointer",
+            borderBottom: i < commands.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+          }}
+        >
+          <div style={{ fontSize: "13px", fontWeight: 600, color: i === highlightedIndex ? ACCENT : "var(--text-primary)" }}>
+            {cmd.label}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--text-dim)", marginTop: "2px" }}>
+            {cmd.description}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConfirmDialog({ command, clearing, onConfirm, onCancel }: {
+  command: SlashCommand;
+  clearing: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      background: "rgba(0,0,0,0.5)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "20px",
+    }}>
+      <div style={{
+        background: "rgba(24,26,28,0.98)", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "16px", padding: "22px", maxWidth: "380px", width: "100%",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+      }}>
+        <h3 style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "10px" }}>
+          {command.label}
+        </h3>
+        <p style={{ fontSize: "13px", color: "var(--text-dim)", lineHeight: 1.5, marginBottom: "20px" }}>
+          {command.confirmText}
+        </p>
+        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+          <button
+            onClick={onCancel}
+            disabled={clearing}
+            style={{
+              background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "9px", padding: "8px 16px", fontSize: "13px", color: "var(--text-primary)",
+              cursor: clearing ? "default" : "pointer", fontFamily: "inherit", opacity: clearing ? 0.5 : 1,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={clearing}
+            style={{
+              background: "rgba(255,80,80,0.15)", border: "1px solid rgba(255,80,80,0.3)",
+              borderRadius: "9px", padding: "8px 16px", fontSize: "13px", fontWeight: 600,
+              color: "rgba(255,120,100,0.95)", cursor: clearing ? "default" : "pointer",
+              fontFamily: "inherit", opacity: clearing ? 0.6 : 1,
+            }}
+          >
+            {clearing ? "Clearing…" : "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SystemNotice({ text }: { text: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
+      <span style={{
+        fontSize: "12px", color: "var(--text-dim)",
+        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: "20px", padding: "5px 14px",
+      }}>
+        {text}
+      </span>
+    </div>
+  );
+}
+
+function ThinkingBubble() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}>
+      <div style={{
+        width: 22, height: 22, borderRadius: "50%",
+        background: "radial-gradient(circle at 35% 35%, rgba(0,210,190,0.8), rgba(0,100,100,0.6))",
+        boxShadow: "0 0 8px rgba(0,210,190,0.3)",
+        flexShrink: 0,
+      }} />
+      <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{
+            width: 5, height: 5, borderRadius: "50%",
+            background: ACCENT,
+            opacity: 0.6,
+            animation: `saPulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+          }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function StudyAssistant() {
+  const { userId, userData, activeRoomId, whiteboardSnapshot } = useApp();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [input, setInput] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isEmpty = messages.length === 0;
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
+
+  // Slash-command popup ("/" menu) + pending destructive-action confirmation.
+  const [showCommandMenu, setShowCommandMenu] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [pendingCommand, setPendingCommand] = useState<SlashCommand | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const filteredCommands = input.startsWith("/")
+    ? SLASH_COMMANDS.filter(c => c.label.startsWith(input.trim().toLowerCase()))
+    : [];
+
+  // Living-mind + recent impressions — loaded once per session, same pattern
+  // NeuralRing already uses, so this assistant benefits from what's been
+  // learned about the student across every prior session (any page).
+  const [livingMind, setLivingMind] = useState<string | null>(null);
+  const [impressions, setImpressions] = useState<{ impression: string; created_at: string }[]>([]);
+  // Most recent teaching-strategy hint shown this session, if any — reported
+  // back via session-close so the pattern-recognition loop can tell whether
+  // it actually helped.
+  const usedStrategyRef = useRef<{ id: string | null; kind: string | null }>({ id: null, kind: null });
+
+  useEffect(() => {
+    if (!userId) return;
+    loadStudentModel(userId).then(({ livingMind, impressions }) => {
+      setLivingMind(livingMind);
+      setImpressions(impressions);
+    });
+  }, [userId]);
+
+  // Feed this session into the living-mind rewrite on unmount, same as NeuralRing.
+  useEffect(() => {
+    return () => {
+      const finalMessages = messagesRef.current;
+      if (userId && finalMessages.length >= 2) {
+        fetch("/api/session-close", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId, sessionMessages: finalMessages,
+            usedStrategyId:   usedStrategyRef.current.id,
+            usedStrategyKind: usedStrategyRef.current.kind,
+          }),
+        }).catch(() => {});
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hydrate persisted history once we know who the user is.
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) { setHistoryLoaded(true); return; }
+    loadHistory(userId).then(hist => {
+      if (!cancelled) { setMessages(hist); setHistoryLoaded(true); }
+    });
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, thinking]);
+
+  // Auto-focus the input once history has resolved (Spotlight-style).
+  useEffect(() => { if (historyLoaded) inputRef.current?.focus(); }, [historyLoaded]);
+
+  const send = useCallback(async (text: string) => {
+    const q = text.trim();
+    if (!q || thinking) return;
+    // Slash command typed and submitted directly (e.g. no popup navigation) —
+    // intercept before it's treated as a chat message.
+    const directCommand = matchSlashCommand(q);
+    if (directCommand) {
+      setInput("");
+      setShowCommandMenu(false);
+      setPendingCommand(directCommand);
+      return;
+    }
+    setInput("");
+    const userMsg: Message = { role: "user", content: q };
+    const priorMessages = messagesRef.current.filter(m => !m.system);
+    setMessages(prev => [...prev, userMsg]);
+    if (userId) logMessage(userId, "user", q);
+    setThinking(true);
+
+    try {
+      const wantsWhiteboard = WHITEBOARD_INTENT_RE.test(q);
+      const wantsRoomChat = ROOM_CHAT_INTENT_RE.test(q);
+
+      const [passages, tutorCtx, roomChatRows] = await Promise.all([
+        ragQuery(userId, q),
+        fetchTutorContext(userId, q, userData?.brain_person_id ?? null),
+        (wantsRoomChat && activeRoomId) ? loadRecentMessages(userId, activeRoomId, 10).catch(() => []) : Promise.resolve([]),
+      ]);
+
+      if (tutorCtx.strategyHintId) {
+        usedStrategyRef.current = { id: tutorCtx.strategyHintId, kind: tutorCtx.strategyHintKind ?? null };
+      }
+
+      const hasSources = Array.isArray(passages) && passages.length > 0;
+      const ragContext = hasSources
+        ? passages.map((p: any, i: number) =>
+            `[${i + 1}] ${p.title}${p.heading ? " — " + p.heading : ""}${p.loc ? ` (${p.loc})` : ""}\n${p.text}`
+          ).join("\n\n")
+        : null;
+
+      const impressionContext = impressions.slice(0, 5).map(i => `• ${i.impression}`).join("\n");
+
+      const roomChatContext = (roomChatRows || [])
+        .slice(-10)
+        .map((m: any) => `  • ${m.name}: ${m.body}`)
+        .join("\n") || null;
+
+      // Whiteboard vision: only when explicitly asked, and only if the student
+      // is (or was recently) in a Study Room with a captured snapshot. The
+      // whiteboard is session-only/unpersisted by design, so this snapshot —
+      // bridged through AppContext from StudyRooms.tsx — is the only record.
+      let whiteboardImage: string | null = null;
+      let whiteboardNote: string | null = null;
+      if (wantsWhiteboard) {
+        if (whiteboardSnapshot?.dataUrl) {
+          whiteboardImage = whiteboardSnapshot.dataUrl.split(",")[1] ?? null;
+        }
+        if (!whiteboardImage) {
+          whiteboardNote = "NOTE: the student asked about a whiteboard, but no snapshot is available right now — tell them to open the Board panel in their Study Room and ask again.";
+        }
+      }
+
+      const system = [
+        "You are the Study Assistant — the student's private, main academic tutor. You know this student across sessions: their patterns, work habits, and any study materials they've uploaded.",
+        "Only help with the student's own enrolled courses, university curriculum, and their own imported materials, or general study skills — politely decline or redirect clearly off-topic, non-academic requests.",
+        "Be concise, clear, and academically rigorous. Avoid unnecessary filler. Answer in 2-4 sentences unless the student asks for more detail.",
+        hasSources
+          ? `\n\nSOURCE MATERIAL (retrieved from the student's own library):\n${ragContext}\n\nBase your answer primarily on this material. Cite source numbers like [1] when relevant.`
+          : "\n\nThe student has not yet imported materials relevant to this question. Answer helpfully from general knowledge but gently encourage them to import related documents.",
+        livingMind ? `\nWHAT YOU KNOW ABOUT THIS STUDENT (living mind, built across all their sessions):\n${livingMind}` : "",
+        impressionContext ? `\nRECENT IMPRESSIONS:\n${impressionContext}` : "",
+        tutorCtx.context ? `\n${tutorCtx.context}` : "",
+        roomChatContext ? `\nROOM CHAT (shared discussion in the student's current Study Room, already visible to everyone in that room):\n${roomChatContext}` : "",
+        whiteboardNote ? `\n${whiteboardNote}` : "",
+      ].filter(Boolean).join(" ");
+
+      // Sanitize before sending to Claude — drops empties and merges same-role
+      // turns so history can't be poisoned. Image turn is built separately and
+      // appended after sanitizing, since sanitizeApiMessages collapses non-string
+      // content to "".
+      const priorApiMessages = sanitizeApiMessages([...priorMessages, userMsg]).slice(-MAX_CONTEXT_TURNS);
+      const apiMessages = whiteboardImage
+        ? [
+            ...priorApiMessages.slice(0, -1),
+            { role: "user", content: [
+                { type: "image", source: { type: "base64", media_type: "image/png", data: whiteboardImage } },
+                { type: "text", text: q },
+              ] },
+          ]
+        : priorApiMessages;
+
+      const reply = await claudeReply(apiMessages, system);
+
+      // Dedupe source chips by document (multiple passages often share a title).
+      const seen = new Set<string>();
+      const sources: { title: string; heading?: string }[] = hasSources
+        ? passages
+            .map((p: any) => ({ title: p.title, heading: p.heading }))
+            .filter((s: { title: string; heading?: string }) => {
+              const k = `${s.title}|${s.heading ?? ""}`;
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            })
+            .slice(0, 4)
+        : [];
+
+      setMessages(prev => [...prev, { role: "assistant", content: reply, sources }]);
+      if (userId) logMessage(userId, "assistant", reply);
+    } catch {
+      const fallback = "Sorry, something went wrong. Please try again.";
+      setMessages(prev => [...prev, { role: "assistant", content: fallback }]);
+      if (userId) logMessage(userId, "assistant", fallback);
+    } finally {
+      setThinking(false);
+    }
+  }, [userId, userData, thinking, activeRoomId, whiteboardSnapshot, livingMind, impressions]);
+
+  /** Picks a command from the "/" popup — opens the confirm step, doesn't execute yet. */
+  const selectCommand = useCallback((cmd: SlashCommand) => {
+    setInput("");
+    setShowCommandMenu(false);
+    setPendingCommand(cmd);
+  }, []);
+
+  /** Runs a confirmed slash command, then closes the confirm dialog. */
+  const executeCommand = useCallback(async (cmd: SlashCommand) => {
+    if (!userId) { setPendingCommand(null); return; }
+    setClearing(true);
+    try {
+      if (cmd.id === "clear-chat" || cmd.id === "clear-all") {
+        await clearChatHistory(userId);
+      }
+      if (cmd.id === "clear-memory" || cmd.id === "clear-all") {
+        await clearMemory(userId);
+        setLivingMind(null);
+        setImpressions([]);
+      }
+      const notice = cmd.id === "clear-chat" ? "Chat cleared."
+        : cmd.id === "clear-memory" ? "Memory cleared."
+        : "Everything cleared.";
+      const noticeMsg: Message = { role: "assistant", content: notice, system: true };
+      setMessages(cmd.id === "clear-memory" ? prev => [...prev, noticeMsg] : [noticeMsg]);
+    } finally {
+      setClearing(false);
+      setPendingCommand(null);
+    }
+  }, [userId]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showCommandMenu && filteredCommands.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setHighlightedIndex(i => (i + 1) % filteredCommands.length); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setHighlightedIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length); return; }
+      if (e.key === "Escape")   { e.preventDefault(); setShowCommandMenu(false); return; }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        selectCommand(filteredCommands[highlightedIndex] ?? filteredCommands[0]);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send(input);
+    }
+  };
+
+  // Auto-resize textarea
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setInput(value);
+    setShowCommandMenu(value.startsWith("/"));
+    setHighlightedIndex(0);
+    e.target.style.height = "auto";
+    e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+  };
+
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      height: "calc(100dvh - 56px)", // subtract app header
+      position: "relative",
+    }}>
+      <style>{`
+        @keyframes saPulse {
+          0%, 100% { transform: translateY(0); opacity: 0.4; }
+          50%       { transform: translateY(-4px); opacity: 1; }
+        }
+        .sa-md p { margin: 0 0 10px; }
+        .sa-md p:last-child { margin-bottom: 0; }
+        .sa-md ul { margin: 6px 0; padding-left: 20px; }
+        .sa-md li { margin: 2px 0; }
+        .sa-md strong { font-weight: 650; color: var(--text-primary); }
+        .sa-input::placeholder { color: rgba(255,255,255,0.28); }
+        .sa-input:focus { outline: none; }
+        .sa-suggestion:hover {
+          background: rgba(0,210,190,0.1) !important;
+          border-color: rgba(0,210,190,0.28) !important;
+          color: rgba(0,210,190,0.9) !important;
+        }
+        .sa-send:hover:not(:disabled) { background: rgba(0,210,190,0.85) !important; }
+        .sa-send:disabled { opacity: 0.4; cursor: default; }
+      `}</style>
+
+      {/* ── Empty state: centered input ───────────────────────────────── */}
+      {isEmpty && historyLoaded && (
+        <div style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "24px 20px",
+          gap: "28px",
+        }}>
+          {/* Orb + title */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
+            <div style={{
+              width: 52, height: 52, borderRadius: "50%",
+              background: "radial-gradient(circle at 35% 35%, rgba(0,210,190,0.85), rgba(0,80,80,0.7))",
+              boxShadow: "0 0 32px rgba(0,210,190,0.25), 0 0 0 1px rgba(0,210,190,0.2)",
+            }} />
+            <div style={{ textAlign: "center" }}>
+              <h2 style={{
+                fontSize: "22px", fontWeight: 600,
+                color: "var(--text-primary)", letterSpacing: "-0.4px", marginBottom: "4px",
+              }}>
+                Study Assistant
+              </h2>
+              <p style={{ fontSize: "13px", color: "var(--text-dim)", lineHeight: 1.5 }}>
+                Ask anything from your imported materials
+              </p>
+            </div>
+          </div>
+
+          {/* Centered input box */}
+          <div style={{ position: "relative", width: "min(520px, 100%)" }}>
+            {showCommandMenu && (
+              <CommandMenu commands={filteredCommands} highlightedIndex={highlightedIndex} onSelect={selectCommand} />
+            )}
+            <InputBox
+              value={input}
+              onChange={handleInput}
+              onKeyDown={handleKeyDown}
+              onSend={() => send(input)}
+              thinking={thinking}
+              inputRef={inputRef}
+              centered
+            />
+          </div>
+
+          {/* Suggestion chips */}
+          <div style={{
+            display: "flex", flexWrap: "wrap", gap: "8px",
+            justifyContent: "center", maxWidth: "520px",
+          }}>
+            {SUGGESTIONS.map(s => (
+              <button
+                key={s}
+                className="sa-suggestion"
+                onClick={() => send(s)}
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "20px",
+                  padding: "8px 14px",
+                  fontSize: "12px",
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  transition: "all 0.15s",
+                }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Conversation view ─────────────────────────────────────────── */}
+      {!isEmpty && (
+        <>
+          <div style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "24px 20px 16px",
+            maxWidth: "680px",
+            width: "100%",
+            margin: "0 auto",
+            boxSizing: "border-box",
+          }}>
+            {messages.map((m, i) =>
+              m.system
+                ? <SystemNotice key={i} text={m.content} />
+                : m.role === "user"
+                  ? <UserBubble key={i} text={m.content} />
+                  : <AssistantBubble key={i} text={m.content} sources={m.sources} />
+            )}
+            {thinking && <ThinkingBubble />}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Pinned bottom input */}
+          <div style={{
+            padding: "12px 20px 20px",
+            background: "linear-gradient(to top, var(--color-bg) 70%, transparent)",
+            maxWidth: "680px",
+            width: "100%",
+            margin: "0 auto",
+            boxSizing: "border-box",
+            position: "relative",
+          }}>
+            {showCommandMenu && (
+              <CommandMenu commands={filteredCommands} highlightedIndex={highlightedIndex} onSelect={selectCommand} />
+            )}
+            <InputBox
+              value={input}
+              onChange={handleInput}
+              onKeyDown={handleKeyDown}
+              onSend={() => send(input)}
+              thinking={thinking}
+              inputRef={inputRef}
+              centered={false}
+            />
+          </div>
+        </>
+      )}
+
+      {pendingCommand && (
+        <ConfirmDialog
+          command={pendingCommand}
+          clearing={clearing}
+          onConfirm={() => executeCommand(pendingCommand)}
+          onCancel={() => setPendingCommand(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+interface InputBoxProps {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onSend: () => void;
+  thinking: boolean;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
+  centered: boolean;
+}
+
+function InputBox({ value, onChange, onKeyDown, onSend, thinking, inputRef, centered }: InputBoxProps) {
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "flex-end",
+      gap: "10px",
+      width: centered ? "min(520px, 100%)" : "100%",
+      background: "rgba(255,255,255,0.05)",
+      border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: "16px",
+      padding: "12px 14px",
+      boxSizing: "border-box",
+      boxShadow: centered ? "0 8px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,210,190,0.06)" : undefined,
+      transition: "border-color 0.15s",
+    }}
+      onFocus={() => {}} // border highlight handled via CSS if needed
+    >
+      <textarea
+        ref={inputRef}
+        className="sa-input"
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        placeholder="Ask anything from your library…"
+        rows={1}
+        style={{
+          flex: 1,
+          background: "none",
+          border: "none",
+          resize: "none",
+          fontFamily: "inherit",
+          fontSize: "14px",
+          lineHeight: "1.5",
+          color: "var(--text-primary)",
+          overflowY: "hidden",
+          minHeight: "21px",
+          maxHeight: "160px",
+        }}
+      />
+      <button
+        className="sa-send"
+        onClick={onSend}
+        disabled={!value.trim() || thinking}
+        style={{
+          width: 34, height: 34, flexShrink: 0,
+          borderRadius: "10px",
+          background: value.trim() && !thinking ? ACCENT : "rgba(0,210,190,0.15)",
+          border: "none",
+          cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "background 0.15s, opacity 0.15s",
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={value.trim() && !thinking ? "#000" : ACCENT} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 19V5M5 12l7-7 7 7" />
+        </svg>
+      </button>
+    </div>
+  );
+}

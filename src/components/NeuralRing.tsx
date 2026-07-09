@@ -19,6 +19,11 @@ import { useApp }      from "../context/AppContext";
 import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
+import { ensureTutorReply } from "../lib/tutorReply";
+import { parseVoiceTags, stripAgentJSON } from "../lib/voiceTags";
+import { createSentenceChunker } from "../lib/ttsChunker";
+import { streamReggie } from "../lib/reggieStream";
+import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play } from "lucide-react";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -42,28 +47,6 @@ async function claudeTutor(messages, system, signal?, tools?) {
   return data.content ?? "";
 }
 
-// The agent's one data-fetch tool. The model calls it only when an answer needs
-// the student's live records; the result is served by /api/tutor-context.
-const RECALL_TOOL = {
-  name: "recall",
-  description: "Look up the student's live academic data — course grades/scores, assignment due dates, missing or late work, synced course files, and flashcards. Call this whenever the answer depends on their actual courses, scores, deadlines, files, or submission status; never guess those. Pass the student's question (or a focused rephrase) as `query`.",
-  input_schema: {
-    type: "object",
-    properties: {
-      query: { type: "string", description: "What to look up, e.g. 'current grades in all courses', 'what's due this week', 'is the HW2 file available'" },
-    },
-    required: ["query"],
-  },
-};
-
-// ── Fire-and-forget impression writer — never awaited in critical path ──
-function writeImpression(userId, userMessage, tutorResponse) {
-  fetch("/api/tutor-impression", {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId, userMessage, tutorResponse }),
-  }).catch(() => {}); // silent — never block UI
-}
 
 const NAV_REGEX      = /<\s*n?\s*nav[^>]*>([\s\S]*?)<\/\s*n?\s*nav\s*>/i;
 const NAV_STRIP_REGEX = /<\s*n?\s*nav[\s\S]*$/i;
@@ -86,10 +69,38 @@ const NAV_OVERRIDE_KEYWORDS = [
   "ask me questions", "ask me about", "flashcard me", "drill me",
 ];
 
+// Friendly "what Reggie is doing" labels for the live tool-progress line (Reggie mode).
+const REGGIE_TOOL_LABELS = {
+  canvas_get_grades: "checking your grades", canvas_get_upcoming: "checking what's due",
+  compute_grade_weights: "computing grade weights", rag_search: "searching your materials",
+  generate_quiz: "building a quiz", evaluate_answers: "grading your answers",
+  generate_study_plan: "building a study plan", generate_framework: "mapping the concepts",
+  list_flashcards: "loading your flashcards", save_flashcards: "saving flashcards",
+  summarize_text: "summarizing", what_if_plan: "running the what-if", token_summary: "checking your points",
+};
+const reggieToolLabel = (n) => REGGIE_TOOL_LABELS[n] || (n || "").replace(/_/g, " ");
+
 function isVizRequest(text) {
   const lower = text.toLowerCase();
   if (NAV_OVERRIDE_KEYWORDS.some(kw => lower.includes(kw))) return false;
   return VIZ_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+// Reggie mode uses a STRICT viz gate: only unambiguous artifact asks (charts, diagrams,
+// games, timers…). The broad list's generic verbs ("create", "make me") and study words
+// ("flashcard", "quiz", "planner") would hijack requests Reggie's real tools should
+// handle — "create flashcards for BIO120" must reach save_flashcards, not a sample-data
+// React widget. Classic mode keeps the broad gate (its only builder IS the artifact path).
+const VIZ_KEYWORDS_STRICT = [
+  "chart", "graph", "visuali", "plot", "diagram", "dashboard", "histogram", "scatter", "heatmap",
+  "interactive", "animation", "animate", "simulat",
+  "timer", "calculator", "kanban", "game", "snake", "pomodoro",
+  "sorting", "pathfinding",
+];
+function isStrictVizRequest(text) {
+  const lower = text.toLowerCase();
+  if (NAV_OVERRIDE_KEYWORDS.some(kw => lower.includes(kw))) return false;
+  return VIZ_KEYWORDS_STRICT.some(kw => lower.includes(kw));
 }
 
 function parseArtifact(raw) {
@@ -158,7 +169,7 @@ function renderStreamingHTML(text) {
 }
 
 /** Render tutor message markdown as safe HTML (no dependency) */
-function renderMessageHTML(text) {
+export function renderMessageHTML(text) {
   let s = text
     .replace(/&/g,  "&amp;")
     .replace(/</g,  "&lt;")
@@ -238,289 +249,25 @@ function getUrgentAssignments(assignments) {
   });
 }
 
-function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, isFirstMessage = false, voicesForContext = [], courses = []) {
-  const courseList = courseOptions.length
-    ? courseOptions.join("\n- ")
-    : "No courses loaded yet";
+function buildChatSystem() {
+  return `You are "Site Guide," a friendly assistant that helps students navigate FSchoolAI and answer general questions about the product. You do NOT have access to any student's personal data, grades, courses, or assignments — you only help with navigation and general product questions.
 
-  const now = Date.now();
+PAGES (for navigation): work, canvas, assignment, study, courses, identity, leaderboard, toolkit
 
-  // Per-course grades the tutor can speak to directly
-  const courseGrades = (courses || [])
-    .filter(c => c.currentScore != null || c.finalScore != null)
-    .map(c => {
-      const pct = c.currentScore ?? c.finalScore;
-      return `- ${c.name || c.courseCode}: ${Math.round(pct)}%`;
-    })
-    .join("\n");
-
-  // Upcoming (future, unsubmitted)
-  const upcoming = (assignments || [])
-    .filter(a => a.dueAt && new Date(a.dueAt).getTime() > now && !a.submission?.submittedAt)
-    .sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt))
-    .slice(0, 8)
-    .map(a => `- ${a.name} (${a.courseName || a.courseCode || ""}) — due ${new Date(a.dueAt).toLocaleDateString()}`)
-    .join("\n");
-
-  // Recent graded / submitted work with scores
-  const recentWork = (assignments || [])
-    .filter(a => a.submission?.score != null || a.submission?.submittedAt)
-    .sort((a, b) => +new Date(b.dueAt || 0) - +new Date(a.dueAt || 0))
-    .slice(0, 12)
-    .map(a => {
-      const score = a.submission?.score;
-      const scoreStr = score != null
-        ? (a.pointsPossible ? ` — ${Math.round((score / a.pointsPossible) * 100)}%` : ` — ${score}`)
-        : " — submitted";
-      return `- ${a.name} (${a.courseName || a.courseCode || ""})${scoreStr}`;
-    })
-    .join("\n");
-
-  // Anything overdue and not submitted
-  const overdue = (assignments || [])
-    .filter(a => a.dueAt && new Date(a.dueAt).getTime() < now && !a.submission?.submittedAt)
-    .sort((a, b) => +new Date(b.dueAt) - +new Date(a.dueAt))
-    .slice(0, 8)
-    .map(a => `- ${a.name} (${a.courseName || a.courseCode || ""}) — was due ${new Date(a.dueAt).toLocaleDateString()}`)
-    .join("\n");
-
-  const userContext = userData ? [
-    userData.name       ? `Student name: ${userData.name}` : null,
-    userData.gpa        ? `GPA: ${userData.gpa}` : null,
-    userData.streak     ? `Study streak: ${userData.streak} days` : null,
-    userData.study_time ? `Total study time: ${userData.study_time} mins` : null,
-    userData.school     ? `School: ${userData.school}` : null,
-  ].filter(Boolean).join("\n") : "";
-
-  // Flashcard topics per course (just question subjects, not full cards)
-  const flashcardContext = Object.entries(flashcardMap || {})
-    .map(([, data]: [string, any]) => {
-      if (!data?.cards?.length) return null;
-      const topics = data.cards.slice(0, 4).map(c => c.question).join(" | ");
-      return `• ${topics}`;
-    })
-    .filter(Boolean)
-    .slice(0, 3)
-    .join("\n");
-
-  // Syllabus topics (first 5 items)
-  const syllabusContext = (syllabus || [])
-    .slice(0, 5)
-    .map(s => `• ${s.title ?? s.name ?? JSON.stringify(s)}`)
-    .join("\n");
-
-  // Impressions from previous sessions
-  const impressionContext = (impressions || [])
-    .slice(0, 5)
-    .map(i => `• ${i.impression}`)
-    .join("\n");
-
-  // Last session continuity
-  const lastSessionLine = lastSession
-    ? `Last session: ${lastSession}`
-    : "";
-
-  return `You are a sharp, direct academic AI tutor. You know this student — their patterns, work habits, courses, and any study materials they've uploaded. Answer in 1-3 sentences unless the student asks for more detail.
-
-USING THE STUDENT'S MATERIALS:
-- If a "SOURCE MATERIAL" section appears later in this prompt, those are passages from the student's OWN uploaded documents. Treat them as authoritative, answer directly from them, and cite inline as [1], [2], etc.
-- NEVER claim you have "nothing indexed" or that you can't see their materials when a SOURCE MATERIAL section is present.
-- Canvas is only ONE optional way to add materials — the student can also upload files directly, and many will. Do NOT push them to sync Canvas and never imply it's required. Only bring up Canvas if they explicitly ask about live grades/assignments you don't currently have.
-
-STUDENT DATA:
-${userContext || "No user data yet"}
-
-COURSE GRADES (you CAN share these when asked):
-${courseGrades || "No grades synced yet"}
-
-UPCOMING ASSIGNMENTS:
-${upcoming || "None"}
-
-OVERDUE / NOT SUBMITTED:
-${overdue || "None"}
-
-RECENT GRADED / SUBMITTED WORK (with scores — you CAN share these when asked):
-${recentWork || "None"}
-
-COURSES (internal reference — never list back verbatim):
-- ${courseList}
-
-${flashcardContext ? `WHAT THEY'VE BEEN STUDYING (flashcard topics):\n${flashcardContext}` : ""}
-
-${syllabusContext ? `SYLLABUS TOPICS:\n${syllabusContext}` : ""}
-
-${impressionContext ? `RECENT OBSERVATIONS (this and past sessions):\n${impressionContext}` : ""}
-
-${livingMind ? `LIVING MIND (your full student model — built across all sessions):\n${livingMind}` : ""}
-
-${lastSessionLine ? `CONTINUITY:\n${lastSessionLine}` : ""}
-
-PAGES: work, canvas, assignment, study, courses, identity, leaderboard, toolkit
-
-NAVIGATION: When the user wants to go somewhere or study a course, append this EXACTLY at the end of your reply — nothing after it:
-<nav>{"page":"pagename","course":"EXACT course string","mode":"flashcards or guide"}</nav>
-Omit "course"/"mode" when not relevant. Only use <nav> for clear navigation intent.
-
-QUIZ FORMAT: When the student asks to be quizzed, respond with EXACTLY this format — one short intro line BEFORE the block, nothing after:
-[QUIZ_START]
-Q: question text | A: answer text
-Q: question text | A: answer text
-[QUIZ_END]
-Generate exactly 5 Q/A pairs.
-CRITICAL — quiz content rules:
-- Questions MUST come from the student's actual courses, assignments, syllabus, and modules listed in your context above. NEVER generic trivia (no "capital of France", no general knowledge).
-- If the student names a course, quiz only on that course's material.
-- If no course is specified, quiz on the course with the nearest upcoming deadline.
-- If you have no course content AND no uploaded SOURCE MATERIAL in context at all, don't generate generic trivia — ask them to upload notes or a PDF (or optionally sync Canvas) first.
-
-VOICE CONTROL: When the student asks you to change how you sound or perform a voice action, include ONE hidden tag at the very end of your reply (stripped before display):
-  [VOICE:<exactName>]  when they ask for a different voice — pick the BEST match from available voices below by scoring accent, gender, age, descriptive labels. Confirm in speech which voice and why.
-  [SPEED:<0.7-1.3>]    when they ask to speak faster/slower (slower≈0.8, faster≈1.2)
-  [TONE:<calm|energetic|neutral|serious>]  when they ask for a mood/persona
-  [READ:assignments]   when they ask you to read their assignments or what's due
-  [QUIZ:<course>]      when they ask to be quizzed out loud (course optional)
-If no strong match exists, ask ONE short clarifying question instead of guessing.
-Still reply naturally in words too (e.g. 'Switching to Daniel — a British broadcaster.'). Only ONE tag per reply.
-${voicesForContext.length > 0
-  ? `Available voices (name [accent/gender/age/style]):\n${voicesForContext.slice(0,8).map(v => {
-      const lbls = Object.values(v.labels ?? {}).filter(Boolean).join("/");
-      return `- ${v.name}${lbls ? ` [${lbls}]` : ""}`;
-    }).join("\n")}`
-  : ""}
-
-STRESS SUPPORT: If the student says they're stressed, overwhelmed, or anxious: respond calmly and warmly FIRST (1-2 sentences of genuine acknowledgment, no toxic positivity), THEN offer ONE small concrete next step based on their actual workload — the single easiest or most urgent item, framed as "just this one thing for now". Never dump their full list when they're stressed. Keep it under 4 sentences. If they express serious distress beyond schoolwork, gently suggest they talk to someone they trust or their campus support services.
-
-PLAN REQUESTS: When the student asks what to do / to plan their day / what's next, respond with a SHORT ranked list in this exact format (max 3 items):
-1. **[item]** — [one short reason]
-2. **[item]** — [one short reason]
-3. **[item]** — [one short reason]
-Rank by: overdue first, then nearest deadline, then highest points_possible. End with: "Start with #1?"
-
-RESPONSE STYLE — CRITICAL:
-- Keep responses SHORT. 2–4 sentences for most answers. Max 6 sentences unless the student explicitly asks for detail.
-- One thing at a time. If multiple assignments are urgent, name the TOP ONE only, then ask if they want the rest.
-- Talk like a sharp friend who knows their stuff, not a computer generating a report.
-- Use **bold** sparingly — only for assignment names and key dates.
-- End with a question or next action when natural, not always.
-- Never dump lists of more than 3 items. Summarize and offer to expand.
-- You are the brain of this app. You can navigate, quiz, plan their day. Act like it.
-
-RULES:
-- Be human and conversational. Max 2 sentences for casual questions, more only when asked.
-- NEVER read out course codes (e.g. GGRC25H3, MDSB11H3) — use the course name only.
-- You DO have access to their courses, assignments, grades, and scores (listed above) — answer confidently and specifically when asked. Never say you can't see them.
-- Don't dump the full lists unprompted, but when asked about assignments/grades/a course, give the real specifics from the data above.
-- The summary above is NOT complete — it does NOT contain the student's course files/PDFs, full assignment instructions, or older/detailed records. For ANY question about files, what a specific assignment actually requires, or details not shown above, you MUST call the \`recall\` tool first. NEVER tell the student a file or record "isn't synced" or "doesn't exist" without calling \`recall\` to check — its absence here does not mean it doesn't exist.
-- Only mention GPA/streak/stats when relevant or asked.
-- If asked something personal (name, age, city) — answer from STUDENT DATA or say you don't have it. Do not pivot to courses.
-- Match the student's energy — casual when they're casual, focused when they need help.
-- Use the living mind doc to inform your tone — you know this student well.
-- ${isFirstMessage ? "FIRST MESSAGE RULE: Greet them warmly by name in one short sentence only. No assignments, no stats, no courses." : "Only mention assignments or deadlines if directly relevant to what they asked."}`; 
-}
-
-// ── Voice-mode system prompt — written for the ear, not for reading ──────────
-// Used ONLY when voiceModeRef.current is true. Text chat keeps buildChatSystem.
-function buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, voicesForContext = [], leaderboardRank = null) {
-  const now = Date.now();
-  const name = userData?.name?.split(" ")[0] || "there";
-
-  const upcomingStr = (assignments || [])
-    .filter(a => a.dueAt && new Date(a.dueAt).getTime() > now)
-    .sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt))
-    .slice(0, 3)
-    .map(a => `${a.name} due ${new Date(a.dueAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`)
-    .join("; ") || "nothing urgent due";
-
-  const courseList = courseOptions.length ? courseOptions.join(", ") : "no courses loaded yet";
-
-  const statLine = [
-    userData?.gpa        ? `GPA ${userData.gpa.toFixed(2)}`      : null,
-    userData?.streak     ? `${userData.streak}-day streak`        : null,
-    userData?.study_time ? `${userData.study_time} mins studied`  : null,
-  ].filter(Boolean).join(", ");
-
-  const rankLine = leaderboardRank
-    ? `Leaderboard: #${leaderboardRank.rank} with ${leaderboardRank.points} tokens (${leaderboardRank.tier}${leaderboardRank.above ? ` — ${leaderboardRank.above.gap} tokens behind #${leaderboardRank.rank - 1}` : " — top"}).`
-    : "";
-
-  const impressionLine = (impressions || []).slice(0, 2).map(i => i.impression).join(" ");
-  const livingMindLine = livingMind ? `Student model: ${livingMind.slice(0, 200)}` : "";
-
-  const voiceList = voicesForContext.slice(0, 8)
-    .map(v => {
-      const lbls = Object.values(v.labels ?? {}).filter(Boolean).join("/");
-      return `${v.name}${lbls ? ` (${lbls})` : ""}`;
-    }).join(", ");
-
-  const flashcardTopics = Object.entries(flashcardMap || {})
-    .flatMap(([, d]: [string, any]) => (d?.cards || []).slice(0, 2).map(c => c.question))
-    .slice(0, 4).join("; ");
-
-  return `You are in a VOICE conversation with ${name}. You are their academic AI, FschoolAI — direct, warm, knowledgeable.
-
-VOICE RULES — ABSOLUTE:
-- Speak like a real person talking. Short, natural spoken sentences only.
-- ZERO markdown ever: no asterisks, no bullet points, no numbered lists, no headings. They are read aloud literally and sound broken.
-- Never read long content verbatim. Summarize, then offer.
-- One idea at a time. Say the most important thing first.
-- Max 2-3 sentences per reply unless the student asks for more.
-- When quizzing: ask ONE question then stop and wait. Never list all questions.
-- Contractions are good. Sound human.
-
-STUDENT:
-${name}${statLine ? ` — ${statLine}` : ""}${userData?.school ? ` — ${userData.school}` : ""}
-Upcoming: ${upcomingStr}
-Courses: ${courseList}
-${rankLine}
-${impressionLine ? `Known: ${impressionLine}` : ""}
-${livingMindLine}
-${flashcardTopics ? `Recently studied: ${flashcardTopics}` : ""}
-${lastSession ? `Last session: ${lastSession}` : ""}
-
-TOKEN COACHING — you know this, use it to coach concretely:
-Daily login 2 pts · Canvas sync 5 pts · Flashcards 10 pts · Quiz 8 pts (+5 perfect) · Assignment 15 pts · Streak day 3 pts · Streak milestone 25 pts
-Tier thresholds: Scholar 20 pts → Mastermind 100 pts → Brain Owner 500 pts.
-If asked "how do I climb" → give a specific 2-step plan using the above numbers.
-
-APP KNOWLEDGE — you ARE FschoolAI, guide the student:
-FschoolAI is your academic OS. It syncs your Canvas grades, helps you study with AI flashcards and quizzes, tracks your assignments, and rewards you with tokens for every action. Ask me anything about your courses, grades, or schedule.
-Pages I can take you to: home/dashboard (work), assignments, study/flashcards (study), Canvas/courses (canvas), toolkit (toolkit), leaderboard/rankings (leaderboard), profile/settings (identity).
-
-NAVIGATION: To navigate, append at the very end of your reply:
+NAVIGATION: When the user wants to go somewhere, append this EXACTLY at the end of your reply:
 <nav>{"page":"pagename"}</nav>
-Valid pages: work · assignment · study · canvas · toolkit · leaderboard · identity
-Speak a brief confirmation first: "Taking you to assignments now." then the tag.
-Never navigate without confirming in speech.
 
-VOICE CONTROL (one hidden tag at end, stripped before display):
-[VOICE:name] — switch voice; choose from: ${voiceList || "available voices"}. Confirm: "Switching to Aria now."
-[SPEED:0.7-1.3] — change speed. Confirm: "Slowing down."
-[TONE:calm|energetic|neutral|serious] — mood shift. Confirm: "Shifting to calm."
-Only one tag per reply.
+ABOUT FSCHOOLAI:
+FSchoolAI is an AI-powered academic platform that syncs with Canvas, organizes courses and assignments, and gives each student a personal AI tutor. Key features: Canvas sync (read-only), AI study guide, flashcards, assignment tracker, GPA view, Study Rooms (collaborative sessions with private AI), and a leaderboard.
 
-QUIZ FORMAT (voice mode): When the student asks to be quizzed, output the full set so I can parse it and run it one question at a time:
-[QUIZ_START]
-Q: question | A: answer
-[QUIZ_END]
-One intro line before, nothing after. Quiz ONLY on the student's real course material from context. If none, say so plainly.
-
-ACTIONS I CAN PERFORM — include ONE action tag at the very end of your reply (stripped before display):
-[SYNC]                         — trigger a Canvas sync. Use when they ask to sync, refresh, or update courses/grades.
-[GENERATE_FLASHCARDS:course]   — generate flashcards for that course. Use the exact course name.
-[QUIZ:course]                  — start a spoken interactive quiz for that course.
-[NAVIGATE:page]                — navigate. Pages: work, assignment, study, canvas, toolkit, leaderboard, identity.
-When taking an action: speak a brief confirmation first, then append the tag.
-  "Syncing your Canvas now. [SYNC]"
-  "Generating flashcards for Calculus. [GENERATE_FLASHCARDS:Calculus]"
-Only include an action tag when the student explicitly asks for that action.
-
-STYLE:
-- Never mention GPA, streak, or tokens unless asked.
-- Never dump assignment lists unless asked.
-- Never say course codes (like GGRC25H3) — use the course name.
-- If they sound stressed: one warm sentence, then one small concrete next step.
-- Match their energy. Casual when they're casual, focused when they need help.`;
+RESPONSE STYLE:
+- Keep answers SHORT and friendly (2-3 sentences max).
+- Help students navigate the app or understand features.
+- If they ask about personal data (their GPA, assignments, grades): explain that's only visible once they're logged in and using the app — you don't have access here.
+- If the question is unrelated to FSchoolAI entirely, politely redirect.
+- Never claim to know student-specific information.`;
 }
+
 
 function parseNav(raw) {
   const tagMatch = raw.match(NAV_REGEX);
@@ -555,21 +302,8 @@ const VOICE_REPEAT_WORDS = /^(say that again|repeat|repeat that|again|what did y
 const VOICE_SPEED_FAST   = /\b(faster|speed up|too slow|quicker|hurry)\b/i;
 const VOICE_SPEED_SLOW   = /\b(slower|slow down|too fast|slow it down)\b/i;
 
-// ── Voice intent tag parser ──────────────────────────────────────────────────
-// Extracts [VOICE:x], [SPEED:x], [TONE:x], [READ:x], [QUIZ:x],
-//          [SYNC], [GENERATE_FLASHCARDS:course] from Claude reply
-function parseVoiceTags(raw) {
-  const tags: Record<string, any> = {};
-  let cleaned = raw;
-  const re = /\[(VOICE|SPEED|TONE|READ|QUIZ|SYNC|GENERATE_FLASHCARDS|NAVIGATE):?([^\]]*)\]/gi;
-  let m;
-  while ((m = re.exec(raw)) !== null) {
-    // Use `true` for argument-less tags (e.g. [SYNC]), string value for the rest
-    tags[m[1].toUpperCase()] = m[2].trim() || true;
-    cleaned = cleaned.replace(m[0], "");
-  }
-  return { tags, cleaned: cleaned.trim() };
-}
+// Voice intent tag parsing + stray-tool-JSON stripping live in src/lib/voiceTags.ts
+// (shared with Reggie mode + unit-tested there).
 
 // ── ElevenLabs TTS ─────────────────────────────────────────────────────────
 // AudioContext bypasses iOS Safari autoplay restrictions.
@@ -585,6 +319,14 @@ function getAudioContext() {
 // We strip them and replace with a natural phrase where possible.
 function sanitizeForTTS(text) {
   return text
+    // Strip markdown so TTS never reads symbols aloud ("asterisk", "one dot", etc.).
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")   // [link](url) → link text
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")        // # headings
+    .replace(/^\s*[-*•+]\s+/gm, "")            // - / * / • bullet markers
+    .replace(/^\s*\d+\.\s+/gm, "")             // 1. numbered-list markers
+    .replace(/\*\*([^*]+)\*\*/g, "$1")         // **bold**
+    .replace(/\*([^*]+)\*/g, "$1")             // *italic*
+    .replace(/`([^`]+)`/g, "$1")               // `code`
     // Remove raw Canvas course codes: e.g. GGRC25H3, VPAC16H3, MDSB11H3
     .replace(/\b[A-Z]{2,6}\d{2,4}[A-Z0-9]*\s*(F|W|S)?\s*(LEC|TUT|PRA|LAB)\d{2,3}\b/g, "that course")
     // Remove section labels like "LEC01", "TUT02"
@@ -630,6 +372,48 @@ async function fetchAndDecodeAudio(text, voiceId, speed = 1.0, voiceSettings) {
       source.start(0);
     }),
   };
+}
+
+// ── First-ever-session opening (PRD §5.1, S8): the one message that has to visibly
+// use every S6 intake answer, proving the intake wasn't wasted. Only called when the
+// student has zero prior conversations (checked at the call site) — every later
+// session uses buildSituationGreeting below, unchanged.
+//
+// Never invents specifics we don't actually have (same discipline as the S1 demo
+// honesty fix): only references a real assignment/course if synced data exists;
+// only maps in an intake-based phrasing, never a fabricated topic/week number.
+const WALKTHROUGH_STYLE = {
+  diagram: "a diagram-first walkthrough",
+  talk:    "me talking you through it",
+  read:    "a written breakdown you can read at your own pace",
+  problem: "a practice problem",
+  mix:     "a mix of approaches",
+};
+
+function buildFirstSessionGreeting(assignments, courses, userData) {
+  const name = userData?.name?.split(" ")[0] || "there";
+  const now  = new Date();
+
+  // Broader window than the returning-session greeting (14 days, not 48h) — S8 wants
+  // to reference whatever's genuinely most pressing, not just what's due imminently.
+  const upcoming = (assignments || [])
+    .filter(a => a.dueAt && !a.submission?.submittedAt && new Date(a.dueAt) > now)
+    .sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt));
+  const nextDue = upcoming[0] || null;
+  const daysUntil = nextDue ? Math.max(1, Math.round((+new Date(nextDue.dueAt) - +now) / 86400000)) : null;
+
+  const walkthrough = WALKTHROUGH_STYLE[userData?.learning_style] || "a walkthrough";
+
+  if (nextDue) {
+    const course = courses?.find(c => c.id === nextDue.courseId || c.dbId === nextDue.courseId);
+    const courseLabel = course?.courseCode || course?.name;
+    const subject = courseLabel ? `${courseLabel} — ${nextDue.name}` : nextDue.name;
+    return `${name}, your ${subject} is due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}. Want ${walkthrough}, or a 2-minute readiness check?`;
+  }
+
+  // No synced deadline yet (e.g. skipped Canvas connect) — still personalize with
+  // the intake answer instead of falling back to something generic.
+  return `Hey ${name} — want to start with ${walkthrough} on something you're working on, or a quick 2-minute check-in on where you're at?`;
 }
 
 // ── Situation-aware opening greeting ─────────────────────────────────────────
@@ -727,7 +511,7 @@ function buildSmartChips(assignments, courses, userData) {
 
   if ((userData?.streak || 0) >= 3) {
     chips.push({
-      label:   `${userData.streak}🔥 Keep streak`,
+      label:   `Keep your ${userData.streak}-day streak`,
       message: "What should I study today to keep my streak going?",
     });
   }
@@ -843,7 +627,7 @@ function InlineQuiz({ cards, userId, courseId }) {
               style={{ background: "rgba(196,154,60,0.12)", border: "1px solid rgba(196,154,60,0.28)", borderRadius: "8px", padding: "7px 14px", color: "#C49A3C", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
               {saving ? "Saving…" : "Save to flashcards"}
             </button>
-          : <p style={{ color: "#C49A3C", fontSize: "12px" }}>✓ Saved to flashcards</p>
+          : <p style={{ color: "#C49A3C", fontSize: "12px", display:"flex", alignItems:"center", gap:5 }}><Check size={13} />Saved to flashcards</p>
         }
       </div>
     );
@@ -907,6 +691,10 @@ function fibonacciSphere(n) {
 }
 
 const NODES = fibonacciSphere(N);
+
+// Per-turn TTS generation stamp for Reggie voice mode — see runReggieTurn. Module scope
+// is fine: one NeuralRing instance per app.
+let reggieTtsGen = 0;
 
 // Safe-area bottom offset — accounts for iOS home indicator + browser toolbar
 function safeBottom() {
@@ -998,6 +786,21 @@ const VoiceToggle = ({ muted, onClick, speaking }) => (
   </button>
 );
 
+// ── S9: notification-permission ask copy, tied to the declared study window ─
+// (PRD §5.1 v2.1 — shown once, after the first completed session, never during
+// onboarding). Falls back to a schedule-agnostic line if study_window wasn't
+// answered (skipped in the S6 intake).
+function buildNotificationAskCopy(studyWindow) {
+  const byWindow = {
+    weeknights: "Want me to remind you on weeknights, before things pile up?",
+    latenight:  "Want me to remind you before your late-night sessions?",
+    mornings:   "Want me to remind you in the morning, before your day gets busy?",
+    weekends:   "Want me to remind you on weekends, ahead of the week?",
+    deadline:   "Want me to remind you as deadlines get close?",
+  };
+  return byWindow[studyWindow] || "Want me to remind you before deadlines and study sessions?";
+}
+
 export default function NeuralRing() {
   const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, userId, flashcardMap, syllabus, forceSync, canvasToken } = useApp();
 
@@ -1013,6 +816,8 @@ export default function NeuralRing() {
   const [livingMind,       setLivingMind]       = useState(null);
   const [preloadedContext, setPreloadedContext] = useState<string | null>(null);
 
+  // ── S9: notification-permission ask (shown once, after first session close) ─
+  const [showNotifAsk, setShowNotifAsk] = useState(false);
 
   // ── Session tracking — for session-close payload + self-write trigger ───────
   const sessionStartedAt  = useRef(null);
@@ -1020,7 +825,7 @@ export default function NeuralRing() {
 
   // Refs — always hold latest prefs without stale closure in speakAndType
   const voiceIdRef     = useRef(userData?.preferred_voice_id ?? null);
-  const speedRef       = useRef(userData?.preferred_speed ?? 1.0);
+  const speedRef       = useRef(userData?.preferred_speed ?? 1.2);
   const toneRef        = useRef(userData?.preferred_tone  ?? "neutral");
 
   // Voice mode state
@@ -1087,6 +892,9 @@ export default function NeuralRing() {
   const [reactions,    setReactions]    = useState({});   // { msgIndex: "up"|"down" }
   const [reasonPicker, setReasonPicker] = useState(null); // msgIndex | null
   const messagesEndRef          = useRef(null);
+  const inputRef                = useRef(null);
+  const attachInputRef          = useRef(null);
+  const [attachStatus, setAttachStatus] = useState<string | null>(null);
 
   // Voice intelligence state
   const [activeVoiceId,      setActiveVoiceId]      = useState(null); // drives instant chip highlight
@@ -1096,6 +904,17 @@ export default function NeuralRing() {
   const [muted,        setMuted]        = useState(() => {
     try { return localStorage.getItem("fschool_muted") === "1"; } catch { return false; }
   });
+  // ── Reggie mode (beta): route the tutor through the agent-manager loop (router +
+  //    tools + brain) instead of the direct Claude/Groq path. Off by default; toggled
+  //    from the chat header; persisted. Fully reversible — off === original behavior.
+  const [reggieMode,   setReggieMode]   = useState(() => {
+    try { return localStorage.getItem("fschool_reggie_mode") === "1"; } catch { return false; }
+  });
+  const reggieModeRef = useRef(reggieMode);
+  useEffect(() => {
+    reggieModeRef.current = reggieMode;
+    try { localStorage.setItem("fschool_reggie_mode", reggieMode ? "1" : "0"); } catch {}
+  }, [reggieMode]);
   const [speaking,     setSpeaking]     = useState(false);
   const [streamingMsg, setStreamingMsg] = useState("");
   const typeTimerRef = useRef(null);
@@ -1136,7 +955,7 @@ export default function NeuralRing() {
 
   // Keep preference + mode refs current
   useEffect(() => { voiceIdRef.current   = userData?.preferred_voice_id ?? null;      }, [userData?.preferred_voice_id]);
-  useEffect(() => { speedRef.current     = userData?.preferred_speed    ?? 1.0;       }, [userData?.preferred_speed]);
+  useEffect(() => { speedRef.current     = userData?.preferred_speed    ?? 1.2;       }, [userData?.preferred_speed]);
   useEffect(() => { toneRef.current      = userData?.preferred_tone     ?? "neutral"; }, [userData?.preferred_tone]);
   useEffect(() => {
     // Secondary sync — fires after paint. Direct assignments below are the primary.
@@ -1246,6 +1065,32 @@ export default function NeuralRing() {
       } catch { /* non-fatal */ }
     }
     loadMemory();
+  }, [userId]);
+
+  // Backfill the RAG index for any previously-uploaded files that aren't indexed yet,
+  // so the tutor can find OLD materials without re-uploading. Runs in the background on
+  // load; idempotent + paginated server-side, so it's cheap when nothing's pending and
+  // converges when there is. Never deletes anything — only adds missing index rows.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        for (let guard = 0; guard < 300 && !cancelled; guard++) {
+          const r = await fetch("/api/rag?action=backfill", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId }),
+          });
+          if (!r.ok) break;
+          const d = await r.json().catch(() => ({}));
+          if (d.done || !d.progressed) break; // finished, or no progress this pass → stop
+          // Be gentle between batches so background indexing doesn't contend with a live
+          // chat query's embedding call (contention there slows/drops its grounding).
+          await new Promise(res => setTimeout(res, 1500));
+        }
+      } catch { /* non-fatal — files still index on their next upload */ }
+    })();
+    return () => { cancelled = true; };
   }, [userId]);
 
   const toggleMute = useCallback(() => {
@@ -1482,9 +1327,18 @@ export default function NeuralRing() {
     return () => cancelAnimationFrame(voiceRafRef.current);
   }, [voiceMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-grow the chat input to a 2nd line (capped) as the user types; shrink on clear.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }, [input]);
+
+  // Keep the latest message in view — including while a reply streams in token-by-token.
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: streamingMsg ? "auto" : "smooth" });
+  }, [messages, loading, streamingMsg]);
 
   const commitRingName = useCallback(async () => {
     setEditingName(false);
@@ -1603,8 +1457,34 @@ export default function NeuralRing() {
       // Reset for next session
       sessionStartedAt.current  = null;
       exchangeCountRef.current  = 0;
+
+      // S9 — one-time notification-permission ask, first completed session only.
+      // Guarded on: browser support, OS-level permission still undecided, and
+      // our own "already asked" flag so it never shows twice (even across tabs).
+      if (
+        typeof Notification !== "undefined" &&
+        Notification.permission === "default" &&
+        !localStorage.getItem("sa_notif_ask_shown")
+      ) {
+        localStorage.setItem("sa_notif_ask_shown", "1");
+        setShowNotifAsk(true);
+      }
     }
   }, [chatOpen, userId, messages]);
+
+  // ── S9 handlers — accept requests the real browser permission; decline just
+  // records that the ask was seen and dismissed. Either way it's a one-shot. ──
+  const acceptNotifAsk = useCallback(async () => {
+    setShowNotifAsk(false);
+    let result = "dismissed";
+    try { result = await Notification.requestPermission(); } catch { /* unsupported */ }
+    updateUserField({ notification_permission: result, notification_asked_at: new Date().toISOString() }).catch(() => {});
+  }, [updateUserField]);
+
+  const dismissNotifAsk = useCallback(() => {
+    setShowNotifAsk(false);
+    updateUserField({ notification_permission: "dismissed", notification_asked_at: new Date().toISOString() }).catch(() => {});
+  }, [updateUserField]);
 
   // Also fire session-close on page unload/refresh so memory saves even without
   // explicitly closing the chat sheet
@@ -1644,8 +1524,9 @@ export default function NeuralRing() {
     historyLoadedRef.current = true;
 
     (async () => {
+      let convos = [];
       if (userId) {
-        const convos = await loadConversations(userId);
+        convos = await loadConversations(userId);
         setConversations(convos);
         if (convos.length > 0) {
           const recent = convos[0];
@@ -1660,7 +1541,12 @@ export default function NeuralRing() {
       }
       // No history → situation-aware greeting (a fresh conversation is created
       // lazily on the first user message, so greeting-only chats aren't saved).
-      setMessages([{ role: "assistant", content: buildSituationGreeting(assignments, courses, userData) }]);
+      // Zero prior conversations = genuinely their first-ever session (S8): use the
+      // intake-personalized opening instead of the generic returning-session ones.
+      const greeting = (userId && convos.length === 0)
+        ? buildFirstSessionGreeting(assignments, courses, userData)
+        : buildSituationGreeting(assignments, courses, userData);
+      setMessages([{ role: "assistant", content: greeting }]);
     })();
   }, [chatOpen, assignments, courses, userData, userId]);
 
@@ -1677,7 +1563,7 @@ export default function NeuralRing() {
 
   /** Ensure a conversation row exists (creating on the first message) and bump
    *  its updated_at so it sorts to the top. Returns the conversation id. */
-  const ensureConversation = useCallback((firstMessage) => {
+  const ensureConversation = useCallback(async (firstMessage) => {
     const nowIso = new Date().toISOString();
     let id = currentConvIdRef.current;
     if (!id) {
@@ -1686,9 +1572,11 @@ export default function NeuralRing() {
       setCurrentConversationId(id);
       const title = ((firstMessage || "").trim().slice(0, 48)) || "New chat";
       setConversations(prev => [{ id, title, updated_at: nowIso }, ...prev]);
-      supabase.from("chat_conversations")
-        .insert({ id, user_id: userId, title, created_at: nowIso, updated_at: nowIso })
-        .then(() => {}, () => {});
+      // Await the insert so the conversation row exists BEFORE chat_logs references it —
+      // otherwise the chat_logs.conversation_id foreign key fails with a 409 on the first
+      // message of a new conversation (the insert and the log were racing).
+      await supabase.from("chat_conversations")
+        .insert({ id, user_id: userId, title, created_at: nowIso, updated_at: nowIso });
     } else {
       setConversations(prev => {
         const found = prev.find(c => c.id === id);
@@ -1840,7 +1728,9 @@ export default function NeuralRing() {
     micStreamRef.current = null;
     analyserRef.current  = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       micStreamRef.current    = stream;
       speechDetectedRef.current = false;
       audioChunksRef.current  = [];
@@ -2101,6 +1991,269 @@ export default function NeuralRing() {
   }
 
   // ── Chat ──────────────────────────────────────────────────────────────────────────
+  // Attach a file from the chat: extract its text and ingest it into RAG (api/extract
+  // auto-ingests when given userId), so the tutor can answer about it — same pipeline as
+  // "Add study material", no re-upload. Stays in rag_* (searchable), not the Files library.
+  const handleAttachFile = async (file) => {
+    if (!file) return;
+    if (!userId) { setAttachStatus("Sign in to attach files."); setTimeout(() => setAttachStatus(null), 3000); return; }
+    if (file.size > 4 * 1024 * 1024) {
+      setAttachStatus(`"${file.name}" is too large here — add big files via Study materials.`);
+      setTimeout(() => setAttachStatus(null), 5000);
+      return;
+    }
+    setAttachStatus(`Reading ${file.name}…`);
+    try {
+      const base64 = await new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onload  = () => res(String(fr.result).split(",")[1] ?? "");
+        fr.onerror = () => rej(fr.error);
+        fr.readAsDataURL(file);
+      });
+      setAttachStatus(`Indexing ${file.name}…`);
+      const r = await fetch("/api/extract", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ base64, file_type: file.type, name: file.name, userId }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.text) throw new Error(d.error || "Couldn't read that file.");
+      setAttachStatus(null);
+      setMessages(m => [...m, { role: "assistant", content: `Indexed **${file.name}** — ask me anything about it.` }]);
+    } catch {
+      setAttachStatus(`Couldn't attach ${file.name}.`);
+      setTimeout(() => setAttachStatus(null), 5000);
+    }
+  };
+
+  // ── Reggie-mode turn: stream /api/agent-manager (live tokens + tool progress) ──
+  // Text mode streams the answer token-by-token into the streaming bubble; voice mode
+  // shows the tool-progress line while working, then speaks the answer. Self-contained
+  // (does not use the classic viz/rag/Claude tail).
+  // ── Voice-tag executors — ONE implementation shared by the classic tutor and
+  // Reggie mode, so the two paths can't drift. Tags come from src/lib/voiceTags.
+  const applyVoicePrefTags = (voiceTags) => {
+    // [VOICE:x] — match by name, persist + apply immediately
+    if (voiceTags.VOICE) {
+      const query  = String(voiceTags.VOICE).toLowerCase().trim();
+      const words  = query.split(/\s+/).filter(w => w.length > 2);
+      // Score each voice: exact name > partial name > label words coverage
+      const scored = availableVoices.map(v => {
+        const name   = v.name.toLowerCase();
+        const labels = Object.values(v.labels ?? {}).join(" ").toLowerCase();
+        const all    = name + " " + labels;
+        if (name === query) return { v, score: 100 };
+        const hits = words.filter(w => all.includes(w)).length;
+        return { v, score: hits };
+      }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+      const match = scored[0]?.v;
+      if (match) {
+        voiceIdRef.current = match.voice_id;         // sync — next TTS chunk uses this
+        setActiveVoiceId(match.voice_id);             // instant chip highlight
+        updateUserField("preferred_voice_id", match.voice_id).catch(() => {}); // persist async
+      }
+    }
+    if (voiceTags.SPEED) {
+      const sp = Math.min(1.3, Math.max(0.7, parseFloat(voiceTags.SPEED) || 1.0));
+      speedRef.current = sp;
+      updateUserField("preferred_speed", sp).catch(() => {});
+    }
+    if (voiceTags.TONE) {
+      const t = String(voiceTags.TONE).toLowerCase();
+      if (TONE_PRESETS[t]) {
+        toneRef.current = t;
+        updateUserField("preferred_tone", t).catch(() => {});
+      }
+    }
+  };
+
+  // [SYNC] — refresh Canvas data, narrating the result.
+  const execVoiceSync = async () => {
+    try {
+      if (!canvasToken) {
+        const msg = "Canvas isn't connected yet. Head to the Canvas page to set that up first.";
+        setMessages(m => [...m, { role: "assistant", content: msg }]);
+        lastSpokenTextRef.current = msg;
+        await speakAndType(msg);
+      } else {
+        await forceSync();
+        const cCount = courses.length;
+        const aCount = assignments.length;
+        const msg = `Done — synced ${cCount} course${cCount !== 1 ? "s" : ""} and ${aCount} assignment${aCount !== 1 ? "s" : ""}.`;
+        setMessages(m => [...m, { role: "assistant", content: msg }]);
+        lastSpokenTextRef.current = msg;
+        await speakAndType(msg);
+      }
+    } catch (_) {
+      if (voiceModeRef.current) await speakAndType("Canvas sync ran into an issue. Try again in a moment.");
+    }
+  };
+
+  // [GENERATE_FLASHCARDS:course] — generate + save 8 cards, award tokens, narrate.
+  const execVoiceFlashcards = async (courseTag) => {
+    const course = typeof courseTag === "string" && courseTag
+      ? courseTag
+      : (courseOptions[0] ?? "your course");
+    try {
+      const flashResult = await groq([{
+        role: "user",
+        content: `Create exactly 8 study flashcards for "${course}". Format each card as: Q: [question] | A: [answer] — one per line. No numbering, no extra text, no markdown.`,
+      }]);
+      const cards = flashResult.split(String.fromCharCode(10))
+        .filter(l => l.includes("Q:") && l.includes(" | ") && l.includes("A:"))
+        .map(l => {
+          const [qP, aP] = l.split(" | ");
+          return { question: (qP || "").replace(/^Q:/i, "").trim(), answer: (aP || "").replace(/^A:/i, "").trim() };
+        })
+        .filter(c => c.question && c.answer);
+      if (cards.length > 0) {
+        await supabase.from("flashcards").upsert({
+          user_id:      userId,
+          course_id:    null,
+          cards:        cards.map(c => ({ question: c.question, answer: c.answer })),
+          generated_at: new Date().toISOString(),
+        }, { onConflict: "user_id,course_id" });
+        awardTokens("flashcards_generated", {}).catch(() => {});
+        const msg = `${cards.length} flashcards ready for ${course}. Head to Study to review them.`;
+        setMessages(m => [...m, { role: "assistant", content: msg }]);
+        lastSpokenTextRef.current = msg;
+        await speakAndType(msg);
+      }
+    } catch (_) {
+      if (voiceModeRef.current) await speakAndType("Flashcard generation hit an error. Try again in a moment.");
+    }
+  };
+
+  const runReggieTurn = async (text) => {
+    const history = messages
+      .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .map(m => ({ role: m.role, content: m.content }));
+    abortCtrlRef.current = new AbortController();
+    // Stale barge-in context from a previous turn must not leak into this one (the
+    // classic path consumes it; Reggie mode clears it).
+    interruptedTextRef.current = null;
+    const voice = voiceModeRef.current;
+    const speakLive = voice && !muted;                 // sentence-chunked TTS while streaming
+    let streamed = "", toolNote = "", finalOut = "", errMsg = null;
+    let widgets: Array<{ type: string; data: any }> = [];
+    const paint = () => setStreamingMsg([toolNote, voice ? "" : streamed].filter(Boolean).join("\n\n"));
+
+    // ── Streaming TTS (voice mode): speak each sentence the moment it closes — same
+    // chain discipline as the classic streaming path (stop button + barge-in honored
+    // via voiceTTSAbortRef / abort signal). Voice-UI tags are stripped before speech.
+    // A per-turn generation stamp (not just the shared boolean) kills the race where a
+    // NEW turn resets voiceTTSAbortRef before an old chain item ran its abort check —
+    // the old item would otherwise resume speaking stale sentences over the new answer.
+    let ttsChain = Promise.resolve();
+    const myGen = ++reggieTtsGen;
+    voiceTTSAbortRef.current = false;
+    let spokenSoFar = "";
+    const enqueueTTS = (sentence) => {
+      const clean = sanitizeForTTS(parseVoiceTags(sentence).cleaned);
+      if (!clean) return;
+      // Progressive capture so a barge-in (stopResponse) sees what was actually spoken
+      // this turn — streamingMsg is suppressed in voice mode, so it can't serve that role.
+      spokenSoFar += (spokenSoFar ? " " : "") + clean;
+      lastSpokenTextRef.current = spokenSoFar;
+      ttsChain = ttsChain.then(async () => {
+        if (abortCtrlRef.current?.signal?.aborted || voiceTTSAbortRef.current || myGen !== reggieTtsGen) return;
+        setSpeaking(true); speakingRef.current = true;
+        sphereStateRef.current = "speaking";
+        const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
+        try {
+          const { play } = await fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+          await play(src => { audioSourceRef.current = src; });
+        } catch (e) { console.warn("[reggie voice chunk]", e?.message); }
+      });
+    };
+    const chunker = createSentenceChunker(enqueueTTS);
+
+    try {
+      await streamReggie(
+        { userId, message: text, history, voiceMode: voice },
+        {
+          onToken:      (d) => { streamed += d; toolNote = ""; paint(); if (speakLive) chunker.feed(d); },
+          onReset:      ()  => { streamed = ""; paint(); chunker.reset(); },
+          onToolCall:   (n) => { toolNote = `🔧 ${reggieToolLabel(n)}…`; paint(); },
+          onToolResult: ()  => { /* keep the note until the next token/reset */ },
+          onDone:       (r) => { finalOut = r.output || ""; widgets = r.widgets || []; },
+          onError:      (m) => { errMsg = m; },
+        },
+        abortCtrlRef.current?.signal,
+      );
+    } catch (e) {
+      if (e?.name === "AbortError") { setLoading(false); setStreamingMsg(""); return; }
+      errMsg = e?.message || "request failed";
+    }
+    if (speakLive) chunker.flush();                    // speak the trailing sentence
+    setLoading(false);
+    setStreamingMsg("");
+    if (errMsg) {
+      // If the stream was cut off after some text arrived, keep that partial answer
+      // (it's real and useful) rather than throwing it away for a canned failure.
+      const partial = stripAgentJSON(streamed);
+      const content = partial || "Something went wrong. Try again.";
+      logChat(userId, "assistant", content, null, currentConvIdRef.current);
+      setMessages(m => [...m, { role: "assistant", content }]);
+      voiceTTSAbortRef.current = true;                 // don't keep talking into an error
+      // A chain item may have set the speaking state before the error — clean up, or the
+      // orb stays "speaking" forever and the barge-in RAF kills the mic for good.
+      setSpeaking(false); speakingRef.current = false;
+      sphereStateRef.current = "idle"; audioSourceRef.current = null;
+      if (voice && voiceModeRef.current && !micDenied) await startAutoListen();
+      return;
+    }
+    const rawOut = stripAgentJSON(finalOut) || stripAgentJSON(streamed) || "I couldn't put an answer together — try rephrasing?";
+    // Voice-UI tags: strip from display, then execute (shared executors with classic).
+    const { tags: vTags, cleaned } = parseVoiceTags(rawOut);
+    // A tags-only reply (e.g. just "[SYNC]") must not display the raw tag.
+    const out = cleaned || "On it!";
+    // Apply voice/speed/tone BEFORE awaiting the TTS chain — fetchAndDecodeAudio reads
+    // the refs per chunk, so "speak slower" takes effect on the tail of THIS reply
+    // (classic behaves the same way).
+    applyVoicePrefTags(vTags);
+    // If a tool produced an interactive quiz, attach it so it renders as InlineQuiz cards.
+    const quizCards = (widgets.find(w => w.type === "quiz")?.data?.cards) ?? null;
+    // If Reggie chose to navigate, carry out the page change (+ optional study config).
+    const nav = widgets.find(w => w.type === "navigate")?.data ?? null;
+    logChat(userId, "assistant", out, null, currentConvIdRef.current);
+
+    if (speakLive) {
+      // Audio for every sentence is already queued — commit the bubble, wait it out.
+      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}) }]);
+      lastSpokenTextRef.current = out;
+      await ttsChain;
+      voiceTTSAbortRef.current = false;
+      setSpeaking(false); speakingRef.current = false;
+      sphereStateRef.current = "idle"; audioSourceRef.current = null;
+    } else if (voice) {
+      // Muted voice mode: typewriter only (speakAndType skips audio when muted).
+      lastSpokenTextRef.current = out;
+      await speakAndType(out);
+      if (quizCards) setMessages(m => [...m, { role: "assistant", content: "Here's your quiz:", quiz: quizCards }]);
+    } else {
+      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}) }]);
+    }
+
+    // ── Voice actions (parity with the classic tutor, shared executors). Gate on the
+    // LIVE ref too, so exiting voice mode mid-turn doesn't narrate actions aloud.
+    if (vTags.SYNC && voice && voiceModeRef.current) await execVoiceSync();
+    if (vTags.GENERATE_FLASHCARDS && voice && voiceModeRef.current) await execVoiceFlashcards(vTags.GENERATE_FLASHCARDS);
+
+    if (nav?.page) {
+      if (nav.course || nav.mode) setStudyConfig({ course: nav.course ?? null, mode: nav.mode ?? "flashcards" });
+      setTimeout(() => setPendingNav({ page: nav.page }), 500);
+    }
+    // Living-mind self-write parity with the classic tutor: every 6th exchange.
+    exchangeCountRef.current += 1;
+    if (exchangeCountRef.current % 6 === 0) {
+      const recent = [...messages, { role: "user", content: text }, { role: "assistant", content: out }].slice(-8);
+      fetch("/api/self-write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId, recentMessages: recent }) })
+        .then(r => (r.ok ? r.json() : null)).then(d => { if (d?.updated && d?.patch) setLivingMind(d.patch); }).catch(() => {});
+    }
+    // Auto-restart listening after the reply ends, if still in voice mode.
+    if (voice && voiceModeRef.current && !micDenied) await startAutoListen();
+  };
+
   const sendMessage = async (overrideText?) => {
     const text = overrideText ?? input.trim();
     if (!text || loading) return;
@@ -2108,7 +2261,7 @@ export default function NeuralRing() {
     setMessages(m => [...m, userMsg]);
     setInput("");
     setLoading(true);
-    const convId = ensureConversation(userMsg.content);
+    const convId = await ensureConversation(userMsg.content);
     logChat(userId, "user", userMsg.content, null, convId);
 
     // ── Brain behavioral signal (fire-and-forget) ─────────────────────────────
@@ -2166,7 +2319,10 @@ export default function NeuralRing() {
 
     try {
       // ── Visualization routing — send to Claude artifact builder ───────────
-      if (isVizRequest(userMsg.content)) {
+      // BOTH modes get artifacts, but Reggie mode uses the STRICT gate so generic
+      // "create/make/quiz/flashcard" asks reach his real tools instead of a
+      // sample-data widget (see VIZ_KEYWORDS_STRICT).
+      if (reggieModeRef.current ? isStrictVizRequest(userMsg.content) : isVizRequest(userMsg.content)) {
         const aType = detectArtifactType(userMsg.content);
         const raw = await fetch("/api/claude", {
           method:  "POST",
@@ -2182,8 +2338,27 @@ export default function NeuralRing() {
           setMessages(m => [...m, { role: "assistant", content: displayText }]);
         }
         setLoading(false);
+        // Voice mode: narrate the handoff and keep the conversation loop alive — without
+        // this the viz path ended with a silent bubble and a dead mic. (Speak directly:
+        // speakAndType would commit a duplicate bubble — setMessages above already did.)
+        if (voiceModeRef.current) {
+          lastSpokenTextRef.current = displayText;
+          if (!muted) {
+            try {
+              const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
+              setSpeaking(true); speakingRef.current = true; sphereStateRef.current = "speaking";
+              const { play } = await fetchAndDecodeAudio(sanitizeForTTS(displayText), voiceIdRef.current, speedRef.current, tone);
+              await play(src => { audioSourceRef.current = src; });
+            } catch (_) { /* TTS best-effort */ }
+            setSpeaking(false); speakingRef.current = false; sphereStateRef.current = "idle"; audioSourceRef.current = null;
+          }
+          if (voiceModeRef.current && !micDenied) await startAutoListen();
+        }
         return;
       }
+
+      // ── Reggie mode: everything else streams through the agent loop ──────
+      if (reggieModeRef.current) { await runReggieTurn(text); return; }
 
       // ── Dynamic context fetch (chatbot agent upgrade) ─────────────────────
       // Fires in parallel — if it resolves before Claude, gets injected into prompt.
@@ -2193,10 +2368,12 @@ export default function NeuralRing() {
       // RAG source material is query-specific, so it's fetched per message here.
       let ragContext = null;
       abortCtrlRef.current = new AbortController();
-      const ragFetch = fetch("/api/rag?action=query", {
+      // In Reggie mode the agent does its own retrieval (rag_search tool), so skip this
+      // separate fetch + context injection entirely.
+      const ragFetch = reggieModeRef.current ? Promise.resolve() : fetch("/api/rag?action=query", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, query: userMsg.content }),
+        body: JSON.stringify({ userId, query: userMsg.content, rerank: false }),
       })
         .then(r => r.ok ? r.json() : null)
         .then(d => {
@@ -2209,12 +2386,17 @@ export default function NeuralRing() {
         })
         .catch(() => {});
 
-      // Wait briefly so retrieval can ground the reply, but never block the chat for long.
-      await Promise.race([ragFetch, new Promise(r => setTimeout(r, 3000))]);
+      // Never block a spoken turn on retrieval. For text chat, this is a Promise.race —
+      // it resolves the INSTANT RAG returns (~1s now that the reranker is disabled), NOT
+      // after the full cap. The cap is only a safety ceiling for a stalled request, so
+      // keeping it generous costs nothing in the normal (fast) case but stops a
+      // slightly-slow query from dropping the file's grounding (the "no SOURCE MATERIAL"
+      // bug). Lower caps trade reliable grounding for a worst-case bound that rarely helps.
+      if (!voiceModeRef.current && !reggieModeRef.current) {
+        await Promise.race([ragFetch, new Promise(r => setTimeout(r, 4000))]);
+      }
 
-      const system = voiceModeRef.current
-        ? buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, availableVoices, leaderboardRank)
-        : buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices, courses);
+      const system = buildChatSystem();
 
       abortCtrlRef.current = new AbortController();
 
@@ -2353,43 +2535,13 @@ export default function NeuralRing() {
         }
       }
 
+      // Strip any stray tool-call JSON the model emitted as text before parsing/display.
+      raw = stripAgentJSON(raw);
       // ── Voice intent tag extraction (strip before display/quiz/nav parsing) ──
       const { tags: voiceTags, cleaned: rawNoVoice } = parseVoiceTags(raw);
 
-      // Apply VOICE tag — match by name, persist + apply immediately
-      if (voiceTags.VOICE) {
-        const query  = voiceTags.VOICE.toLowerCase().trim();
-        const words  = query.split(/\s+/).filter(w => w.length > 2);
-        // Score each voice: exact name > partial name > label words coverage
-        const scored = availableVoices.map(v => {
-          const name   = v.name.toLowerCase();
-          const labels = Object.values(v.labels ?? {}).join(" ").toLowerCase();
-          const all    = name + " " + labels;
-          if (name === query) return { v, score: 100 };
-          const hits = words.filter(w => all.includes(w)).length;
-          return { v, score: hits };
-        }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
-        const match = scored[0]?.v;
-        if (match) {
-          voiceIdRef.current = match.voice_id;         // sync — next TTS chunk uses this
-          setActiveVoiceId(match.voice_id);             // instant chip highlight
-          updateUserField("preferred_voice_id", match.voice_id).catch(() => {}); // persist async
-        }
-      }
-      // Apply SPEED tag
-      if (voiceTags.SPEED) {
-        const s = Math.min(1.3, Math.max(0.7, parseFloat(voiceTags.SPEED) || 1.0));
-        speedRef.current = s;
-        updateUserField("preferred_speed", s).catch(() => {});
-      }
-      // Apply TONE tag
-      if (voiceTags.TONE) {
-        const t = voiceTags.TONE.toLowerCase();
-        if (TONE_PRESETS[t]) {
-          toneRef.current = t;
-          updateUserField("preferred_tone", t).catch(() => {});
-        }
-      }
+      // Apply VOICE/SPEED/TONE tags (shared executor with Reggie mode)
+      applyVoicePrefTags(voiceTags);
       // [READ:assignments] — Claude's text response IS the reading; tag is stripped
       // [QUIZ:*] — Claude will emit [QUIZ_START]..[QUIZ_END] which is handled below
 
@@ -2423,7 +2575,12 @@ export default function NeuralRing() {
       }
 
       const { cmd, text: displayText } = parseNav(rawClean);
-      const cleanText = displayText.replace(/<[^>]+>/g, "").trim();
+      let cleanText = displayText.replace(/<[^>]+>/g, "").trim();
+
+      // Never ship an empty/filler-only reply (model stalling + stripped tool JSON left a
+      // blank/dangling bubble and silence). Guarded in tutorReply.ts; skipped when the
+      // model is navigating, where empty text is intentional.
+      cleanText = ensureTutorReply(cleanText, { isNav: !!cmd?.page, hasGrounding: !!ragContext });
 
       if (cmd?.page) {
         if (cmd.course || cmd.mode) setStudyConfig({ course: cmd.course ?? null, mode: cmd.mode ?? "flashcards" });
@@ -2432,7 +2589,6 @@ export default function NeuralRing() {
 
       if (cleanText) {
         logChat(userId, "assistant", cleanText, null, currentConvIdRef.current);
-        writeImpression(userId, userMsg.content, cleanText);
       }
 
       // ── Self-write trigger — fires every 6th exchange ─────────────────────
@@ -2463,61 +2619,9 @@ export default function NeuralRing() {
         lastSpokenTextRef.current = cleanText;
         await speakAndType(cleanText);
       }
-      // ── Execute voice action tags (SYNC, GENERATE_FLASHCARDS) ───────────────
-      if (voiceTags.SYNC && voiceModeRef.current) {
-        try {
-          if (!canvasToken) {
-            const msg = "Canvas isn't connected yet. Head to the Canvas page to set that up first.";
-            setMessages(m => [...m, { role: "assistant", content: msg }]);
-            lastSpokenTextRef.current = msg;
-            await speakAndType(msg);
-          } else {
-            await forceSync();
-            const cCount = courses.length;
-            const aCount = assignments.length;
-            const msg = `Done — synced ${cCount} course${cCount !== 1 ? "s" : ""} and ${aCount} assignment${aCount !== 1 ? "s" : ""}.`;
-            setMessages(m => [...m, { role: "assistant", content: msg }]);
-            lastSpokenTextRef.current = msg;
-            await speakAndType(msg);
-          }
-        } catch (_) {
-          if (voiceModeRef.current) await speakAndType("Canvas sync ran into an issue. Try again in a moment.");
-        }
-      }
-
-      if (voiceTags.GENERATE_FLASHCARDS && voiceModeRef.current) {
-        const course = typeof voiceTags.GENERATE_FLASHCARDS === "string"
-          ? voiceTags.GENERATE_FLASHCARDS
-          : (courseOptions[0] ?? "your course");
-        try {
-          const flashResult = await groq([{
-            role: "user",
-            content: `Create exactly 8 study flashcards for "${course}". Format each card as: Q: [question] | A: [answer] — one per line. No numbering, no extra text, no markdown.`,
-          }]);
-          const cards = flashResult.split("\n")
-            .filter(l => l.includes("Q:") && l.includes(" | ") && l.includes("A:"))
-            .map(l => {
-              const [qP, aP] = l.split(" | ");
-              return { question: (qP || "").replace(/^Q:\s*/i, "").trim(), answer: (aP || "").replace(/^A:\s*/i, "").trim() };
-            })
-            .filter(c => c.question && c.answer);
-          if (cards.length > 0) {
-            await supabase.from("flashcards").upsert({
-              user_id:      userId,
-              course_id:    null,
-              cards:        cards.map(c => ({ question: c.question, answer: c.answer })),
-              generated_at: new Date().toISOString(),
-            }, { onConflict: "user_id,course_id" });
-            awardTokens("flashcards_generated", {}).catch(() => {});
-            const msg = `${cards.length} flashcards ready for ${course}. Head to Study to review them.`;
-            setMessages(m => [...m, { role: "assistant", content: msg }]);
-            lastSpokenTextRef.current = msg;
-            await speakAndType(msg);
-          }
-        } catch (_) {
-          if (voiceModeRef.current) await speakAndType("Flashcard generation hit an error. Try again in a moment.");
-        }
-      }
+      // ── Execute voice action tags (shared executors with Reggie mode) ───────
+      if (voiceTags.SYNC && voiceModeRef.current) await execVoiceSync();
+      if (voiceTags.GENERATE_FLASHCARDS && voiceModeRef.current) await execVoiceFlashcards(voiceTags.GENERATE_FLASHCARDS);
 
       // Auto-restart listening after reply ends, if still in voice mode
       if (voiceModeRef.current && !micDenied) {
@@ -2566,6 +2670,45 @@ export default function NeuralRing() {
           <canvas ref={canvasRef} width={SIZE} height={SIZE} style={{ display: "block", borderRadius: "50%" }} />
         </div>
       </div>
+
+      {/* S9 — notification-permission ask, shown once after the first completed session */}
+      {showNotifAsk && (
+        <div style={{
+          position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
+          zIndex: 9998, width: "calc(100% - 40px)", maxWidth: "380px",
+          padding: "16px 18px", borderRadius: "16px",
+          background: "rgba(16,16,16,0.96)", border: "1px solid rgba(255,255,255,0.12)",
+          boxShadow: "0 18px 50px rgba(0,0,0,0.5)",
+          backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+          fontFamily: "var(--font-sans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif)",
+        }}>
+          <p style={{ color: "#F5F5F5", fontSize: "14px", lineHeight: 1.5, margin: "0 0 14px" }}>
+            {buildNotificationAskCopy(userData?.study_window)}
+          </p>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={acceptNotifAsk}
+              style={{
+                flex: 1, padding: "10px", background: "rgba(255,255,255,0.92)", color: "#111",
+                border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Remind me
+            </button>
+            <button
+              onClick={dismissNotifAsk}
+              style={{
+                flex: 1, padding: "10px", background: "transparent", color: "rgba(255,255,255,0.5)",
+                border: "1px solid rgba(255,255,255,0.14)", borderRadius: "10px", fontSize: "13px",
+                fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Chat sheet */}
       {chatOpen && (
@@ -2680,6 +2823,23 @@ export default function NeuralRing() {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 6h16M4 12h16M4 18h10" />
                   </svg>
+                </button>
+
+                {/* Reggie mode toggle (beta) — swaps the tutor brain to the agent loop */}
+                <button
+                  onClick={() => setReggieMode(v => !v)}
+                  title={reggieMode ? "Reggie mode ON — using the agent loop (tools + brain). Tap to switch back to the classic tutor." : "Reggie mode OFF — classic tutor. Tap to route through Reggie (tools + brain)."}
+                  aria-label="Toggle Reggie mode"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5, padding: "0 10px", height: 32, flexShrink: 0,
+                    borderRadius: 20, cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
+                    fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase",
+                    background: reggieMode ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.06)",
+                    border: `1px solid ${reggieMode ? "rgba(196,154,60,0.5)" : "rgba(255,255,255,0.12)"}`,
+                    color: reggieMode ? "#C49A3C" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  🤖 Reggie
                 </button>
 
                 {/* Voice toggle */}
@@ -2869,7 +3029,6 @@ export default function NeuralRing() {
                               if (reactions[i] === "up") return;
                               setReactions(r => ({ ...r, [i]: "up" }));
                               setReasonPicker(null);
-                              writeImpression(userId, messages[i-1]?.content ?? "", m.content + " [student liked this response]");
                             }}
                             style={{
                               background: reactions[i] === "up" ? "rgba(52,199,89,0.15)" : "none",
@@ -2877,8 +3036,9 @@ export default function NeuralRing() {
                               borderRadius: "6px", fontSize: "13px", cursor: reactions[i] === "up" ? "default" : "pointer",
                               padding: "2px 5px", transition: "all 0.15s",
                               transform: reactions[i] === "up" ? "scale(1.2)" : "scale(1)",
+                              display: "inline-flex", alignItems: "center", color: reactions[i] === "up" ? "rgba(72,210,110,0.95)" : "rgba(255,255,255,0.4)",
                             }}
-                          >👍</button>
+                          ><ThumbsUp size={14} /></button>
 
                           {/* Thumbs down */}
                           <button
@@ -2892,8 +3052,9 @@ export default function NeuralRing() {
                               borderRadius: "6px", fontSize: "13px", cursor: "pointer",
                               padding: "2px 5px", transition: "all 0.15s",
                               transform: reactions[i] === "down" ? "scale(1.1)" : "scale(1)",
+                              display: "inline-flex", alignItems: "center", color: reactions[i] === "down" ? "rgba(255,120,100,0.95)" : "rgba(255,255,255,0.4)",
                             }}
-                          >👎</button>
+                          ><ThumbsDown size={14} /></button>
                         </div>
 
                         {/* Reason picker — slides in below thumbs down */}
@@ -2913,7 +3074,6 @@ export default function NeuralRing() {
                                 onClick={() => {
                                   setReactions(r => ({ ...r, [i]: "down" }));
                                   setReasonPicker(null);
-                                  writeImpression(userId, messages[i-1]?.content ?? "", m.content + ` [student disliked — reason: ${reason}]`);
                                   // Offer regenerate — set input to last user message
                                   const lastUserMsg = messages[i-1]?.content;
                                   if (lastUserMsg) setInput(lastUserMsg);
@@ -2957,7 +3117,7 @@ export default function NeuralRing() {
                               }}
                               onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "rgba(255,255,255,0.85)"; }}
                               onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}
-                            >↺ Try again</button>
+                            ><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><RotateCcw size={12} />Try again</span></button>
                           </div>
                         )}
                       </div>
@@ -2990,7 +3150,28 @@ export default function NeuralRing() {
 
             {/* Input row (text mode) */}
             {!voiceMode && (
-              <div style={{ display: "flex", gap: "10px", padding: "12px 14px 28px", borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
+              <>
+                {attachStatus && (
+                  <div style={{ padding: "0 16px 6px", fontSize: "12px", color: "rgba(255,255,255,0.55)", flexShrink: 0 }}>{attachStatus}</div>
+                )}
+              <div style={{ display: "flex", gap: "10px", padding: "12px 14px 28px", borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0, alignItems: "flex-end" }}>
+                {/* Hidden file input + "+" attach button — ingests the file so the tutor can use it */}
+                <input
+                  ref={attachInputRef} type="file" style={{ display: "none" }}
+                  accept=".pdf,.txt,.md,.docx,.pptx,.png,.jpg,.jpeg,.webp"
+                  onChange={e => { const f = e.target.files?.[0]; e.currentTarget.value = ""; handleAttachFile(f); }}
+                />
+                <button
+                  onClick={() => attachInputRef.current?.click()}
+                  title="Attach a file"
+                  style={{
+                    background: "none", border: "none", padding: "6px 4px",
+                    cursor: "pointer", flexShrink: 0, color: "rgba(255,255,255,0.4)",
+                    fontSize: "24px", lineHeight: 1, outline: "none", transition: "color 0.15s",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = "#C49A3C"}
+                  onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.4)"}
+                ><Plus size={20} strokeWidth={2.2} /></button>
                 {/* Subtle waveform glyph — enters voice mode */}
                 <button
                   onClick={() => { getAudioContext(); voiceModeRef.current = true; setVoiceMode(true); startAutoListen(); }}
@@ -3011,31 +3192,35 @@ export default function NeuralRing() {
                     <rect x="13.5" y="5" width="2.5" height="4" rx="1.25"/>
                   </svg>
                 </button>
-                <input
+                <textarea
+                  ref={inputRef}
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); getAudioContext(); sendMessage(); } }}
-                  placeholder="Ask about assignments, navigate…"
+                  placeholder="Ask a question, or where to go…"
+                  rows={1}
                   style={{
                     flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",
                     borderRadius: "var(--radius-btn)", padding: "11px 14px", color: "var(--text-primary)",
                     fontSize: "14px", outline: "none", fontFamily: "inherit",
+                    lineHeight: "1.4", resize: "none", maxHeight: "120px", overflowY: "auto",
                     transition: "border-color var(--dur-base) var(--ease-apple)",
                   }}
                   onFocus={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.22)")}
                   onBlur={e  => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)")}
                 />
                 {(loading || speaking) ? (
-                  <button onClick={stopResponse} style={{ background: "rgba(255,80,80,0.15)", color: "rgba(255,120,100,0.9)", border: "1px solid rgba(255,80,80,0.25)", borderRadius: "var(--radius-btn)", padding: "11px 16px", fontSize: "14px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-                    Stop
+                  <button onClick={stopResponse} title="Stop" aria-label="Stop" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,80,80,0.15)", color: "rgba(255,120,100,0.95)", border: "1px solid rgba(255,80,80,0.25)", borderRadius: "var(--radius-btn)", padding: "10px 13px", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                    <Square size={16} fill="currentColor" strokeWidth={0} />
                   </button>
                 ) : (
-                  <button onClick={() => { getAudioContext(); sendMessage(); }} disabled={!input.trim()}
-                    style={{ background: !input.trim() ? "rgba(255,255,255,0.18)" : "var(--color-accent)", color: "#111", border: "none", borderRadius: "var(--radius-btn)", padding: "11px 18px", fontSize: "14px", fontWeight: "600", cursor: !input.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", flexShrink: 0, transition: "background var(--dur-base) var(--ease-apple)" }}>
-                    Send
+                  <button onClick={() => { getAudioContext(); sendMessage(); }} disabled={!input.trim()} title="Send" aria-label="Send"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", background: !input.trim() ? "rgba(255,255,255,0.18)" : "var(--color-accent)", color: "#111", border: "none", borderRadius: "var(--radius-btn)", padding: "10px 13px", cursor: !input.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", flexShrink: 0, opacity: !input.trim() ? 0.5 : 1, transition: "background var(--dur-base) var(--ease-apple)" }}>
+                    <Send size={18} />
                   </button>
                 )}
               </div>
+              </>
             )}
 
             {/* ── Voice mode overlay: centered sphere hero ── */}
@@ -3171,7 +3356,7 @@ export default function NeuralRing() {
                             }}
                             style={{ opacity: 0.45, cursor: "pointer", fontSize: "10px" }}
                             title="Preview"
-                          >▶</span>
+                          ><Play size={10} fill="currentColor" strokeWidth={0} /></span>
                         </button>
                       );
                     })}

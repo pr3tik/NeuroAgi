@@ -6,6 +6,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { groq } from "../api/groq";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import { buildStudentContext } from "../data/mockData";
 import { useApp } from "../context/AppContext";
 
@@ -38,7 +39,7 @@ function NoCanvasState() {
 function AllDoneState() {
   return (
     <div style={{ ...card, padding: "24px", textAlign: "center" }}>
-      <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>No pending assignments 🎉</p>
+      <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>No pending assignments</p>
     </div>
   );
 }
@@ -310,7 +311,7 @@ export default function Assignment() {
             <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", marginBottom: "16px", overflow: "hidden" }}>
               <button onClick={() => setSourcesOpen(o => !o)} style={{ width: "100%", background: "none", border: "none", padding: "13px 16px", color: "var(--text-secondary)", fontSize: "13px", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", fontFamily: "inherit" }}>
                 Sources & Reasoning
-                <span style={{ fontSize: "12px", opacity: 0.5 }}>{sourcesOpen ? "↑" : "↓"}</span>
+                <span style={{ opacity: 0.5, display: "flex" }}>{sourcesOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
               </button>
               {sourcesOpen && (
                 <div style={{ padding: "0 16px 14px", color: "var(--text-secondary)", fontSize: "13px", lineHeight: "1.65", borderTop: "1px solid rgba(255,255,255,0.06)" }}>

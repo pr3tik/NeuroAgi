@@ -9,13 +9,28 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
-import { notify } from "./_notify";
+import { notify } from "./_notify.js";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "",
-  process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? ""
-);
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy clients — building them at module load breaks two ways: (1) `new Resend(undefined)`
+// THROWS, turning every dev request into a 502 when RESEND_API_KEY isn't set (the in-app
+// nudge needs no email at all); (2) module-load createClient crashes the Node-20 CI suite
+// (supabase-js realtime needs WebSocket). Same lazy pattern as rag.ts/token-engine.ts.
+let _supabase: any = null;
+function db() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "",
+      process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? ""
+    );
+  }
+  return _supabase;
+}
+// null when email isn't configured — the in-app nudge still goes through; we just
+// skip the offline-email fallback (emailSent stays false).
+function mailer() {
+  const key = process.env.RESEND_API_KEY;
+  return key ? new Resend(key) : null;
+}
 
 const RATE_LIMIT = 2;                       // max nudges per friend …
 const WINDOW_MS  = 24 * 60 * 60 * 1000;     // … per rolling 24h
@@ -44,7 +59,7 @@ export default async function handler(req, res) {
 
   // ── 1. Rate-limit (server-enforced — client can't bypass) ──────────────────
   const since = new Date(Date.now() - WINDOW_MS).toISOString();
-  const { count } = await supabase
+  const { count } = await db()
     .from("nudges").select("id", { count: "exact", head: true })
     .eq("from_user_id", fromUserId).eq("to_user_id", toUserId).eq("kind", "invite")
     .gte("created_at", since);
@@ -53,7 +68,7 @@ export default async function handler(req, res) {
   }
 
   // ── 2. Write the nudge (fires in-app realtime for online recipients) ───────
-  const { error: insErr } = await supabase.from("nudges").insert({
+  const { error: insErr } = await db().from("nudges").insert({
     from_user_id: fromUserId, to_user_id: toUserId,
     room_id: roomId ?? null, kind: "invite",
   });
@@ -76,8 +91,9 @@ export default async function handler(req, res) {
 
   // ── 3. Email fallback when the friend isn't currently online ───────────────
   let emailSent = false;
-  if (!recipientOnline) {
-    const { data: recipient } = await supabase
+  const resend = mailer();
+  if (!recipientOnline && resend) {
+    const { data: recipient } = await db()
       .from("users").select("email, name").eq("id", toUserId).maybeSingle();
 
     if (recipient?.email) {

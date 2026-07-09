@@ -6,9 +6,11 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { groq }          from "../api/groq";
+import { Target, Check, ChevronUp, ChevronDown } from "lucide-react";
 import { buildStudentContext } from "../data/mockData";
 import { useApp }        from "../context/AppContext";
 import { awardTokens }   from "../api/tokens";
+import OfficeHoursPanel  from "../components/OfficeHoursPanel";
 
 // ── Monitor agent — fires once per assignment, returns targeted nudge ─────────
 function useMonitorAgent(assignment, userData, userId) {
@@ -68,7 +70,7 @@ function NoCanvasState() {
 function AllDoneState() {
   return (
     <div style={{ ...card, padding: "24px", textAlign: "center" }}>
-      <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>No pending assignments 🎉</p>
+      <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>No pending assignments</p>
     </div>
   );
 }
@@ -292,6 +294,11 @@ export default function Assignment() {
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "16px" }}>{selectedCourse}</p>
 
+        {/* Office Hours Prep — gated on having a courseId to scope the question generation to */}
+        {selected.courseId && (
+          <OfficeHoursPanel userId={userId} courseId={selected.courseId} courseName={selectedCourse} />
+        )}
+
         {/* Monitor agent nudge banner */}
         {hasNudge && (
           <div style={{
@@ -304,7 +311,7 @@ export default function Assignment() {
             alignItems: "flex-start",
             gap: "10px",
           }}>
-            <span style={{ fontSize: "15px", flexShrink: 0, marginTop: "1px" }}>🎯</span>
+            <Target size={15} style={{ flexShrink: 0, marginTop: "2px", color: "var(--color-accent)" }} />
             <p style={{
               flex: 1,
               color: "rgba(255,255,255,0.75)",
@@ -383,7 +390,7 @@ export default function Assignment() {
             <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", marginBottom: "16px", overflow: "hidden" }}>
               <button onClick={() => setSourcesOpen(o => !o)} style={{ width: "100%", background: "none", border: "none", padding: "13px 16px", color: "var(--text-secondary)", fontSize: "13px", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", fontFamily: "inherit" }}>
                 Sources & Reasoning
-                <span style={{ fontSize: "12px", opacity: 0.5 }}>{sourcesOpen ? "↑" : "↓"}</span>
+                <span style={{ opacity: 0.5, display: "flex" }}>{sourcesOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
               </button>
               {sourcesOpen && (
                 <div style={{ padding: "0 16px 14px", color: "var(--text-secondary)", fontSize: "13px", lineHeight: "1.65", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
@@ -406,7 +413,7 @@ export default function Assignment() {
               disabled={markedDone}
               style={{ width: "100%", marginTop: "10px", background: markedDone ? "rgba(52,199,89,0.1)" : "transparent", border: `1px solid ${markedDone ? "rgba(52,199,89,0.3)" : "rgba(255,255,255,0.1)"}`, borderRadius: "var(--radius-btn)", padding: "11px", color: markedDone ? "rgba(100,220,130,0.85)" : "rgba(255,255,255,0.35)", fontSize: "13px", cursor: markedDone ? "default" : "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
             >
-              {markedDone ? "✓ Marked as done" : "Mark as done"}
+              {markedDone ? <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><Check size={14} />Marked as done</span> : "Mark as done"}
             </button>
           </>
         )}

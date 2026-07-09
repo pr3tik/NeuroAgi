@@ -1,4 +1,13 @@
-// api/claude.js — Vercel serverless Anthropic Claude proxy
+// api/claude.ts — Anthropic Claude proxy. Thin HTTP adapter over the LLM gateway
+// (api/_gateway.ts): it owns routing, retry/fallback, cost, and tracing. This file
+// only does HTTP plumbing (CORS, method gating, request/response shape, SSE piping).
+//
+// Response shape is unchanged for existing callers: { content, contentBlocks,
+// stop_reason, usage }. We additionally surface { model, provider } (additive).
+// Body may carry an optional `task` ("tutor" | "summarize" | "deep" | …) to pick the
+// route; absent → "default" (the tutor/Sonnet route), preserving prior behavior.
+import { callModel, openStream } from "./_gateway.js";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -6,69 +15,26 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    console.error("[claude] ANTHROPIC_API_KEY not set");
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
-  }
-
-  const { messages, system, max_tokens = 400, tools } = req.body ?? {};
+  const { messages, system, max_tokens, tools, stream, task, model, cache, thinking } = req.body ?? {};
   if (!messages || !Array.isArray(messages))
     return res.status(400).json({ error: "messages array required" });
 
-  // Sanitize — Anthropic rejects empty string content. Array content (tool_use /
-  // tool_result blocks) must pass through untouched (don't stringify it).
-  const cleanMessages = messages
-    .filter(m => m?.role && m?.content != null)
-    .map(m => Array.isArray(m.content)
-      ? { role: m.role, content: m.content }
-      : { role: m.role, content: String(m.content).trim() })
-    .filter(m => Array.isArray(m.content) ? m.content.length > 0 : m.content.length > 0);
+  // Let the task route naturally (default → Anthropic Sonnet). We intentionally do NOT
+  // force provider:"anthropic" here — that would mismatch a Groq-routed task (e.g.
+  // task:"cheap") onto the Anthropic endpoint. Callers wanting Groq use /api/groq.
+  const gwReq = { task, model, messages, system, max_tokens, tools, cache, thinking };
 
-  if (!cleanMessages.length)
-    return res.status(400).json({ error: "No valid messages after sanitization" });
-
-  // Model is configurable via ANTHROPIC_MODEL env var so it can be corrected without a redeploy.
-  // Default is claude-sonnet-4-6; override if the key doesn't have access to that model.
-  const model = (process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6").trim();
-  const body: any = {
-    model,
-    max_tokens: Math.min(Number(max_tokens) || 400, 4096),
-    messages:   cleanMessages,
-  };
-  // system accepts a string OR an array of content blocks (the latter may carry
-  // cache_control breakpoints for prompt caching).
-  if (Array.isArray(system) && system.length) {
-    body.system = system;
-  } else if (system && typeof system === "string" && system.trim()) {
-    body.system = system.trim();
-  }
-  if (Array.isArray(tools) && tools.length) {
-    body.tools = tools;
-  }
-
-  // ── Streaming path — forward SSE directly to client ──────────────────────
-  if (req.body?.stream) {
-    body.stream = true;
-    let anthropicRes;
-    try {
-      anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify(body),
-      });
-    } catch (err) {
-      return res.status(502).json({ error: err.message });
-    }
-    if (!anthropicRes.ok) {
-      const errText = await anthropicRes.text();
-      return res.status(502).json({ error: `Anthropic ${anthropicRes.status}`, detail: errText.slice(0, 300) });
+  // ── Streaming path — forward SSE straight to the client ──────────────────────
+  if (stream) {
+    const out = await openStream({ ...gwReq, task: task ?? "default" });
+    if (!out.ok || !out.stream) {
+      return res.status(502).json({ error: out.error ?? "stream open failed", detail: out.detail });
     }
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
-    const reader = anthropicRes.body.getReader();
+    const reader = out.stream.getReader();
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -81,42 +47,18 @@ export default async function handler(req, res) {
     return;
   }
 
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method:  "POST",
-      headers: {
-        "Content-Type":      "application/json",
-        "x-api-key":         key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    });
-
-    const raw = await response.text();
-
-    if (!response.ok) {
-      console.error(`[claude] Anthropic ${response.status}:`, raw);
-      let parsed: any = {};
-      try { parsed = JSON.parse(raw); } catch (_) {}
-      return res.status(502).json({
-        error: parsed.error?.message ?? `Anthropic ${response.status}`,
-        detail: raw.slice(0, 300),
-      });
-    }
-
-    const data    = JSON.parse(raw);
-    const content = (data.content ?? []).map(b => b.text ?? "").join("");
-    // `content` (joined text) kept for existing callers; `contentBlocks` +
-    // `stop_reason` + `usage` added for the tool-use loop and cache verification.
-    return res.status(200).json({
-      content,
-      contentBlocks: data.content ?? [],
-      stop_reason:   data.stop_reason ?? null,
-      usage:         data.usage ?? null,
-    });
-
-  } catch (err) {
-    console.error("[claude] proxy error:", err.message);
-    return res.status(502).json({ error: err.message });
+  // ── Non-streaming path ───────────────────────────────────────────────────────
+  const r = await callModel(gwReq);
+  if (!r.ok) {
+    console.error(`[claude] gateway error ${r.status}:`, r.error);
+    return res.status(r.status >= 500 ? 502 : r.status).json({ error: r.error, detail: r.detail });
   }
+  return res.status(200).json({
+    content: r.content,
+    contentBlocks: r.contentBlocks,
+    stop_reason: r.stop_reason,
+    usage: r.usage,
+    model: r.model,
+    provider: r.provider,
+  });
 }

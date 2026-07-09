@@ -121,6 +121,7 @@
   .stat-lbl { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 2px; }
 
   .status-msg { font-size: 12px; color: rgba(255,255,255,0.35); text-align: center; margin-top: 10px; min-height: 18px; }
+  .status-msg.success { color: rgba(52,199,89,0.9); font-weight: 600; font-size: 13px; }
 
   .logout-btn {
     background: none; border: none; color: rgba(255,255,255,0.2); font-size: 12px;
@@ -221,10 +222,10 @@
     <span id="processing-label">Reading page…</span>
   </div>
 
+  <div class="status-msg" id="status-msg">Navigate to a page on your university portal, then click Capture</div>
+
   <button class="btn-primary" id="capture-btn">Capture This Page</button>
   <button class="btn-ghost" id="reset-btn" style="display:none">Start Over</button>
-
-  <div class="status-msg" id="status-msg">Navigate to a page on your university portal, then click Capture</div>
 
   <button class="logout-btn" id="logout-btn">Sign out</button>
 </div>

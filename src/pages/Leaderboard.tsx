@@ -7,7 +7,6 @@
 
 import { useState, useEffect } from "react";
 import { useApp }              from "../context/AppContext";
-import { supabase }            from "../api/supabase";
 
 const TIER_COLORS = {
   "Brain Owner": "rgba(196,154,60,0.9)",
@@ -40,6 +39,11 @@ const SORT_FMT = {
   study_time: v => v != null ? `${v} hrs` : "—",
   points:     v => v != null ? `${v} pts` : "—",
 };
+
+// Map the UI's sort pill → the agent's category, and the scope tab → the agent's scope.
+const CATEGORY = { Tokens: "tokens", GPA: "gpa", Streak: "streak", "Study Time": "study_time" };
+const SCOPE    = { University: "university", City: "city", Country: "country", Global: "global" };
+const FMT_BY_CATEGORY = { tokens: SORT_FMT.points, gpa: SORT_FMT.gpa, streak: SORT_FMT.streak, study_time: SORT_FMT.study_time };
 
 const TIER_ORDER  = ["Basic", "Scholar", "Mastermind", "Brain Owner"];
 const TIER_MIN    = { Basic: 0, Scholar: 100, Mastermind: 500, "Brain Owner": 2000 };
@@ -124,101 +128,50 @@ export default function Leaderboard() {
   const [tab,       setTab]     = useState(0);
   const [sort,      setSort]    = useState("Tokens");
   const [mounted,   setMounted] = useState(false);
-  const [realRows,  setRealRows]  = useState([]);
+  const [board,     setBoard]   = useState(null);  // /api/leaderboard response: { rows, me, available, scope, scopeValue, count }
   const [lbLoading, setLbLoading] = useState(true);
 
   useEffect(() => { const t = setTimeout(() => setMounted(true), 30); return () => clearTimeout(t); }, []);
 
-  // Fetch real leaderboard data — two separate queries, no FK dependency
+  const tabName = TABS[tab];
+
+  // Server-side ranking via the leaderboard agent: it ranks the WHOLE opted-in population
+  // for the chosen category + scope (the old client path only re-sorted the top-50-by-
+  // points, so the GPA / streak / study-time boards weren't the true top). Refetch on any
+  // tab / sort / identity change.
   useEffect(() => {
-    async function fetchLb() {
+    let cancelled = false;
+    async function load() {
       setLbLoading(true);
+      const category = CATEGORY[sort];
+      const scope    = SCOPE[tabName];
+      const scopeValue = scope === "global"    ? null
+                       : scope === "university" ? (userData?.school  ?? null)
+                       : scope === "city"       ? (userData?.city    ?? null)
+                       :                          (userData?.country ?? null);
       try {
-        // 1. Leaderboard rows (points + tier)
-        const { data: lbData } = await supabase
-          .from("leaderboard")
-          .select("user_id, points, tier")
-          .order("points", { ascending: false })
-          .limit(50);
-
-        if (!lbData?.length) { setLbLoading(false); return; }
-
-        // 2. Profile data for those IDs (two-query pattern avoids FK join issues)
-        const ids = lbData.map(r => r.user_id);
-        const { data: usersData } = await supabase
-          .from("users")
-          .select("id, name, school, city, country, continent, leaderboard_opt_in, gpa, streak, study_time")
-          .in("id", ids);
-
-        const uMap = {};
-        (usersData ?? []).forEach(u => { uMap[u.id] = u; });
-
-        setRealRows(lbData.map(r => {
-          const u = uMap[r.user_id];
-          // leaderboard_opt_in=false → show as Anonymous Scholar, NEVER drop the row
-          return {
-            id:         r.user_id,
-            name:       u?.leaderboard_opt_in === false ? "Anonymous Scholar" : (u?.name ?? "Anonymous"),
-            school:     u?.school     ?? "",
-            city:       u?.city       ?? "",
-            country:    u?.country    ?? "",
-            continent:  u?.continent  ?? "",
-            points:     r.points ?? 0,
-            tier:       r.tier   ?? "Basic",
-            gpa:        u?.gpa        ?? null,
-            streak:     u?.streak     ?? null,
-            study_time: u?.study_time ?? null,
-          };
-        }));
-      } catch { /* table may not exist yet */ }
-      setLbLoading(false);
+        const res  = await fetch("/api/leaderboard", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ userId, category, scope, scopeValue, limit: 50 }),
+        });
+        const data = res.ok ? await res.json() : null;
+        if (!cancelled) setBoard(data);
+      } catch {
+        if (!cancelled) setBoard(null);
+      }
+      if (!cancelled) setLbLoading(false);
     }
-    fetchLb();
-  }, []);
+    load();
+    return () => { cancelled = true; };
+  }, [tab, sort, userId, userData?.school, userData?.city, userData?.country]);
 
-  const tabName   = TABS[tab];
-  const sortCol   = SORT_COL[sort];
-  const filterCol = TAB_FILTER_COL[tabName];
-
-  const loc = {
-    school:    userData?.school    ?? DEFAULT_LOCATION.school,
-    city:      userData?.city      ?? DEFAULT_LOCATION.city,
-    country:   userData?.country   ?? DEFAULT_LOCATION.country,
-    continent: userData?.continent ?? DEFAULT_LOCATION.continent,
-  };
-
-  // Merge current user into realRows if not already present
-  const meEntry = userId ? {
-    id:         userId,
-    name:       userData?.name       ?? "You",
-    school:     userData?.school     ?? loc.school,
-    city:       userData?.city       ?? loc.city,
-    country:    userData?.country    ?? loc.country,
-    continent:  userData?.continent  ?? loc.continent,
-    points:     tokenSummary?.points ?? 0,
-    tier:       tokenSummary?.tier   ?? "Basic",
-    gpa:        userData?.gpa        ?? null,
-    streak:     userData?.streak     ?? null,
-    study_time: userData?.study_time ?? null,
-  } : null;
-
-  const baseRows = realRows.some(r => r.id === userId)
-    ? realRows
-    : meEntry ? [...realRows, meEntry] : realRows;
-
-  // Filter by geographic tab
-  const filteredRows = filterCol && loc[filterCol]
-    ? baseRows.filter(r => r[filterCol] && r[filterCol] === loc[filterCol])
-    : baseRows;
-
-  // Sort by current tab, exclude null values for GPA tab
-  const rows = [...filteredRows]
-    .filter(r => sort === "GPA" ? r.gpa != null : true)
-    .sort((a, b) => ((b[sortCol] ?? -1) - (a[sortCol] ?? -1)));
-
-  const maxVal = Math.max(rows[0]?.[sortCol] ?? 1, 1);
-
-  const scopeLabel = tabName === "Global" ? "Global" : `${tabName}: ${loc[TAB_FILTER_COL[tabName]] ?? "—"}`;
+  const rows       = board?.rows ?? [];
+  const fmt        = FMT_BY_CATEGORY[CATEGORY[sort]] ?? (v => `${v}`);
+  const maxVal     = Math.max(rows[0]?.value ?? 1, 1);
+  const me         = board?.me ?? null;
+  const meVisible  = me != null && rows.some(r => r.userId === userId);
+  const scopeLabel = (board?.scope === "global" || !board?.scopeValue) ? "Global" : `${tabName}: ${board.scopeValue}`;
 
   return (
     <div style={{ maxWidth: "800px", margin: "0 auto", width: "100%" }}>
@@ -339,9 +292,9 @@ export default function Leaderboard() {
         {rows.flatMap((row, i) => {
             const rank     = i + 1;
             const isTop3   = rank <= 3;
-            const isMe     = row.id === userId;
+            const isMe     = row.userId === userId;
             const sublabel = TAB_SUBLABEL[tabName]?.(row);
-            const val      = sort === "Tokens" ? row.points : row[sortCol];
+            const val      = row.value;
             const barPct   = maxVal > 0 && val != null ? Math.max(8, (val / maxVal) * 100) : 0;
             const medal    = isTop3 ? MEDAL[rank - 1] : null;
             const hue      = avatarHue(row.name ?? "");
@@ -355,7 +308,7 @@ export default function Leaderboard() {
 
             const rowEl = (
               <div
-                key={row.id}
+                key={row.userId}
                 style={{
                   display:      "flex",
                   alignItems:   "center",
@@ -407,7 +360,7 @@ export default function Leaderboard() {
 
                 {/* Avatar with initial + optional tier ring */}
                 <div style={{ position: "relative", flexShrink: 0, width: isTop3 ? 36 : 30, height: isTop3 ? 36 : 30 }}>
-                  {sort === "Tokens" && <TierRing points={row.points} tier={row.tier} size={isTop3 ? 36 : 30} />}
+                  {sort === "Tokens" && <TierRing points={row.value} tier={row.tier} size={isTop3 ? 36 : 30} />}
                 <div style={{
                   width:        isTop3 ? 36 : 30,
                   height:       isTop3 ? 36 : 30,
@@ -474,7 +427,7 @@ export default function Leaderboard() {
                     color:         isMe ? (sort === "Tokens" ? "#C49A3C" : "rgba(0,210,190,0.9)") : "var(--text-primary)",
                     letterSpacing: "-0.3px",
                   }}>
-                    {sort === "Tokens" ? SORT_FMT.points(val) : SORT_FMT[sortCol](val)}
+                    {fmt(row.value)}
                   </span>
                   {val != null && (
                     <div style={{
@@ -515,6 +468,22 @@ export default function Leaderboard() {
             return rowEl;
           })}
       </div>
+
+      {/* Your rank — shown when you're outside the visible top-N (server gives the true rank) */}
+      {me && !meVisible && !lbLoading && (
+        <div style={{
+          marginTop: "10px", display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "rgba(0,210,190,0.07)", border: "1px solid rgba(0,210,190,0.3)",
+          borderRadius: "var(--radius-card)", padding: "13px 14px",
+        }}>
+          <span style={{ color: "rgba(0,210,190,0.95)", fontSize: "13px", fontWeight: 600 }}>
+            #{me.rank} · You
+          </span>
+          <span style={{ color: "rgba(0,210,190,0.9)", fontSize: "14px", fontWeight: 700 }}>
+            {fmt(me.value)}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

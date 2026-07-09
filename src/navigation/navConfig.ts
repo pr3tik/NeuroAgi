@@ -7,13 +7,15 @@ export const NAV = {
   work:        { right: "assignment", left: "canvas",      up: "identity",    down: "toolkit" },
   assignment:  { left: "work",        down: "study" },
   study:       { up: "assignment",    left: "rooms" },
-  files:       { right: "identity",   down: "spaces" },
+  files:       { right: "identity",   down: "spaces",      up: "connections" },
   spaces:      { up: "files" },
+  connections: { down: "files" },
   canvas:      { right: "work",       down: "rooms" },
   rooms:       { up: "canvas",        right: "toolkit" },
   toolkit:     { up: "work",          left: "rooms" },
-  identity:    { down: "work",        right: "leaderboard", left: "files" },
+  identity:    { down: "work",        right: "leaderboard", left: "files", up: "studyAssistant" },
   leaderboard: { left: "identity" },
+  studyAssistant: { down: "identity" },
 };
 
 export const DOT_GRID = [
@@ -34,4 +36,6 @@ export const LABEL = {
   identity:    "Identity",
   leaderboard: "Leaderboard",
   spaces:      "Spaces",
+  connections: "Connections",
+  studyAssistant: "Study Assistant",
 };

@@ -68,7 +68,9 @@ export default async function handler(req, res) {
       headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         text: safeText,
-        model_id: "eleven_flash_v2_5",
+        // turbo_v2_5: noticeably more natural than flash_v2_5 at near-identical latency.
+        // For max quality (slightly higher latency) swap to "eleven_multilingual_v2".
+        model_id: "eleven_turbo_v2_5",
         voice_settings: { ...vs, use_speaker_boost: true },
         // speed param — honoured by eleven_turbo_v2_5+ if supported; ignored otherwise
         ...(spd !== 1.0 ? { speed: spd } : {}),

@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { onTokenAwarded } from "../api/tokens";
+import { Landmark, Zap, Brain } from "lucide-react";
 
 const ACTION_LABELS = {
   daily_login:          "Daily login",
@@ -17,7 +18,7 @@ const ACTION_LABELS = {
   streak_milestone:     "Streak milestone",
 };
 
-const TIER_ICON = { Scholar: "🏛", Mastermind: "⚡", "Brain Owner": "🧠" };
+const TIER_ICON = { Scholar: Landmark, Mastermind: Zap, "Brain Owner": Brain };
 
 export default function TokenToast() {
   const [queue,   setQueue]   = useState([]);
@@ -64,8 +65,9 @@ export default function TokenToast() {
   if (!current) return null;
 
   const label = current.tierUp
-    ? `Tier up — ${current.tier} ${TIER_ICON[current.tier] ?? ""}`
+    ? `Tier up — ${current.tier}`
     : (ACTION_LABELS[current.action] ?? current.action);
+  const TierIcon = current.tierUp ? TIER_ICON[current.tier] : null;
 
   return (
     <div
@@ -96,6 +98,7 @@ export default function TokenToast() {
       <span style={{ color: "rgba(246,242,233,0.72)", fontSize: "12px" }}>
         {label}
       </span>
+      {TierIcon && <TierIcon size={13} style={{ color: "#C49A3C", flexShrink: 0 }} />}
       {current.milestone && (
         <span style={{ color: "rgba(196,154,60,0.55)", fontSize: "11px", marginLeft: "2px" }}>
           · {current.milestone}d

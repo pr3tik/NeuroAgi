@@ -29,7 +29,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
-import { resolveAndEnrichCourse, normalizeCourseCode } from "./course-resolver";
+import { resolveAndEnrichCourse, normalizeCourseCode } from "./course-resolver.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,

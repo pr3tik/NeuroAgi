@@ -165,6 +165,65 @@ async function pptxToPages(bytes: Uint8Array) {
   return pages;
 }
 
+// ZIP archive — extract text from readable files; emit a manifest for the rest
+// (e.g. MP4 lecture recordings) so content_text is never left null and the
+// background alarm doesn't retry the same ZIP forever.
+async function zipToPages(bytes: Uint8Array): Promise<{ page: number; text: string }[]> {
+  const JSZip: any = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(bytes);
+  const pages: { page: number; text: string }[] = [];
+  let pageNum = 0;
+  const skipped: string[] = [];
+
+  const entries = Object.keys(zip.files)
+    .filter(name => !zip.files[name].dir && !name.startsWith("__MACOSX/") && !name.startsWith("."))
+    .sort();
+
+  for (const name of entries) {
+    const lower = name.toLowerCase();
+    const basename = name.split("/").pop() || name;
+    const isPdf  = lower.endsWith(".pdf");
+    const isDocx = lower.endsWith(".docx");
+    const isPptx = lower.endsWith(".pptx");
+    const isTxt  = /\.(txt|md|csv|html?|xml)$/.test(lower);
+
+    if (!isPdf && !isDocx && !isPptx && !isTxt) {
+      skipped.push(basename);
+      continue;
+    }
+
+    try {
+      const entryBuf = new Uint8Array(await zip.files[name].async("arraybuffer"));
+      let entryPages: { page: number; text: string }[] = [];
+      if (isPdf) {
+        const r = await pdfToPages(entryBuf);
+        entryPages = r.pages;
+      } else if (isDocx) {
+        entryPages = await docxToPages(entryBuf);
+      } else if (isPptx) {
+        entryPages = await pptxToPages(entryBuf);
+      } else {
+        const text = Buffer.from(entryBuf).toString("utf8")
+          .replace(/<[^>]+>/g, " ").replace(/\r\n/g, "\n")
+          .replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+        if (text) entryPages = [{ page: 1, text }];
+      }
+      if (entryPages.length) {
+        const body = entryPages.map(p => p.text).join("\n\n");
+        pages.push({ page: ++pageNum, text: `## ${basename}\n\n${body}` });
+      }
+    } catch { skipped.push(basename); }
+  }
+
+  // Always emit a manifest page so content_text is non-null even for video-only ZIPs.
+  if (skipped.length) {
+    const note = skipped.map(n => `- ${n}`).join("\n");
+    pages.push({ page: ++pageNum, text: `## ZIP contents (not yet extracted)\n\n${note}` });
+  }
+
+  return pages;
+}
+
 // Legacy .ppt is an OLE2 compound file (NOT a zip like .pptx), so jszip can't read it.
 // Its text lives in the "PowerPoint Document" stream as a tree of binary records;
 // the actual characters are in TextCharsAtom (0x0FA0, UTF-16LE) and TextBytesAtom
@@ -430,6 +489,9 @@ export default async function handler(req, res) {
       pages = await pptxToPages(bytes);
     } else if (/ms-powerpoint|\.ppt\b/.test(ext)) {
       pages = await pptToPages(bytes); // legacy binary PowerPoint (OLE2)
+    } else if (/^zip$|\.zip\b|application\/zip/.test(ext) ||
+               (bytes.length > 3 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04)) {
+      pages = await zipToPages(bytes);
     } else if (isImage) {
       pages = await imageOcrToPages(b64, file_type);
     } else if (isMedia) {
@@ -447,19 +509,28 @@ export default async function handler(req, res) {
     // Auto-ingest into RAG tables if userId provided — enables hybrid search for flashcards.
     // Fire-and-forget: never blocks the response or fails the extraction.
     if (userId && combined.trim()) {
-      (async () => {
-        try {
-          const { ingest, embedBatch } = await import("./rag");
-          const result = await ingest({ userId, courseId: courseId ?? null, title: name ?? "Document", kind: "document", pages });
-          if (result.status === 200 && result.json?.documentId) {
-            // Embed up to 3 batches inline (covers most PDFs); larger docs embed lazily on next query
-            for (let i = 0; i < 3; i++) {
-              const eb = await embedBatch({ userId, documentId: result.json.documentId });
-              if (eb.json?.done) break;
-            }
+      // MUST be awaited before responding. On serverless, work started after the
+      // response is sent is frozen/killed — so the previous fire-and-forget ingest
+      // silently never completed in production, which is why uploaded files never
+      // reached the tutor. Awaiting keeps it inside the request so it actually runs.
+      // (The document insert is the load-bearing part: even before embeddings land,
+      // chunks are immediately keyword-searchable via full-text in hybrid search.)
+      try {
+        const { ingest, embedBatch } = await import("./rag");
+        const result = await ingest({ userId, courseId: courseId ?? null, title: name ?? "Document", kind: "document", pages, text: combined });
+        if (result.status === 200 && result.json?.documentId) {
+          // Embed a few bounded batches inline (covers typical docs); kept small so a
+          // huge file can't hit the function time limit. Any tail stays FTS-searchable.
+          for (let i = 0; i < 3; i++) {
+            const eb = await embedBatch({ userId, documentId: result.json.documentId });
+            if (eb.json?.done) break;
           }
-        } catch { /* never break extraction */ }
-      })();
+        } else if (result.status !== 200) {
+          console.error("[extract] RAG ingest failed:", result.json?.error);
+        }
+      } catch (e: any) {
+        console.error("[extract] RAG ingest error:", e?.message ?? e);
+      }
     }
 
     return res.status(200).json({ text: combined, pages, chars: combined.length, pageCount: pages.length, truncated });

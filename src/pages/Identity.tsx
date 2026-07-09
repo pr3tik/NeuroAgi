@@ -2,10 +2,13 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useApp }                    from "../context/AppContext";
-import { supabase }                  from "../api/supabase";
+import { signOut }                   from "../api/auth";
 import GradeGraph, { COURSE_COLORS } from "../components/GradeGraph";
 import ShareCard                     from "../components/ShareCard";
 import FriendsSection                from "../components/FriendsSection";
+import WritingTracker                from "../components/WritingTracker";
+import { LogIn, RefreshCw, Layers, CircleDot, Sparkles, Check, Hexagon, ArrowUp, Star, ChevronUp, ChevronDown, ArrowUpRight } from "lucide-react";
+import { coursesToGpa } from "../lib/gpa";
 
 // Deterministic fallback grade (72–97) derived from the course code string.
 function fallbackGrade(seed) {
@@ -30,15 +33,15 @@ const TOKEN_LABELS = {
 };
 
 const TOKEN_ICONS = {
-  daily_login:          "↗",
-  canvas_sync:          "↺",
-  flashcards_generated: "≡",
-  quiz_completed:       "◎",
-  quiz_perfect:         "✦",
-  assignment_submitted: "✓",
-  discord_connected:    "⬡",
-  streak_day:           "↑",
-  streak_milestone:     "★",
+  daily_login:          LogIn,
+  canvas_sync:          RefreshCw,
+  flashcards_generated: Layers,
+  quiz_completed:       CircleDot,
+  quiz_perfect:         Sparkles,
+  assignment_submitted: Check,
+  discord_connected:    Hexagon,
+  streak_day:           ArrowUp,
+  streak_milestone:     Star,
 };
 
 // Tier thresholds — keep in sync with api/token-engine.js
@@ -108,7 +111,8 @@ export default function Identity() {
     await updateUserField("name", trimmed);
   }, [nameInput, currentName, updateUserField]);
 
-  const gpa         = userData?.gpa        != null ? userData.gpa.toFixed(2) : "—";
+  const gpaVal      = userData?.gpa ?? coursesToGpa(courses);
+  const gpa         = gpaVal != null ? Number(gpaVal).toFixed(2) : "—";
   const streak      = `${userData?.streak     ?? 0}d`;
   const studyTime   = `${userData?.study_time ?? 0}h`;
   const totalDone   = assignments.filter(a => a.submission?.submittedAt).length || 0;
@@ -129,14 +133,10 @@ export default function Identity() {
   }));
 
   async function handleSignOut() {
-    // End the Supabase Auth (GoTrue) session, then clear local state regardless.
-    try { await supabase.auth.signOut(); } catch { /* clear local state regardless */ }
-    // Clear the FULL identity — especially fschool_uid. Leaving it behind made the
-    // next signup reuse this user's id and overwrite their row (accounts collapsed).
-    localStorage.removeItem("fschool_uid");
-    localStorage.removeItem("fschool_logged_in");
-    localStorage.removeItem("fschool_name");
-    localStorage.removeItem("sa_onboarding_draft");
+    // signOut() ends the GoTrue session (hang-proof) and clears the full local
+    // identity — especially fschool_uid, whose leftover value made the next signup
+    // reuse this user's id and overwrite their row (accounts collapsed).
+    await signOut();
     window.location.reload();
   }
 
@@ -220,6 +220,9 @@ export default function Identity() {
         />
       </div>
 
+      {/* Writing Evolution Tracker — profile a piece of writing + track growth over time */}
+      <WritingTracker />
+
       {/* Course performance bars — only shown when Canvas is connected */}
       {coursePerf.length > 0 && (
         <>
@@ -302,8 +305,8 @@ export default function Identity() {
                     padding: "8px 4px",
                     borderBottom: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none",
                   }}>
-                    <span style={{ fontSize: "13px", color: "rgba(196,154,60,0.6)", width: "16px", textAlign: "center", flexShrink: 0 }}>
-                      {TOKEN_ICONS[e.action] ?? "·"}
+                    <span style={{ color: "rgba(196,154,60,0.6)", width: "16px", display: "inline-flex", justifyContent: "center", flexShrink: 0 }}>
+                      {(() => { const Ic = TOKEN_ICONS[e.action]; return Ic ? <Ic size={13} /> : "·"; })()}
                     </span>
                     <span style={{ color: "var(--text-secondary)", fontSize: "13px", flex: 1 }}>
                       {TOKEN_LABELS[e.action] ?? e.action}
@@ -324,7 +327,9 @@ export default function Identity() {
                     letterSpacing: "0.3px",
                   }}
                 >
-                  {tokenExpanded ? "Show less ↑" : `View all ${tokenSummary.recentEvents.length} ↓`}
+                  {tokenExpanded
+                    ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Show less<ChevronUp size={13} /></span>
+                    : <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>View all {tokenSummary.recentEvents.length}<ChevronDown size={13} /></span>}
                 </button>
               )}
             </>
@@ -349,7 +354,7 @@ export default function Identity() {
             }}>
               <img src="/discord-logo.svg" alt="Discord" style={{ width: "20px", height: "20px", opacity: 0.55, flexShrink: 0 }} />
               <span style={{ color: "var(--text-secondary)", fontSize: "13px" }}>Discord connected</span>
-              <span style={{ color: "rgba(52,199,89,0.8)", fontSize: "13px", fontWeight: "600", marginLeft: "auto" }}>✓</span>
+              <span style={{ color: "rgba(52,199,89,0.8)", display: "inline-flex", marginLeft: "auto" }}><Check size={15} /></span>
             </div>
           ) : (
             <a
@@ -392,7 +397,7 @@ export default function Identity() {
           >
             <img src="/discord-logo.svg" alt="Discord" style={{ width: "18px", height: "18px", opacity: 0.6, flexShrink: 0 }} />
             <span style={{ color: "rgba(166,176,255,0.75)", fontSize: "13px" }}>Join our Discord</span>
-            <span style={{ color: "rgba(88,101,242,0.5)", fontSize: "12px", marginLeft: "auto" }}>↗</span>
+            <span style={{ color: "rgba(88,101,242,0.5)", marginLeft: "auto", display: "flex" }}><ArrowUpRight size={14} /></span>
           </a>
         </div>
       )}
@@ -424,7 +429,7 @@ export default function Identity() {
                   <span style={{ fontSize: "14px", fontWeight: 600, color: active ? "rgba(0,210,190,0.95)" : "var(--text-primary)" }}>
                     {opt.title}
                   </span>
-                  {active && <span style={{ color: "rgba(0,210,190,0.95)", fontSize: "13px" }}>✓</span>}
+                  {active && <Check size={15} style={{ color: "rgba(0,210,190,0.95)" }} />}
                 </div>
                 <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>{opt.desc}</span>
               </button>

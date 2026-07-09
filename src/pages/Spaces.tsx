@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../api/supabase";
 import { useApp }   from "../context/AppContext";
 import DocReader    from "../components/DocReader";
+import { FileText, Image as ImageIcon, StickyNote, FolderOpen, FolderArchive, Sparkles, Hexagon, ArrowUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import SpaceExams   from "../components/SpaceExams";
 
@@ -423,8 +424,8 @@ function AddDocSheet({
                 (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.07)";
               }}
             >
-              <span style={{ fontSize: 20, flexShrink: 0, lineHeight: 1 }}>
-                {f.file_type?.includes("pdf") ? "📄" : f.file_type?.includes("image") ? "🖼" : "📝"}
+              <span style={{ flexShrink: 0, lineHeight: 1, display: "flex", color: "var(--text-secondary)" }}>
+                {f.file_type?.includes("pdf") ? <FileText size={18} /> : f.file_type?.includes("image") ? <ImageIcon size={18} /> : <StickyNote size={18} />}
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{
@@ -583,8 +584,8 @@ function SpaceChat({
               background: "rgba(255,255,255,0.04)",
               border: "1px solid rgba(255,255,255,0.08)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 22, marginBottom: 14,
-            }}>✦</div>
+              marginBottom: 14,
+            }}><Sparkles size={22} /></div>
             <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 6, fontWeight: 500 }}>
               Space Chat
             </p>
@@ -666,7 +667,7 @@ function SpaceChat({
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 15, transition: "all 0.15s",
           }}
-        >↑</button>
+        ><ArrowUp size={16} /></button>
       </div>
     </div>
   );
@@ -869,8 +870,8 @@ function SpaceDetail({
               {docItems.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "44px 20px" }}>
                   <div style={{
-                    fontSize: 36, marginBottom: 14, opacity: 0.35,
-                  }}>📁</div>
+                    marginBottom: 14, opacity: 0.35, display: "flex", justifyContent: "center",
+                  }}><FolderOpen size={32} /></div>
                   <p style={{ fontSize: 14, color: "var(--text-secondary)", fontWeight: 500, marginBottom: 5 }}>
                     No documents
                   </p>
@@ -906,8 +907,8 @@ function SpaceDetail({
                           (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
                         }}
                       >
-                        <span style={{ fontSize: 20, flexShrink: 0, lineHeight: 1 }}>
-                          {file?.file_type?.includes("pdf") ? "📄" : "📝"}
+                        <span style={{ flexShrink: 0, lineHeight: 1, display: "flex", color: "var(--text-secondary)" }}>
+                          {file?.file_type?.includes("pdf") ? <FileText size={18} /> : <StickyNote size={18} />}
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{
@@ -997,7 +998,7 @@ function SpaceDetail({
             >
               {Object.keys(cardsByDoc).length === 0 ? (
                 <div style={{ textAlign: "center", padding: "44px 20px" }}>
-                  <div style={{ fontSize: 36, marginBottom: 14, opacity: 0.35 }}>🗂</div>
+                  <div style={{ marginBottom: 14, opacity: 0.35, display: "flex", justifyContent: "center" }}><FolderArchive size={32} /></div>
                   <p style={{ fontSize: 14, color: "var(--text-secondary)", fontWeight: 500, marginBottom: 5 }}>
                     No flashcards yet
                   </p>
@@ -1245,9 +1246,9 @@ export default function Spaces() {
                   background: "rgba(255,255,255,0.04)",
                   border: "1px solid rgba(255,255,255,0.08)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 38, margin: "0 auto 22px",
+                  margin: "0 auto 22px",
                   boxShadow: "0 0 40px rgba(0,0,0,0.3)",
-                }}>⬡</div>
+                }}><Hexagon size={38} /></div>
 
                 <p style={{
                   fontSize: 18, fontWeight: 700,

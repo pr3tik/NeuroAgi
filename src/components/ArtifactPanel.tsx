@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Check } from "lucide-react";
 
 // Escape any </script> inside component code so it doesn't break the HTML parser
 function escapeScriptTag(code) {
@@ -205,7 +206,7 @@ export default function ArtifactPanel({ code, type = "viz", onClose }) {
                 transition: "all 0.2s",
               }}
             >
-              {copied ? "Copied ✓" : "Copy Code"}
+              {copied ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}>Copied<Check size={13} /></span> : "Copy Code"}
             </button>
             <button
               onClick={handleClose}

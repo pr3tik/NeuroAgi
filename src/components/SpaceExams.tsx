@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Medal, ClipboardList, PenLine, BookOpen, Check, X } from "lucide-react";
 import { supabase } from "../api/supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -422,9 +423,13 @@ function ExamCard({ exam, attempt, onTake, onViewResults }: {
         width: 40, height: 40, borderRadius: 10, flexShrink: 0,
         background: done ? `${scoreColor(sc!)}18` : "rgba(255,255,255,0.05)",
         border: `1px solid ${done ? `${scoreColor(sc!)}30` : "rgba(255,255,255,0.08)"}`,
-        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+        display: "flex", alignItems: "center", justifyContent: "center",
       }}>
-        {done ? (sc! >= 70 ? "🏅" : "📋") : "📝"}
+        {done
+          ? (sc! >= 70
+              ? <Medal size={20} style={{ color: scoreColor(sc!) }} />
+              : <ClipboardList size={20} style={{ color: scoreColor(sc!) }} />)
+          : <PenLine size={20} style={{ color: "var(--text-secondary)" }} />}
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -569,7 +574,7 @@ function ExamSession({ exam, userId, attemptId, onSubmit }: {
                       fontSize: 15, fontWeight: 600, cursor: "pointer",
                       fontFamily: "inherit", transition: "all 0.14s",
                     }}
-                  >{isT ? "✓ True" : "✗ False"}</motion.button>
+                  ><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{isT ? <Check size={15} /> : <X size={15} />}{isT ? "True" : "False"}</span></motion.button>
                 );
               })}
             </div>
@@ -737,7 +742,7 @@ function ExamScorecard({ exam, attempt, onDone }: {
             background: "rgba(196,154,60,0.06)", border: "1px solid rgba(196,154,60,0.15)",
           }}
         >
-          <p style={{ fontSize: 12, color: "#C49A3C", fontWeight: 600, marginBottom: 8 }}>📚 Suggested study areas</p>
+          <p style={{ fontSize: 12, color: "#C49A3C", fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><BookOpen size={14} />Suggested study areas</p>
           {toReview.map(t => (
             <p key={t} style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 3 }}>· {t}</p>
           ))}
@@ -1069,7 +1074,7 @@ Return ONLY valid JSON (no markdown fences):
           )}
           {exams.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px 20px" }}>
-              <div style={{ fontSize: 36, marginBottom: 14, opacity: 0.35 }}>📝</div>
+              <div style={{ marginBottom: 14, opacity: 0.35, display: "flex", justifyContent: "center" }}><PenLine size={32} /></div>
               <p style={{ fontSize: 14, color: "var(--text-secondary)", fontWeight: 500, marginBottom: 5 }}>No exams yet</p>
               <p style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6 }}>
                 {docRefs.length ? "Generate a practice exam from your space documents." : "Add documents first, then create an exam."}

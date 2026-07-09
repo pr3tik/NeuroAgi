@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import DailyIframe from "@daily-co/daily-js";
+import { Mic, Headphones, Hand, Lightbulb, Circle, Square, Minus } from "lucide-react";
 
 type Status = "loading" | "ready" | "unavailable" | "error";
 
@@ -23,21 +24,33 @@ function clamp(left: number, top: number, popW: number, popH: number) {
   };
 }
 
-export default function VoiceRoom({ roomId, userName, onClose }: {
+export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange, handRaised = false, onToggleHand, forceMinimized = false }: {
   roomId: string;
   userName?: string;
   onClose: () => void;
+  onSpeakingChange?: (name: string | null) => void;
+  handRaised?: boolean;
+  onToggleHand?: () => void;
+  /** When true the panel collapses to the slim bar regardless of internal minimized state.
+   *  Used by the parent to keep voice alive but out of the way when the whiteboard is open. */
+  forceMinimized?: boolean;
 }) {
   const [status, setStatus]       = useState<Status>("loading");
   const [url, setUrl]             = useState<string | null>(null);
   const [minimized, setMinimized] = useState(false);
+  const [retryKey, setRetryKey]   = useState(0);
 
   const [pos, setPos]             = useState(() =>
     defaultPos(window.innerWidth, window.innerHeight)
   );
-  const isMobile = window.innerWidth < 600;
+  const [isMobile, setIsMobile]   = useState(window.innerWidth < 600);
 
   const [pttActive, setPttActive] = useState(false);
+  const [ncEnabled, setNcEnabled] = useState(true);
+  const ncEnabledRef = useRef(true);
+  const [connectionQuality, setConnectionQuality] = useState<"good" | "fair" | "poor" | "unknown">("unknown");
+  const [showPttHint, setShowPttHint]  = useState(false);
+  const pttHintShownRef = useRef(false);
   const callFrameRef = useRef<any>(null);
 
   const dragging   = useRef(false);
@@ -45,6 +58,8 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
   const popupRef   = useRef<HTMLDivElement>(null);
   const iframeRef  = useRef<HTMLIFrameElement>(null);
 
+  // Declared before effects so closures in the resize/drag effects can see it without TDZ errors.
+  const isMinimized = forceMinimized || minimized;
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -70,7 +85,7 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
       }
     })();
     return () => { alive = false; ctrl.abort(); };
-  }, [roomId]);
+  }, [roomId, retryKey]);
 
   // Correct Daily.co SDK pattern: wrap an empty iframe (no src), then call join() which
   // navigates the iframe to the room URL AND puts the SDK into "joined" state so that
@@ -85,9 +100,26 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
     if (!url || !iframeRef.current) return;
     const frame = DailyIframe.wrap(iframeRef.current);
     frame.join({ url, startVideoOff: true, startAudioOff: true }).catch(() => {});
+    frame.on("joined-meeting", () => {
+      if (ncEnabledRef.current) {
+        frame.updateInputSettings({ audio: { processor: { type: "noise-cancellation" } } }).catch(() => {});
+      }
+      if (!pttHintShownRef.current) {
+        pttHintShownRef.current = true;
+        setShowPttHint(true);
+        setTimeout(() => setShowPttHint(false), 3500);
+      }
+    });
+    frame.on("active-speaker-change", (e: any) => {
+      const peerId = e?.activeSpeaker?.peerId;
+      if (!peerId) { onSpeakingChange?.(null); return; }
+      const speaker = frame.participants()[peerId];
+      onSpeakingChange?.(speaker?.user_name ?? null);
+    });
     callFrameRef.current = frame;
     setStatus("ready");
     return () => {
+      onSpeakingChange?.(null);
       callFrameRef.current = null;
       frame.leave().catch(() => {}).finally(() => { try { frame.destroy(); } catch {} });
     };
@@ -118,22 +150,35 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
   }, []);
 
   useEffect(() => {
+    const conn = (navigator as any).connection;
+    if (!conn) return;
+    function update() {
+      const type = conn.effectiveType;
+      setConnectionQuality(type === "4g" ? "good" : type === "3g" ? "fair" : "poor");
+    }
+    update();
+    conn.addEventListener("change", update);
+    return () => conn.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
     function onResize() {
+      setIsMobile(window.innerWidth < 600);
       setPos(p => {
-        const pw = minimized ? POPUP_W_SM : POPUP_W;
-        const ph = minimized ? POPUP_H_SM : POPUP_H;
+        const pw = isMinimized ? POPUP_W_SM : POPUP_W;
+        const ph = isMinimized ? POPUP_H_SM : POPUP_H;
         return clamp(p.left, p.top, pw, ph);
       });
     }
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [minimized]);
+  }, [isMinimized]);
 
   useEffect(() => {
     function onMove(e: MouseEvent) {
       if (!dragging.current) return;
-      const pw = popupRef.current?.offsetWidth  ?? (minimized ? POPUP_W_SM : POPUP_W);
-      const ph = popupRef.current?.offsetHeight ?? (minimized ? POPUP_H_SM : POPUP_H);
+      const pw = popupRef.current?.offsetWidth  ?? (isMinimized ? POPUP_W_SM : POPUP_W);
+      const ph = popupRef.current?.offsetHeight ?? (isMinimized ? POPUP_H_SM : POPUP_H);
       setPos(clamp(
         e.clientX - dragOffset.current.x,
         e.clientY - dragOffset.current.y,
@@ -147,7 +192,7 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup",   onUp);
     };
-  }, [minimized]);
+  }, [isMinimized]);
 
   function startDrag(e: React.MouseEvent) {
     dragging.current   = true;
@@ -155,9 +200,18 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
     e.preventDefault();
   }
 
+  function toggleNC() {
+    const next = !ncEnabledRef.current;
+    ncEnabledRef.current = next;
+    setNcEnabled(next);
+    callFrameRef.current?.updateInputSettings({
+      audio: { processor: { type: next ? "noise-cancellation" : "none" } },
+    }).catch(() => {});
+  }
+
   const ACCENT = "#60a5fa";
 
-  const mobileCollapsed = isMobile && minimized;
+  const mobileCollapsed = isMobile && isMinimized;
 
   // ── Full popup (desktop) or expanded bottom sheet (mobile) ───────────────
   const popup = (
@@ -183,9 +237,9 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
         position:             "fixed",
         top:                  pos.top,
         left:                 pos.left,
-        width:                minimized ? POPUP_W_SM : POPUP_W,
+        width:                isMinimized ? POPUP_W_SM : POPUP_W,
         zIndex:               1200,
-        borderRadius:         minimized ? "32px" : "16px",
+        borderRadius:         isMinimized ? "32px" : "16px",
         border:               "1px solid rgba(96,165,250,0.25)",
         background:           "rgba(10,10,14,0.97)",
         backdropFilter:       "blur(20px)",
@@ -209,9 +263,19 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "14px", pointerEvents: "none" }}>🎙</span>
-          <span style={{ fontSize: "13px", fontWeight: 600, color: ACCENT, pointerEvents: "none" }}>Voice Chat</span>
+          {/* Live pulse dot — always visible so minimized bar shows call is active */}
           {status === "ready" && (
+            <span style={{
+              display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0,
+              background: "#4ade80", boxShadow: "0 0 6px #4ade80",
+              animation: "vcPulse 1.8s ease-in-out infinite",
+            }} />
+          )}
+          <span style={{ display: "flex", pointerEvents: "none", color: ACCENT }}><Mic size={14} /></span>
+          <span style={{ fontSize: "13px", fontWeight: 600, color: ACCENT, pointerEvents: "none" }}>
+            {isMinimized ? "Voice" : "Voice Chat"}
+          </span>
+          {status === "ready" && !isMinimized && (
             <button
               onPointerDown={e => {
                 e.preventDefault();
@@ -244,8 +308,70 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
                 lineHeight: "20px",
               }}
             >
-              {pttActive ? "🔴 LIVE" : "🎙 Hold to talk"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                {pttActive
+                  ? <><Circle size={9} fill="currentColor" strokeWidth={0} />LIVE</>
+                  : <><Mic size={12} />Hold to talk</>}
+              </span>
             </button>
+          )}
+          {status === "ready" && !isMinimized && (
+            <button
+              onClick={toggleNC}
+              title={ncEnabled ? "Noise cancellation on (click to disable)" : "Noise cancellation off (click to enable)"}
+              style={{
+                background: ncEnabled ? "rgba(74,222,128,0.12)" : "rgba(255,255,255,0.06)",
+                border: `1px solid ${ncEnabled ? "rgba(74,222,128,0.4)" : "rgba(255,255,255,0.12)"}`,
+                borderRadius: "6px",
+                color: ncEnabled ? "#4ade80" : "var(--text-dim)",
+                fontSize: "11px",
+                fontWeight: 600,
+                padding: "2px 8px",
+                cursor: "pointer",
+                userSelect: "none",
+                transition: "all 0.08s",
+                fontFamily: "inherit",
+                lineHeight: "20px",
+              }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Headphones size={12} />{ncEnabled ? "NC On" : "NC Off"}</span>
+            </button>
+          )}
+          {status === "ready" && !isMinimized && (
+            <button
+              onClick={onToggleHand}
+              title={handRaised ? "Lower hand" : "Raise hand"}
+              style={{
+                background: handRaised ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.06)",
+                border: `1px solid ${handRaised ? "rgba(196,154,60,0.5)" : "rgba(255,255,255,0.12)"}`,
+                borderRadius: "6px",
+                color: handRaised ? "#c49a3c" : "var(--text-dim)",
+                fontSize: "11px",
+                fontWeight: 600,
+                padding: "2px 8px",
+                cursor: "pointer",
+                userSelect: "none",
+                transition: "all 0.08s",
+                fontFamily: "inherit",
+                lineHeight: "20px",
+              }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Hand size={12} />{handRaised ? "Raised" : "Raise"}</span>
+            </button>
+          )}
+          {connectionQuality !== "unknown" && !isMinimized && (
+            <span title={`Connection: ${connectionQuality}`} style={{
+              display: "inline-flex", alignItems: "center", gap: "4px",
+              fontSize: "11px", color: connectionQuality === "good" ? "#4ade80" : connectionQuality === "fair" ? "#f59e0b" : "#f87171",
+              padding: "2px 6px",
+            }}>
+              <span style={{
+                width: "8px", height: "8px", borderRadius: "50%",
+                background: connectionQuality === "good" ? "#4ade80" : connectionQuality === "fair" ? "#f59e0b" : "#f87171",
+                flexShrink: 0,
+              }} />
+              {connectionQuality}
+            </span>
           )}
         </div>
         <div
@@ -270,14 +396,14 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
           {!isMobile && (
             <button
               onClick={() => setMinimized(m => !m)}
-              title={minimized ? "Expand" : "Minimize"}
+              title={isMinimized ? "Expand" : "Minimize"}
               style={{
                 background: "none", border: "none", cursor: "pointer",
                 color: "var(--text-dim)", fontSize: "15px", lineHeight: 1,
                 padding: "2px 5px", borderRadius: "5px",
               }}
             >
-              {minimized ? "□" : "─"}
+              {isMinimized ? <Square size={13} /> : <Minus size={15} />}
             </button>
           )}
           <button
@@ -295,7 +421,7 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
       </div>
 
       {/* Body */}
-      <div style={{ height: (!isMobile && minimized) ? 0 : "auto", overflow: "hidden" }}>
+      <div style={{ height: (!isMobile && isMinimized) ? 0 : "auto", overflow: "hidden" }}>
 
         {/* iframe is mounted for both loading + ready so iframeRef is set when the
             wrap+join effect fires. A loading overlay covers it until join() resolves. */}
@@ -323,7 +449,19 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
                 padding: "7px 18px", borderRadius: "20px", zIndex: 10, pointerEvents: "none",
                 boxShadow: "0 0 16px rgba(239,68,68,0.5)", letterSpacing: "0.04em",
               }}>
-                🎙 LIVE
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Mic size={13} />LIVE</span>
+              </div>
+            )}
+            {showPttHint && !pttActive && (
+              <div style={{
+                position: "absolute", bottom: "54px", left: "50%", transform: "translateX(-50%)",
+                background: "rgba(20,20,28,0.92)", color: "var(--text-primary)", fontSize: "12px",
+                fontWeight: 500, padding: "8px 16px", borderRadius: "20px", zIndex: 10,
+                pointerEvents: "none", border: "1px solid rgba(255,255,255,0.12)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.5)", whiteSpace: "nowrap",
+                animation: "vcPttHint 3.5s ease forwards",
+              }}>
+                <Lightbulb size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />Hold <kbd style={{ background: "rgba(255,255,255,0.12)", borderRadius: "4px", padding: "1px 6px", fontFamily: "inherit" }}>Space</kbd> to talk
               </div>
             )}
           </div>
@@ -349,14 +487,30 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
             <p style={{ fontSize: "13px", color: "var(--text-primary)", marginBottom: "6px" }}>
               Couldn't connect to voice.
             </p>
-            <p style={{ fontSize: "11px", color: "var(--text-dim)" }}>
-              Check your connection and try reopening the panel.
+            <p style={{ fontSize: "11px", color: "var(--text-dim)", marginBottom: "16px" }}>
+              Check your connection and try again.
             </p>
+            <button
+              onClick={() => { setStatus("loading"); setUrl(null); setRetryKey(k => k + 1); }}
+              style={{
+                background: "rgba(96,165,250,0.12)",
+                border: "1px solid rgba(96,165,250,0.35)",
+                borderRadius: "8px",
+                color: ACCENT,
+                fontSize: "13px",
+                fontWeight: 600,
+                padding: "8px 20px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              Try again
+            </button>
           </div>
         )}
       </div>
 
-      <style>{`@keyframes vcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}`}</style>
+      <style>{`@keyframes vcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}@keyframes vcPttHint{0%{opacity:0;transform:translateX(-50%) translateY(6px)}10%{opacity:1;transform:translateX(-50%) translateY(0)}80%{opacity:1}100%{opacity:0}}`}</style>
     </div>
   );
 

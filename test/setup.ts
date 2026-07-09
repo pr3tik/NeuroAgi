@@ -20,3 +20,18 @@ if (typeof window !== "undefined" && !window.matchMedia) {
     dispatchEvent: () => false,
   });
 }
+
+// jsdom doesn't implement IntersectionObserver. Default mock reports the observed element
+// as visible immediately, so view-gated effects (NotificationPanel's opened_at stamping)
+// fire in component tests. A test can override globalThis.IntersectionObserver with a
+// non-firing version to simulate an off-screen (never-seen) item.
+if (typeof globalThis !== "undefined" && !(globalThis as any).IntersectionObserver) {
+  class IntersectionObserverMock {
+    constructor(private cb: (entries: any[], o: any) => void) {}
+    observe(el: Element) { this.cb([{ isIntersecting: true, target: el, intersectionRatio: 1 }], this); }
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return []; }
+  }
+  (globalThis as any).IntersectionObserver = IntersectionObserverMock;
+}

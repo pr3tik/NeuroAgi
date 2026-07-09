@@ -102,8 +102,8 @@ export function formatBrainContextForPrompt(brainContext, studentName = 'the stu
   // Most urgent deadline
   if (brainContext.most_urgent_deadline) {
     const d = brainContext.most_urgent_deadline;
-    const urgency = d.hours_remaining < 6 ? '🔴 URGENT' : d.hours_remaining < 24 ? '🟡 Soon' : '🟢';
-    lines.push(`Most urgent deadline: ${d.name} — ${d.hours_remaining}h remaining (${d.course}) ${urgency}`);
+    const urgency = d.hours_remaining < 6 ? 'URGENT' : d.hours_remaining < 24 ? 'Soon' : '';
+    lines.push(`Most urgent deadline: ${d.name} — ${d.hours_remaining}h remaining (${d.course})${urgency ? ` — ${urgency}` : ''}`);
   }
 
   // Sleep

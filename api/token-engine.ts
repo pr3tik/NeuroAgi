@@ -4,12 +4,24 @@
 // GET  ?action=summary&userId=X
 
 import { createClient } from "@supabase/supabase-js";
-import { notify } from "./_notify";
+import { notify } from "./_notify.js";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "",
-  process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? ""
-);
+// Lazy client (import-safe): defers createClient off module-load so importers don't
+// crash on Node-20 (no global WebSocket for supabase-js realtime). All `supabase.*`
+// call-sites unchanged. (PRD §19.12 import-safety rule.)
+let _sb: any = null;
+const supabase: any = new Proxy({}, {
+  get(_t, prop) {
+    if (!_sb) {
+      _sb = createClient(
+        process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "",
+        process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? ""
+      );
+    }
+    const v = _sb[prop];
+    return typeof v === "function" ? v.bind(_sb) : v;
+  },
+});
 
 // ── Token config — source of truth for all award amounts ─────────────────────
 const ACTIONS = {

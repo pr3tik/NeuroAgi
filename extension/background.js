@@ -17,7 +17,7 @@ const SB_PROFILE = { "Accept-Profile": "public", "Content-Profile": "public" };
 // ── Claude extraction via Vercel proxy ────────────────────────────────────────
 // We route through our own API to keep ANTHROPIC_API_KEY server-side.
 async function callClaude(system, userContent) {
-  const res = await fetch("https://neuro-agi-topaz.vercel.app/api/claude", {
+  const res = await fetch("https://fschoolai.com/api/claude", {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -342,8 +342,8 @@ async function ingestApiData(userId, data) {
 // Bounded + skips files that already have BOTH stored.
 // NOTE: points at the same Vercel base as the Claude proxy — /api/extract must be
 // DEPLOYED there. For local testing, set EXTRACT_URL to http://localhost:5173/api/extract.
-const EXTRACT_URL = "https://neuro-agi-topaz.vercel.app/api/extract";
-const MAX_EXTRACT_PER_SYNC = 10;
+const EXTRACT_URL = "https://fschoolai.com/api/extract";
+const MAX_EXTRACT_PER_SYNC = 25;
 const MAX_FILE_BYTES = 25_000_000;   // matches the bucket's file_size_limit
 
 const MIME_BY_EXT = {
@@ -375,40 +375,150 @@ function abToBase64(buf) {
 }
 
 async function extractFileContents(userId, files) {
-  const candidates = (files || []).filter(f => f.source_url && f.id);
-  if (!candidates.length) return;
+  // Build candidate list from passed files, or query Supabase for ALL pending files
+  // when called from the alarm (no files passed) — this lets re-scheduled runs
+  // cover files beyond the last sync's batch.
+  let candidates;
+  if (files?.length) {
+    candidates = files.filter(f => f.source_url && f.id);
+  } else {
+    try {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&content_text=is.null&source_url=not.is.null&select=lms_file_id,name,file_type,source_url,course_id`,
+        { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+      );
+      candidates = r.ok ? (await r.json()).map(f => ({ ...f, id: f.lms_file_id })) : [];
+    } catch { candidates = []; }
+  }
+  if (!candidates.length) return false;
 
-  // Pull the set of files that are already DONE (have both content_text AND a
-  // stored binary) in ONE query, then skip them. Doing this up front (instead of
-  // slicing the first N and per-file probing) means each sync advances to the
-  // NEXT unfinished files — otherwise the first N would be retried forever and
-  // files past them would never be reached.
+  // Mark done by content_text only — storage_path is separate and its failure
+  // should not cause a file to be re-extracted on every sync.
   let done = new Set();
   try {
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&content_text=not.is.null&storage_path=not.is.null&select=lms_file_id`,
+      `${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&content_text=not.is.null&select=lms_file_id`,
       { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
     );
     if (r.ok) done = new Set((await r.json()).map(x => String(x.lms_file_id)));
-  } catch { /* if the probe fails, fall through and (re)attempt */ }
+  } catch { /* fall through and re-attempt */ }
 
   const targets = candidates
     .filter(f => !done.has(String(f.id)))
     .slice(0, MAX_EXTRACT_PER_SYNC);
 
+  if (!targets.length) return false;
+
+  // Use the user's JWT for storage uploads — the anon key doesn't have write
+  // permission on the course-files bucket.
+  const { neuroagi_user } = await chrome.storage.local.get("neuroagi_user");
+  const userJwt = neuroagi_user?.access_token || SUPABASE_ANON;
+
   for (const f of targets) {
     try {
       const key = encodeURIComponent(String(f.id));
 
+      // YouTube links: send URL directly to extract for transcript — no bytes to fetch.
+      if (f.file_type === "youtube") {
+        const ex = await fetch(EXTRACT_URL, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ youtubeUrl: f.source_url, name: f.name, userId }),
+        }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+        if (ex?.text) {
+          await fetch(`${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}`, {
+            method:  "PATCH",
+            headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json", Prefer: "return=minimal", ...SB_PROFILE },
+            body:    JSON.stringify({ content_text: ex.text }),
+          });
+        }
+        continue;
+      }
+
+      // Google Drive / generic external links — no auth available, skip.
+      if (f.file_type === "gdrive" || f.file_type === "link") continue;
+
+      // Video files (MP4, MOV, etc.) are lecture recordings — too large to download
+      // in a service worker. D2L also wraps them as ZIPs on download. Mark them so
+      // they stop being retried; server-side Scribe transcription handles these.
+      const isVideoType = /^(mp4|mov|webm|avi|mkv|wmv|flv|m4v|zip)$/.test(String(f.file_type || "").toLowerCase());
+      if (isVideoType) {
+        await fetch(`${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}`, {
+          method:  "PATCH",
+          headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json", Prefer: "return=minimal", ...SB_PROFILE },
+          body:    JSON.stringify({ content_text: "[Video lecture — transcription pending]" }),
+        });
+        continue;
+      }
+
       // Fetch the file via the student's session (cookies).
       const resp = await fetch(f.source_url, { credentials: "include" });
       if (!resp.ok) continue;
+
+      // D2L sometimes wraps downloads as application/zip even for non-ZIP file types.
+      // If the response is a ZIP and we weren't expecting one, treat as video recording.
+      const respCtype0 = (resp.headers.get("content-type") || "").split(";")[0].trim();
+      if (respCtype0 === "application/zip") {
+        await fetch(`${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}`, {
+          method:  "PATCH",
+          headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json", Prefer: "return=minimal", ...SB_PROFILE },
+          body:    JSON.stringify({ content_text: "[Video lecture — transcription pending]" }),
+        });
+        continue;
+      }
+
       const buf = await resp.arrayBuffer();
       if (buf.byteLength > MAX_FILE_BYTES) continue;
 
-      // 1. Upload the raw bytes to the private bucket so the real document is
-      //    openable later. Path = "<userId>/<sanitized lms_file_id>.<ext>"; the
-      //    stored Content-Type is what makes a PDF open inline on download.
+      // If D2L returned an HTML page instead of a binary file, extract the text
+      // and scrape any external links out of it — this captures content pages where
+      // professors paste URLs (e.g. de.torontomu.ca course modules) rather than
+      // uploading files directly.
+      const respCtype = (resp.headers.get("content-type") || "").split(";")[0].trim();
+      if (respCtype === "text/html") {
+        const html = new TextDecoder().decode(buf);
+        const text = html
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (text.length > 100) {
+          await fetch(`${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}`, {
+            method:  "PATCH",
+            headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json", Prefer: "return=minimal", ...SB_PROFILE },
+            body:    JSON.stringify({ content_text: text.slice(0, 50000) }),
+          });
+        }
+        // Extract external links and add them as new file rows so they get indexed.
+        if (f.course_id) {
+          const now = new Date().toISOString();
+          const seen = new Set();
+          const newRows = [];
+          for (const m of html.matchAll(/(?:href|src)=["'](https?:\/\/[^"'#][^"']*?)["']/gi)) {
+            const url = m[1];
+            if (seen.has(url) || /\/d2l\/|learn\.torontomu\.ca/i.test(url)) continue;
+            seen.add(url);
+            let h = 0;
+            for (let i = 0; i < url.length; i++) h = (Math.imul(h, 31) + url.charCodeAt(i)) | 0;
+            const isYt = /youtu\.?be/i.test(url);
+            const isGd = /drive\.google|docs\.google/i.test(url);
+            newRows.push({
+              user_id: userId, course_id: f.course_id,
+              lms_file_id: "page_link_" + (h >>> 0).toString(36),
+              name: url.slice(0, 100),
+              file_type: isYt ? "youtube" : isGd ? "gdrive" : "link",
+              source_url: url, status: "external_link",
+              source: "extension", updated_at: now,
+            });
+            if (newRows.length >= 10) break; // cap at 10 links per page
+          }
+          if (newRows.length) await sbUpsert("files", newRows, "user_id,lms_file_id").catch(() => {});
+        }
+        continue;
+      }
+
+      // 1. Upload raw bytes using the user's JWT so the bucket accepts the write.
       const ext  = fileExt(f);
       const safe = String(f.id).replace(/[^A-Za-z0-9._-]/g, "_") + (ext ? `.${ext}` : "");
       const path = `${userId}/${safe}`;
@@ -418,13 +528,14 @@ async function extractFileContents(userId, files) {
       try {
         const up = await fetch(`${SUPABASE_URL}/storage/v1/object/course-files/${path}`, {
           method:  "POST",
-          headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": ctype, "x-upsert": "true" },
+          headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${userJwt}`, "Content-Type": ctype, "x-upsert": "true" },
           body:    buf,
         });
         if (up.ok) storagePath = path;
-      } catch { /* storage upload failed — keep going, still extract text */ }
+        else console.warn("[NeuroAgi] storage upload failed", up.status, await up.text().catch(() => ""));
+      } catch (e) { console.warn("[NeuroAgi] storage upload error", e.message); }
 
-      // 2. Extract readable text for the tutor + ingest into RAG.
+      // 2. Extract readable text for the tutor.
       const ex = await fetch(EXTRACT_URL, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -432,17 +543,22 @@ async function extractFileContents(userId, files) {
       }).then(r => (r.ok ? r.json() : null)).catch(() => null);
 
       const patch = {};
-      if (ex?.text)     patch.content_text = ex.text;
-      if (storagePath)  patch.storage_path = storagePath;
+      if (ex?.text)    patch.content_text = ex.text;
+      else if (storagePath) patch.content_text = "[File indexed — text extraction unavailable]";
+      if (storagePath) patch.storage_path = storagePath;
       if (Object.keys(patch).length) {
-        await fetch(`${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}`, {
+        const pr = await fetch(`${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}`, {
           method:  "PATCH",
           headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json", Prefer: "return=minimal", ...SB_PROFILE },
           body:    JSON.stringify(patch),
         });
+        if (!pr.ok) console.warn("[NeuroAgi] patch failed", pr.status, await pr.text().catch(() => ""));
       }
     } catch { /* skip this file */ }
   }
+
+  // Return true if we hit the batch limit — caller can re-schedule for the remainder.
+  return targets.length >= MAX_EXTRACT_PER_SYNC;
 }
 
 async function extract(userId, pageContent, stepHint) {
@@ -818,16 +934,35 @@ chrome.runtime.onInstalled.addListener(ensureSyncAlarm);
 chrome.runtime.onStartup.addListener(ensureSyncAlarm);
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== SYNC_ALARM) return;
-  const { neuroagi_user } = await chrome.storage.local.get("neuroagi_user");
-  if (!neuroagi_user?.id) return;                       // not logged in
-  const tabs = await chrome.tabs.query({});
-  const portalTab = tabs.find(t => looksLikePortal(t.url));
-  if (!portalTab) return;                               // no session context right now
-  try {
-    await autoSync(neuroagi_user.id, portalTab.id);
-    await chrome.storage.local.set({ neuroagi_last_autosync: Date.now() });
-  } catch (e) { console.warn("[NeuroAgi] periodic sync failed:", e.message); }
+  if (alarm.name === SYNC_ALARM) {
+    const { neuroagi_user } = await chrome.storage.local.get("neuroagi_user");
+    if (!neuroagi_user?.id) return;                       // not logged in
+    const tabs = await chrome.tabs.query({});
+    const portalTab = tabs.find(t => looksLikePortal(t.url));
+    if (!portalTab) return;                               // no session context right now
+    try {
+      await autoSync(neuroagi_user.id, portalTab.id);
+      await chrome.storage.local.set({ neuroagi_last_autosync: Date.now() });
+    } catch (e) { console.warn("[NeuroAgi] periodic sync failed:", e.message); }
+  }
+
+  if (alarm.name === "neuroagi_file_extract") {
+    try {
+      const { neuroagi_extract_pending } = await chrome.storage.local.get("neuroagi_extract_pending");
+      if (neuroagi_extract_pending?.userId) {
+        const { userId, files } = neuroagi_extract_pending;
+        // After the first batch, pass null so subsequent runs query ALL pending files
+        // from Supabase rather than re-processing just the last sync's list.
+        const hasMore = await extractFileContents(userId, files).catch(() => false);
+        if (hasMore) {
+          await chrome.storage.local.set({ neuroagi_extract_pending: { userId } });
+          chrome.alarms.create("neuroagi_file_extract", { delayInMinutes: 0.5 }); // 30s between batches
+        } else {
+          await chrome.storage.local.remove("neuroagi_extract_pending");
+        }
+      }
+    } catch (e) { console.warn("[NeuroAgi] file extraction alarm failed:", e.message); }
+  }
 });
 
 // ── Message listener ──────────────────────────────────────────────────────────
@@ -858,10 +993,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "NEUROAGI_API_INGEST") {
     (async () => {
       const counts = await ingestApiData(msg.userId, msg.data);
-      // Await so the service worker stays alive until extraction finishes (an
-      // unawaited promise is dropped when the worker is torn down post-response).
-      await extractFileContents(msg.userId, msg.data.files).catch(() => {});  // fill content_text
       const stats  = await getCurrentStats(msg.userId);
+      // Schedule file extraction via alarm so the popup response is not blocked by
+      // it — extraction can take minutes per file (fetch + upload + /api/extract).
+      // Store userId only; the alarm queries Supabase for all pending files itself.
+      if (msg.data.files?.length) {
+        await chrome.storage.local.set({
+          neuroagi_extract_pending: { userId: msg.userId, files: msg.data.files },
+        });
+        chrome.alarms.create("neuroagi_file_extract", { delayInMinutes: 0.1 });
+      }
       return { ok: true, counts, stats };
     })().then(sendResponse).catch(err => sendResponse({ ok: false, error: err.message }));
     return true;

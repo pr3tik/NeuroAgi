@@ -1,0 +1,53 @@
+name: CI
+
+# Run on direct pushes to the integration branches, and on every PR targeting them.
+# (Feature-branch work is covered once a PR is opened — no need to also run on every
+# feature push, which would double up with the pull_request event.)
+on:
+  push:
+    branches: [main, frontend/dev]
+  pull_request:
+    branches: [main, frontend/dev]
+
+# Cancel an in-progress run when a newer commit lands on the same ref — saves minutes
+# on rapid pushes and gives you the result for the latest commit only.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: this workflow only needs to read the repo.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: typecheck · build · test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20        # matches Vercel's runtime; project uses Node 18+ features
+          cache: npm              # caches ~/.npm keyed on package-lock.json
+
+      # `npm ci` installs EXACTLY from package-lock.json and fails if the lockfile is out
+      # of sync with package.json. That catches the "imported a dependency but never
+      # committed the lockfile entry" bug that broke the build locally.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck   # tsc --noEmit
+
+      # The build is a real signal here, not redundant with tests: it's what catches
+      # missing/unresolvable imports (e.g. a dep that's imported but not installed).
+      - name: Build
+        run: npm run build
+
+      # Hermetic — no secrets needed. The mocked tests use dummy env (test/setup.ts), and
+      # the live ElevenLabs test skips itself when ELEVENLABS_API_KEY is absent. The
+      # real-service scripts in scripts/ are not *.test.ts, so vitest never runs them.
+      - name: Test
+        run: npm test            # vitest run

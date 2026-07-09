@@ -12,18 +12,24 @@
  * Note: uses SUPABASE_SERVICE_KEY (not anon key) to read all users server-side
  */
 
+import { deliverSMS } from "./_notify.js";
+
 const TWILIO_SID   = process.env.TWILIO_SID;
 const TWILIO_TOKEN = process.env.TWILIO_TOKEN;
 const TWILIO_FROM  = process.env.TWILIO_FROM;
 const SB_URL       = process.env.SUPABASE_URL;
 const SB_KEY       = process.env.SUPABASE_SERVICE_KEY; // service role key for server-side reads
 
-const TWILIO_API   = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`;
 const H48          = 48 * 60 * 60 * 1000;
 
 async function sbFetch(path, params = {}) {
   const url = new URL(`${SB_URL}/rest/v1/${path}`);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
+  // Array value → append the same key multiple times (e.g. a two-sided due_at range,
+  // which PostgREST ANDs together). Scalars use set (single filter).
+  Object.entries(params).forEach(([k, v]) => {
+    if (Array.isArray(v)) v.forEach((val) => url.searchParams.append(k, String(val)));
+    else url.searchParams.set(k, String(v));
+  });
   const res = await fetch(url.toString(), {
     headers: {
       apikey:        SB_KEY,
@@ -36,18 +42,9 @@ async function sbFetch(path, params = {}) {
   return res.json();
 }
 
-async function sendSMS(to, body) {
-  const creds = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString("base64");
-  const res = await fetch(TWILIO_API, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${creds}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ To: to, From: TWILIO_FROM, Body: body }).toString(),
-  });
-  return res.ok;
-}
+// SMS delivery is now the shared deliverSMS() primitive (api/_notify.ts) — same Twilio
+// call, reusable from any caller (this cron, the Arbiter, tutor tools).
+const sendSMS = deliverSMS;
 
 export default async function handler(req, res) {
   // Vercel cron sends GET; reject other methods in prod
@@ -63,13 +60,30 @@ export default async function handler(req, res) {
     const now  = new Date();
     const h48  = new Date(now.getTime() + H48).toISOString();
 
-    // Get all users who have a phone number stored
-    const users = await sbFetch("users", {
-      select: "id,name,phone",
-      "phone": "not.is.null",
-    });
+    // Get all users who have a phone number stored. Page through PostgREST's default
+    // row cap (~1000) so users beyond the first page still get reminders.
+    const users: any[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const page = await sbFetch("users", {
+        select: "id,name,phone",
+        "phone": "not.is.null",
+        order: "id",
+        limit: "1000",
+        offset: String(offset),
+      });
+      // PostgREST errors come back as an OBJECT ({code,message}), not an array — the old
+      // code treated that as "no users" and reported success. Surface it: the live schema
+      // has NO users.phone column (42703), so SMS reminders need a migration to ever fire.
+      if (page && !Array.isArray(page) && page.code) {
+        console.error("[assignment-reminder] users query failed:", page.code, page.message);
+        return res.status(500).json({ sent: 0, error: `users query failed: ${page.message ?? page.code}` });
+      }
+      if (!Array.isArray(page) || page.length === 0) break;
+      users.push(...page);
+      if (page.length < 1000) break;
+    }
 
-    if (!Array.isArray(users) || !users.length) {
+    if (!users.length) {
       return res.status(200).json({ sent: 0, message: "No users with phone numbers" });
     }
 
@@ -83,7 +97,9 @@ export default async function handler(req, res) {
         select: "title,due_at,courses(name)",
         user_id: `eq.${user.id}`,
         submitted_at: "is.null",
-        due_at: `gte.${now.toISOString()}`,
+        // Two-sided window: due from now through +48h (h48). Previously only the lower
+        // bound was applied, so the "due soon" text fired for ALL future assignments.
+        due_at: [`gte.${now.toISOString()}`, `lte.${h48}`],
       });
 
       if (!Array.isArray(assignments) || !assignments.length) return;

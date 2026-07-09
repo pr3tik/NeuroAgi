@@ -38,3 +38,38 @@ export async function postRoomMessage(
   if (error) throw error;
   return data as ChatMessage;
 }
+
+/**
+ * Upload an image file to Supabase Storage and return a long-lived signed URL.
+ * Stored at chat-images/{roomId}/{uuid}.{ext} in the media-uploads bucket.
+ * The bucket must allow anon-key uploads (no RLS / open INSERT policy).
+ * Image messages are stored as "[img]<url>" in the body field.
+ */
+export async function uploadChatImage(roomId: string, file: File): Promise<string> {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+  const path = `chat-images/${roomId}/${crypto.randomUUID()}.${ext}`;
+  const { error: uploadErr } = await supabase.storage
+    .from("media-uploads")
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (uploadErr) throw uploadErr;
+  const { data } = await supabase.storage
+    .from("media-uploads")
+    .createSignedUrl(path, 31536000); // 1-year expiry
+  if (!data?.signedUrl) throw new Error("Could not get signed URL for uploaded image");
+  return data.signedUrl;
+}
+
+/** Upload an image to the whiteboard-images prefix and return a signed URL. */
+export async function uploadWhiteboardImage(roomId: string, file: File): Promise<string> {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+  const path = `whiteboard-images/${roomId}/${crypto.randomUUID()}.${ext}`;
+  const { error: uploadErr } = await supabase.storage
+    .from("media-uploads")
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (uploadErr) throw uploadErr;
+  const { data } = await supabase.storage
+    .from("media-uploads")
+    .createSignedUrl(path, 31536000);
+  if (!data?.signedUrl) throw new Error("Could not get signed URL for whiteboard image");
+  return data.signedUrl;
+}

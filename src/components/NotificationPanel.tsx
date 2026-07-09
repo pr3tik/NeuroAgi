@@ -1,15 +1,21 @@
 // NotificationPanel.tsx — iOS-quality notification dropdown.
 // Framer Motion spring enter/exit, staggered items, solid ink surface.
 // BUG FIX: accept/decline persists via data.actioned field in DB (survives reopen).
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { UserPlus, Check, MessageCircle, DoorOpen, ClipboardList, Trophy, TrendingUp, Brain, Bell } from "lucide-react";
 import {
   AppNotification,
   fetchNotifications,
   markNotificationsRead,
   markAllNotificationsRead,
   updateNotificationAction,
+  markProactiveOpened,
+  markProactiveActioned,
 } from "../api/notifications";
+
+// Effectiveness feedback (§3.5.4): proactive notifications carry data.queue_id.
+const queueId = (n: AppNotification): string | undefined => n.data?.queue_id as string | undefined;
 
 // ── Relative time (concise, iOS-style) ───────────────────────────────────────
 function relativeTime(iso: string): string {
@@ -35,14 +41,15 @@ function avatarColor(key: string) {
 }
 
 // ── Type config ───────────────────────────────────────────────────────────────
-const TYPE_CFG: Record<string, { icon: string; defaultTitle: string; useAvatar: boolean }> = {
-  friend_request:   { icon: "👤", defaultTitle: "Friend request",     useAvatar: true  },
-  request_accepted: { icon: "✓",  defaultTitle: "Now connected",       useAvatar: true  },
-  nudge:            { icon: "💬", defaultTitle: "Study nudge",         useAvatar: false },
-  room_invite:      { icon: "🚪", defaultTitle: "Room invite",         useAvatar: false },
-  assignment_due:   { icon: "📋", defaultTitle: "Assignment due soon", useAvatar: false },
-  milestone:        { icon: "🏆", defaultTitle: "Milestone reached",   useAvatar: false },
-  ranking:          { icon: "📈", defaultTitle: "Leaderboard update",  useAvatar: false },
+const TYPE_CFG: Record<string, { icon: any; defaultTitle: string; useAvatar: boolean }> = {
+  friend_request:   { icon: UserPlus,       defaultTitle: "Friend request",     useAvatar: true  },
+  request_accepted: { icon: Check,          defaultTitle: "Now connected",       useAvatar: true  },
+  nudge:            { icon: MessageCircle,  defaultTitle: "Study nudge",         useAvatar: false },
+  room_invite:      { icon: DoorOpen,       defaultTitle: "Room invite",         useAvatar: false },
+  assignment_due:   { icon: ClipboardList,  defaultTitle: "Assignment due soon", useAvatar: false },
+  milestone:        { icon: Trophy,         defaultTitle: "Milestone reached",   useAvatar: false },
+  ranking:          { icon: TrendingUp,     defaultTitle: "Leaderboard update",  useAvatar: false },
+  intervention:     { icon: Brain,          defaultTitle: "A nudge from Reggie",  useAvatar: false },
 };
 
 // ── Friends API adapter ───────────────────────────────────────────────────────
@@ -78,14 +85,19 @@ function NotificationItem({
   index,
   isLast,
   onAction,
+  seenKey,
+  onSeen,
 }: {
   n: AppNotification;
   index: number;
   isLast: boolean;
   onAction: (action: string, n: AppNotification) => void;
+  seenKey?: string;                       // notification_queue id, if this is a proactive notif
+  onSeen?: (key: string) => void;         // called once the row is actually scrolled into view
 }) {
   const reduced = useReducedMotion();
-  const cfg = TYPE_CFG[n.type] ?? { icon: "🔔", defaultTitle: "Notification", useAvatar: false };
+  const itemRef = useRef<HTMLDivElement>(null);
+  const cfg = TYPE_CFG[n.type] ?? { icon: Bell, defaultTitle: "Notification", useAvatar: false };
   const title = n.title ?? cfg.defaultTitle;
   const isUnread = !n.read;
   const fromName = n.data?.from_name as string | undefined;
@@ -93,8 +105,24 @@ function NotificationItem({
   const col = avatarColor(fromName ?? n.data?.from_user_id as string ?? n.id);
   const initial = (fromName?.[0] ?? "?").toUpperCase();
 
+  // Effectiveness feedback: report a proactive notif as SEEN only once it actually
+  // intersects the viewport — so items below the fold aren't counted as opened. Falls
+  // back to an immediate report where IntersectionObserver is unavailable.
+  useEffect(() => {
+    if (!seenKey || !onSeen) return;
+    const el = itemRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") { onSeen(seenKey); return; }
+    const io = new IntersectionObserver(
+      entries => { if (entries.some(e => e.isIntersecting)) { onSeen(seenKey); io.disconnect(); } },
+      { threshold: 0.5 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seenKey, onSeen]);
+
   return (
     <motion.div
+      ref={itemRef}
       initial={{ opacity: 0, y: reduced ? 0 : 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={reduced ? { duration: 0.01 } : { delay: index * 0.025, duration: 0.18, ease: [0, 0, 0.2, 1] }}
@@ -125,7 +153,7 @@ function NotificationItem({
         boxShadow: isUnread ? `0 0 0 1.5px rgba(196,154,60,0.45)` : "none",
         transition: "box-shadow 0.2s",
       }}>
-        {cfg.useAvatar && fromName ? initial : cfg.icon}
+        {cfg.useAvatar && fromName ? initial : <cfg.icon size={17} />}
       </div>
 
       {/* Content */}
@@ -205,7 +233,7 @@ function NotificationItem({
         {/* Resolved states — shown after accept/decline, survive reopen via DB */}
         {n.type === "friend_request" && actioned === "accepted" && (
           <p style={{ marginTop: "6px", fontSize: "11px", color: "rgba(127,174,110,0.75)", fontWeight: "500", letterSpacing: "0.1px" }}>
-            ✓ Accepted
+            <Check size={12} style={{ verticalAlign:"-2px", marginRight:4 }} />Accepted
           </p>
         )}
         {n.type === "friend_request" && actioned === "declined" && (
@@ -277,14 +305,26 @@ export default function NotificationPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
 
+  // Effectiveness feedback: stamp each proactive notification's opened_at exactly once,
+  // when it scrolls into view (NotificationItem reports via onSeen). markNotificationsRead
+  // (the bell badge) stays panel-open-based; only the "seen" signal is viewport-gated.
+  const seen = useRef<Set<string>>(new Set());
+  const markSeen = useCallback((q: string) => {
+    if (seen.current.has(q)) return;
+    seen.current.add(q);
+    markProactiveOpened(q);
+  }, []);
+
   // Load on open
   useEffect(() => {
     fetchNotifications(userId).then(data => {
       setItems(data);
       setLoading(false);
-      const unreadIds = data.filter(n => !n.read).map(n => n.id);
-      if (unreadIds.length) {
-        markNotificationsRead(unreadIds).then(() => {
+      const unread = data.filter(n => !n.read);
+      // opened_at is now stamped per-item when each row scrolls into view (see
+      // NotificationItem + markSeen); read-state below stays panel-open-based.
+      if (unread.length) {
+        markNotificationsRead(unread.map(n => n.id)).then(() => {
           onUnreadChange(0);
           setItems(prev => prev.map(n => ({ ...n, read: true })));
         });
@@ -299,7 +339,7 @@ export default function NotificationPanel({
       const existing = new Set(prev.map(n => n.id));
       const fresh = liveNotifs.filter(n => !existing.has(n.id));
       if (!fresh.length) return prev;
-      markNotificationsRead(fresh.map(n => n.id));
+      markNotificationsRead(fresh.map(n => n.id));   // opened_at handled per-item on view
       return [...fresh.map(n => ({ ...n, read: true })), ...prev];
     });
   }, [liveNotifs]);
@@ -322,6 +362,8 @@ export default function NotificationPanel({
   }
 
   async function handleAction(action: string, n: AppNotification) {
+    const q = queueId(n);
+    if (q) markProactiveActioned(q);   // any tapped action = engagement (§3.5.4)
     if (action === "accept_friend" && n.data?.from_user_id) {
       // 1. Optimistic update — hides buttons immediately, prevents double-tap
       setItems(prev => prev.map(item =>
@@ -473,6 +515,8 @@ export default function NotificationPanel({
                 index={i}
                 isLast={i === unread.length - 1 && !showSections}
                 onAction={handleAction}
+                seenKey={queueId(n)}
+                onSeen={markSeen}
               />
             ))}
 
@@ -489,6 +533,8 @@ export default function NotificationPanel({
                 index={unread.length + i}
                 isLast={i === read.length - 1}
                 onAction={handleAction}
+                seenKey={queueId(n)}
+                onSeen={markSeen}
               />
             ))}
           </>

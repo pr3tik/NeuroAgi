@@ -14,5 +14,19 @@ export const supabase = createClient(
   {
     db: { schema: 'public' },
     realtime: { params: { eventsPerSecond: 30 } },
+    // Auth was implicit-default before Google sign-in. Made explicit here:
+    //  • detectSessionInUrl — parse the ?code= on the OAuth redirect back to the app
+    //  • flowType: pkce     — the recommended, more secure web OAuth flow
+    // persistSession / autoRefreshToken keep their (default) true so the GoTrue
+    // session survives reloads exactly as the password flow already relied on.
+    // (We deliberately do NOT override auth.lock — the bundled navigatorLock already
+    // self-heals an orphaned Web Lock by stealing it after lockAcquireTimeout, and a
+    // custom lock that bypasses on contention would break single-flight token refresh.)
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      flowType: 'pkce',
+    },
   }
 );

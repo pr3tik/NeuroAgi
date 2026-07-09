@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
+import { Flame } from "lucide-react";
+import { coursesToGpa } from "../lib/gpa";
+import DailyBriefing from "../components/DailyBriefing";
+import SchoolPrompt from "../components/SchoolPrompt";
 
 
 function formatDue(dateStr) {
@@ -214,7 +218,7 @@ function EmptyState({ syncStatus, hasToken }) {
   return (
     <div style={glass}>
       <p style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "18px", color: "#E3E2E2", margin: "0 0 4px" }}>
-        You're all caught up 🎉
+        You're all caught up
       </p>
       <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.6)", margin: 0 }}>
         No upcoming assignments
@@ -224,7 +228,7 @@ function EmptyState({ syncStatus, hasToken }) {
 }
 
 export default function Work() {
-  const { userData, assignments, canvasToken, syncStatus, announcements } = useApp();
+  const { userData, courses, assignments, canvasToken, syncStatus, announcements } = useApp();
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
@@ -279,7 +283,10 @@ export default function Work() {
   const hasToken = Boolean(canvasToken) || assignments.length > 0;
 
   // ── Real data ──
-  const gpaRaw = userData?.gpa ?? null;
+  // Prefer the persisted users.gpa, but fall back to computing it from loaded course
+  // scores — covers users whose gpa was never written (extension sync) or dropped by a
+  // load/sync race in AppContext, so the widget never shows a blank "/4.0".
+  const gpaRaw = userData?.gpa ?? coursesToGpa(courses);
   const streakRaw = userData?.streak ?? 0;
 
   const STATS = [
@@ -419,6 +426,7 @@ export default function Work() {
           maxWidth: isMobile ? "100%" : "812px", margin: "0 auto 56px", width: "100%", boxSizing: "border-box" as const, overflowX: "hidden" as const,
           animation: "workRise 0.6s ease both", animationDelay: "80ms",
         }}>
+          <SchoolPrompt />
           <div style={{
             display: "flex", alignItems: "center", gap: "16px",
             padding: "8px 16px", borderRadius: "9999px",
@@ -433,7 +441,7 @@ export default function Work() {
               className="work-search-input"
               placeholder="Search curriculum, papers, notes..."
               style={{
-                flex: 1, background: "transparent", border: "none", outline: "none",
+                flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none",
                 fontFamily: "Inter, sans-serif", fontSize: "14px", color: "#E3E2E2",
                 caretColor: "#C8C5CB",
               }}
@@ -441,12 +449,17 @@ export default function Work() {
           </div>
         </div>
 
+        {/* ── Daily briefing ── */}
+        <div style={{ maxWidth: "1400px", width: "100%", boxSizing: "border-box" as const, marginBottom: isMobile ? "20px" : "28px", animation: "workRise 0.6s ease both", animationDelay: "120ms" }}>
+          <DailyBriefing isMobile={isMobile} />
+        </div>
+
         {/* ── Dashboard grid ── */}
         <div
           className="work-grid"
           style={{
             display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : "1fr 418.67px",
+            gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) 418.67px",
             width: "100%",
             gap: "24px",
             animation: "workRise 0.6s ease both", animationDelay: "160ms",
@@ -454,7 +467,7 @@ export default function Work() {
         >
 
           {/* ════ LEFT COLUMN ════ */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "24px", minWidth: 0 }}>
 
             {/* Hero card */}
             {showHero && (
@@ -466,7 +479,8 @@ export default function Work() {
                   padding: isMobile ? "24px" : "40px",
                   borderRadius: isMobile ? "12px" : "32px",
                   position: "relative", overflow: "hidden",
-                  ...(isMobile ? { width: "100%", maxWidth: "100%", overflowX: "hidden", boxSizing: "border-box" as const } : {}),
+                  width: "100%", maxWidth: "100%", boxSizing: "border-box" as const,
+                  ...(isMobile ? {} : {}),
                 }}
               >
 
@@ -637,7 +651,7 @@ export default function Work() {
                   justifyContent: "center", alignItems: "center",
                   padding: "16px", boxSizing: "border-box" as const,
                 }}>
-                  <span style={{ fontSize: "16px", lineHeight: 1 }}>🔥</span>
+                  <Flame size={16} color="#C49A3C" style={{ flexShrink: 0 }} />
                   <p style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 400, fontSize: "18px", lineHeight: "40px", color: "#E3E2E2", margin: 0 }}>
                     {STATS[1].value}
                   </p>
@@ -706,7 +720,7 @@ export default function Work() {
                         flexShrink: 0,
                       }} />
                       <p style={{
-                        flex: 1, margin: 0,
+                        flex: 1, minWidth: 0, margin: 0,
                         fontFamily: "Inter, sans-serif", fontSize: "14px",
                         color: item.recent ? "#E3E2E2" : "#C8C5CB",
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -714,7 +728,7 @@ export default function Work() {
                         {item.text}
                       </p>
                       <p style={{
-                        margin: 0, whiteSpace: "nowrap",
+                        margin: 0, whiteSpace: "nowrap", flexShrink: 0,
                         fontFamily: "Inter, sans-serif", fontSize: "10px",
                         color: "rgba(200,197,203,0.4)",
                       }}>
@@ -813,7 +827,7 @@ export default function Work() {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "28px", flexShrink: 0,
               }}>
-                🔥
+                <Flame size={26} color="#C49A3C" />
               </div>
             </div>
 
@@ -898,7 +912,7 @@ export default function Work() {
                         flexShrink: 0,
                       }} />
                       <p style={{
-                        flex: 1, margin: 0,
+                        flex: 1, minWidth: 0, margin: 0,
                         fontFamily: "Inter, sans-serif", fontSize: "14px",
                         color: item.recent ? "#E3E2E2" : "#C8C5CB",
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -906,7 +920,7 @@ export default function Work() {
                         {item.text}
                       </p>
                       <p style={{
-                        margin: 0, whiteSpace: "nowrap",
+                        margin: 0, whiteSpace: "nowrap", flexShrink: 0,
                         fontFamily: "Inter, sans-serif", fontSize: "10px",
                         color: "rgba(200,197,203,0.4)",
                       }}>

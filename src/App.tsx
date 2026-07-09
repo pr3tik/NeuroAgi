@@ -5,15 +5,19 @@
 
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Check } from "lucide-react";
 import { NAV, LABEL }       from "./navigation/navConfig";
 import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
 import NeuralRing           from "./components/NeuralRing";
+import ReggieTester         from "./components/ReggieTester";
+import SiteGuide            from "./components/SiteGuide";
 import BottomNav            from "./components/BottomNav";
 import Landing              from "./pages/Landing"; // eager — logged-out entry, shown on first paint
+import PreSignupDemo, { hasSeenPreSignupDemo } from "./pages/PreSignupDemo"; // S0-S2: shown once, before Landing, for brand-new visitors only
 import { useApp }           from "./context/AppContext";
 import { supabase }         from "./api/supabase";
-import { signIn, signUp }   from "./api/auth";
+import { signIn, signUp, adoptIdentity, completeOAuthLogin } from "./api/auth";
 import { usePageTracking }  from "./hooks/usePageTracking";
 import { awardTokens }      from "./api/tokens";
 import TokenToast           from "./components/TokenToast";
@@ -33,8 +37,10 @@ const Identity    = lazy(() => import("./pages/Identity"));
 const Leaderboard = lazy(() => import("./pages/Leaderboard"));
 const Files       = lazy(() => import("./pages/Files"));
 const StudyRooms  = lazy(() => import("./pages/StudyRooms"));
-const Onboarding  = lazy(() => import("./pages/Onboarding"));
-const Spaces      = lazy(() => import("./pages/Spaces"));
+const Onboarding   = lazy(() => import("./pages/Onboarding"));
+const Spaces       = lazy(() => import("./pages/Spaces"));
+const Connections  = lazy(() => import("./pages/Connections"));
+const StudyAssistant = lazy(() => import("./pages/StudyAssistant"));
 
 const PAGES = {
   work:        Work,
@@ -47,6 +53,8 @@ const PAGES = {
   files:       Files,
   rooms:       StudyRooms,
   spaces:      Spaces,
+  connections: Connections,
+  studyAssistant: StudyAssistant,
 };
 
 const LOGGED_IN_KEY = "fschool_logged_in";
@@ -128,6 +136,11 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
   );
+  // Shown at most once per browser, and only if not already logged in — a
+  // returning visitor (or one who already saw/skipped it) goes straight to Landing.
+  const [showPreSignupDemo, setShowPreSignupDemo] = useState(
+    () => !isLoggedIn && !hasSeenPreSignupDemo()
+  );
   const [showOnboarding,      setShowOnboarding]     = useState(false);
   const [onboardingEmail,     setOnboardingEmail]    = useState("");
   const [onboardingInitName,  setOnboardingInitName] = useState("");
@@ -186,6 +199,12 @@ export default function App() {
     return params.get("discord") || null;
   });
 
+  // ── LMS connect banner state (Google / Microsoft OAuth callback) ───────────
+  const [lmsBanner, setLmsBanner] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("lms") || null;
+  });
+
   // ── Password reset state ────────────────────────────────────────────────────
   const [resetMode, setResetMode] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -199,7 +218,99 @@ export default function App() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError,   setResetError]   = useState("");
   const [resetDone,    setResetDone]    = useState(false);
+  // A clicked reset link that failed server-side ("error" = invalid/replaced token,
+  // "expired" = >1h old). These used to be silently ignored — the user landed on the
+  // app with no explanation, which reads as "reset password doesn't work".
+  const [resetFailed,  setResetFailed]  = useState<string | null>(() => {
+    const r = new URLSearchParams(window.location.search).get("reset");
+    return r === "error" || r === "expired" ? r : null;
+  });
+  const [resetEmail,     setResetEmail]     = useState("");
+  const [resetLinkState, setResetLinkState] = useState<"idle" | "sending" | "sent">("idle");
   const [resendSent,   setResendSent]   = useState(false);
+  // Email-verification gate feedback: null | "checking" | a message to show the user.
+  const [verifyMsg,    setVerifyMsg]    = useState<string | null>(null);
+  const [oauthError,   setOauthError]   = useState<string | null>(null);
+
+  // ── Google sign-in return (/?auth=google) ──────────────────────────────────
+  // A first-time Google user has a GoTrue session but no public.users row, so we
+  // provision one (server-side) then route: new users → the onboarding wizard
+  // (Google gives name + email only; they still pick school/Canvas/goals),
+  // returning users → straight into the app. detectSessionInUrl exchanges the PKCE
+  // code during client init, so wait for the SIGNED_IN event before reading it.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("auth") !== "google") return;
+    let running = false, settled = false;
+    const finish = async () => {
+      if (settled || running) return;
+      running = true;
+      try {
+        const r = await completeOAuthLogin();
+        if (!r) { running = false; return; }        // no session yet — wait for the event
+        settled = true;
+        window.history.replaceState({}, "", "/");   // strip ?auth=google&code=
+        if (r.isNew) {
+          setUserId(r.userId);
+          setOnboardingInitName(r.name || "");
+          setShowOnboarding(true);
+        } else {
+          window.location.reload();                 // returning user → boot into the app
+        }
+      } catch (e: any) {
+        settled = true;
+        window.history.replaceState({}, "", "/");
+        setOauthError(e?.message || "Google sign-in failed. Please try again.");
+      } finally {
+        running = false;
+      }
+    };
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "INITIAL_SESSION") finish();
+    });
+    finish();  // fast path if the session was already restored
+    return () => sub.subscription.unsubscribe();
+  }, [setUserId]);
+
+  // While the verification gate is up, poll every 5s so the app unblocks ITSELF the
+  // moment the link is clicked (usually on the user's phone) — a user report showed the
+  // old flow stuck on "Check your email" with the DB already verified, because nothing
+  // ever re-checked and the continue button gave no feedback.
+  const needsEmailVerify = !!userData && userData.email_verified === false;
+  useEffect(() => {
+    if (!needsEmailVerify) return;
+    const t = setInterval(() => { refreshUser(); }, 5000);
+    return () => clearInterval(t);
+  }, [needsEmailVerify, refreshUser]);
+
+  async function checkVerified() {
+    setVerifyMsg("checking");
+    const fresh = await refreshUser();   // if verified, userData updates and the gate unmounts
+    if (!fresh) setVerifyMsg("Couldn't check just now — give it a second and try again.");
+    else if (fresh.email_verified === false) setVerifyMsg("Not verified yet — open the link in the email first (check your junk/spam folder), then tap this again.");
+    else setVerifyMsg(null);
+  }
+
+  // From the failed-reset-link card: request a fresh reset email.
+  async function requestNewResetLink() {
+    const email = resetEmail.trim();
+    if (!email || resetLinkState !== "idle") return;
+    setResetLinkState("sending");
+    try {
+      await fetch("/api/email?action=reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+    } catch { /* anti-enumeration: same confirmation either way */ }
+    setResetLinkState("sent");
+  }
+
+  function dismissResetFailed() {
+    setResetFailed(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("reset");
+    window.history.replaceState({}, "", url.pathname + url.search);
+  }
 
   async function resendVerification() {
     if (!userData?.email) return;
@@ -263,6 +374,20 @@ export default function App() {
     return () => clearTimeout(t);
   }, [discordBanner]);
 
+  // Clear ?lms= param + navigate to connections page on successful OAuth
+  useEffect(() => {
+    if (!lmsBanner) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("lms");
+    url.searchParams.delete("reason");
+    window.history.replaceState({}, "", url.toString());
+    if (lmsBanner === "google_connected" || lmsBanner === "microsoft_connected") {
+      setTimeout(() => navigate("connections"), 400);
+    }
+    const t = setTimeout(() => setLmsBanner(null), 6000);
+    return () => clearTimeout(t);
+  }, [lmsBanner]); // eslint-disable-line
+
   // If user verifies email in another tab, show banner in this tab too
   useEffect(() => {
     function onStorage(e) {
@@ -274,6 +399,10 @@ export default function App() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  // (Removed) Chrome extension sign-in handshake (/?ext=signin&extId=...): it pushed the
+  // web's possibly-stale fschool_uid into the extension, overwriting the extension's
+  // correctly-resolved canonical id. The extension has its own GoTrue popup login now.
 
   const fadingRef = useRef(false);
 
@@ -321,7 +450,11 @@ export default function App() {
 
     // ── Login — Supabase Auth (lazily migrates legacy SHA-256 accounts) ──────────
     if (creds.mode === "login") {
+      const prevUid = localStorage.getItem("fschool_uid");
       const profile = await signIn(email, creds.password); // establishes a GoTrue session
+      // Merge this browser's previous uid's data into the canonical profile BEFORE
+      // discarding it (failure → fschool_merge_pending, retried at next boot).
+      if (prevUid && prevUid !== profile.id) await adoptIdentity(prevUid);
       localStorage.setItem("fschool_uid", profile.id);
       localStorage.setItem(LOGGED_IN_KEY, "1");
       if (profile.name) localStorage.setItem("fschool_name", profile.name);
@@ -331,9 +464,13 @@ export default function App() {
 
     // ── Signup — creates the GoTrue user + a fresh profile, then signs in ─────────
     // (The server mints a brand-new profile id, so signing up on a device already
-    // logged into another account can't clobber it — the old "merge" bug.)
+    // logged into another account can't clobber it — the old "merge" bug. Claiming the
+    // browser's guest data goes through ?action=adopt, which refuses ids owned by a
+    // different auth account, so that guarantee still holds.)
+    const prevGuestUid = localStorage.getItem("fschool_uid");
     localStorage.setItem("fschool_name", creds.name);
     const profile = await signUp({ name: creds.name, email, password: creds.password });
+    if (prevGuestUid && prevGuestUid !== profile.id) await adoptIdentity(prevGuestUid);
     localStorage.setItem("fschool_uid", profile.id);
 
     // Verification email — non-blocking, won't fail signup if email fails.
@@ -353,6 +490,11 @@ export default function App() {
   // ── Onboarding complete ────────────────────────────────────────────────────
   const handleOnboardingComplete = useCallback(async ({
     preferredName, schoolName, schoolCity, schoolCountry, schoolContinent, token, baseUrl,
+    intake, intakeSkipped,
+  }: {
+    preferredName?: string; schoolName?: string; schoolCity?: string; schoolCountry?: string;
+    schoolContinent?: string; token?: string; baseUrl?: string;
+    intake?: Record<string, string>; intakeSkipped?: string[];
   }) => {
     if (preferredName) localStorage.setItem("fschool_name", preferredName);
     try {
@@ -367,6 +509,22 @@ export default function App() {
       if (schoolContinent) patch.school_continent = schoolContinent;
       await updateUserField(patch);
     } catch {}
+    // Intake answers go in a SEPARATE upsert: until the intake-columns
+    // migration runs, unknown columns fail the whole patch (PGRST204) and
+    // would take name/school down with them. localStorage draft still holds
+    // the answers either way.
+    if ((intake && Object.keys(intake).length > 0) || intakeSkipped?.length) {
+      try {
+        await updateUserField({
+          ...intake,
+          intake_meta: {
+            version: "onboarding-v2.1",
+            skipped: intakeSkipped ?? [],
+            completed_at: new Date().toISOString(),
+          },
+        });
+      } catch { /* column may be absent until the migration runs */ }
+    }
     if (token && baseUrl) {
       try { await saveCanvasCredentials(token, baseUrl); } catch {}
     }
@@ -455,8 +613,42 @@ export default function App() {
         </div>
       )}
 
+      {/* LMS OAuth banner (Google / Microsoft connected or error) */}
+      {lmsBanner && (
+        <div style={{
+          position:"fixed", top:"env(safe-area-inset-top, 0px)", left:"50%",
+          transform:"translateX(-50%)", zIndex:999, marginTop:"16px",
+          width:"calc(100% - 40px)", maxWidth:"420px", padding:"14px 18px",
+          borderRadius:"16px", display:"flex", alignItems:"center", gap:"12px",
+          background: lmsBanner?.includes("error") ? "rgba(30,10,10,0.88)" : "rgba(10,24,16,0.88)",
+          border: lmsBanner?.includes("error") ? "1px solid rgba(255,80,70,0.25)" : "1px solid rgba(52,199,89,0.22)",
+          backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)",
+          boxShadow: lmsBanner?.includes("error")
+            ? "0 8px 32px rgba(255,59,48,0.18), 0 0 0 1px rgba(255,80,70,0.1)"
+            : "0 8px 32px rgba(52,199,89,0.18), 0 0 0 1px rgba(52,199,89,0.1)",
+          animation:"fsBannerIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both",
+        }}>
+          <div style={{ position:"relative", flexShrink:0, width:"10px", height:"10px" }}>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background: lmsBanner?.includes("error") ? "#ff453a" : "#30d158", animation:"fsPulseRing 1.4s ease-out infinite" }}/>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background: lmsBanner?.includes("error") ? "#ff453a" : "#30d158" }}/>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:"13px", fontWeight:"600", color: lmsBanner?.includes("error") ? "#ff6961" : "#30d158", letterSpacing:"-0.1px", marginBottom:"2px" }}>
+              {lmsBanner === "google_connected"    && "Google connected"}
+              {lmsBanner === "microsoft_connected" && "Microsoft connected"}
+              {lmsBanner?.includes("error")        && "Connection failed"}
+            </div>
+            <div style={{ fontSize:"12px", color:"rgba(255,255,255,0.4)" }}>
+              {lmsBanner === "google_connected"    && "Your Classroom files are ready to import."}
+              {lmsBanner === "microsoft_connected" && "Your Teams files are ready to import."}
+              {lmsBanner?.includes("error")        && "Something went wrong — try connecting again."}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Premium password-reset card */}
-      {(resetMode || resetDone) && (
+      {(resetMode || resetDone || resetFailed) && (
         <div style={{
           position:"fixed", inset:0, zIndex:1000,
           background:"rgba(8,8,10,0.72)", backdropFilter:"blur(14px)", WebkitBackdropFilter:"blur(14px)",
@@ -469,7 +661,45 @@ export default function App() {
             boxShadow:"0 30px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03), inset 0 1px 0 rgba(255,255,255,0.05)",
             animation:"fsCardUp .5s cubic-bezier(.34,1.56,.64,1) both", textAlign:"center",
           }}>
-            {!resetDone ? (
+            {resetFailed ? (
+              <>
+                <div style={{ width:"52px", height:"52px", margin:"0 auto 22px", borderRadius:"16px", background:"rgba(255,159,10,0.1)", border:"1px solid rgba(255,159,10,0.25)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="#ff9f0a" strokeWidth="1.8"/>
+                    <path d="M12 7.5v5" stroke="#ff9f0a" strokeWidth="1.8" strokeLinecap="round"/>
+                    <circle cx="12" cy="16" r="1" fill="#ff9f0a"/>
+                  </svg>
+                </div>
+                <h2 style={{ color:"#F5F5F5", fontSize:"21px", fontWeight:"700", letterSpacing:"-0.4px", marginBottom:"8px" }}>
+                  {resetFailed === "expired" ? "That link has expired" : "That link isn't valid anymore"}
+                </h2>
+                {resetLinkState !== "sent" ? (
+                  <>
+                    <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"13.5px", lineHeight:1.6, marginBottom:"24px" }}>
+                      {resetFailed === "expired"
+                        ? "Reset links only work for 1 hour. Enter your email and we'll send you a fresh one."
+                        : "It may have been replaced by a newer email, or already used. Enter your email and we'll send a fresh link."}
+                    </p>
+                    <input className="fs-reset-input" type="email" placeholder="Your account email" value={resetEmail}
+                      onChange={e => setResetEmail(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") requestNewResetLink(); }}
+                      style={{ width:"100%", boxSizing:"border-box", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"12px", padding:"13px 15px", color:"#F5F5F5", fontSize:"14px", outline:"none", fontFamily:"inherit", transition:"all .2s ease", marginBottom:"12px", textAlign:"left" }}/>
+                    <button className="fs-reset-btn" onClick={requestNewResetLink} disabled={resetLinkState !== "idle" || !resetEmail.trim()}
+                      style={{ width:"100%", background: resetLinkState !== "idle" || !resetEmail.trim() ? "rgba(255,255,255,0.55)" : "#fff", color:"#111", border:"none", borderRadius:"13px", padding:"14px", fontSize:"15px", fontWeight:"650", cursor: resetLinkState !== "idle" || !resetEmail.trim() ? "default" : "pointer", fontFamily:"inherit", transition:"transform .1s ease, background .2s ease", marginBottom:"10px" }}>
+                      {resetLinkState === "sending" ? "Sending…" : "Email me a new link →"}
+                    </button>
+                  </>
+                ) : (
+                  <p style={{ color:"rgba(48,209,88,0.85)", fontSize:"13.5px", lineHeight:1.65, marginBottom:"18px" }}>
+                    Done — if that email has an account, a fresh reset link is on its way. Check your junk/spam folder too.
+                  </p>
+                )}
+                <button onClick={dismissResetFailed}
+                  style={{ background:"none", border:"none", color:"rgba(255,255,255,0.35)", fontSize:"13px", cursor:"pointer", fontFamily:"inherit", textDecoration:"underline" }}>
+                  Back to FSchoolAI
+                </button>
+              </>
+            ) : !resetDone ? (
               <>
                 <div style={{ width:"52px", height:"52px", margin:"0 auto 22px", borderRadius:"16px", background:"rgba(48,209,88,0.12)", border:"1px solid rgba(48,209,88,0.22)", display:"flex", alignItems:"center", justifyContent:"center" }}>
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -530,8 +760,24 @@ export default function App() {
     );
   }
 
+  // Fixed toast for a failed Google sign-in (e.g. email already has a password account).
+  const oauthToast = oauthError ? (
+    <div onClick={() => setOauthError(null)}
+      style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 2000,
+        maxWidth: "min(92vw, 420px)", background: "rgba(20,20,24,0.97)", color: "#F5F5F5",
+        border: "1px solid rgba(255,100,90,0.4)", borderRadius: "12px", padding: "12px 16px",
+        fontSize: "13px", lineHeight: "1.5", cursor: "pointer", fontFamily: "inherit",
+        boxShadow: "0 8px 30px rgba(0,0,0,0.45)" }}>
+      {oauthError}
+    </div>
+  ) : null;
+
+  if (!isLoggedIn && showPreSignupDemo) {
+    return (<>{overlays}{oauthToast}<PreSignupDemo onEnter={handleEnter} /></>);
+  }
+
   if (!isLoggedIn) {
-    return (<>{overlays}<Landing onEnter={handleEnter} /></>);
+    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} /><SiteGuide /></>);
   }
 
   // ── Email verification gate ───────────────────────────────────────────────
@@ -551,19 +797,24 @@ export default function App() {
             </div>
             <div style={{ fontSize:"22px", fontWeight:"700", color:"#F5F5F5", letterSpacing:"-0.4px", marginBottom:"10px" }}>Check your email</div>
             <p style={{ fontSize:"14px", color:"rgba(255,255,255,0.42)", lineHeight:1.65, marginBottom:"4px" }}>We sent a verification link to</p>
-            <p style={{ fontSize:"14px", fontWeight:"600", color:"rgba(255,255,255,0.72)", marginBottom:"30px" }}>{userData.email}</p>
+            <p style={{ fontSize:"14px", fontWeight:"600", color:"rgba(255,255,255,0.72)", marginBottom:"8px" }}>{userData.email}</p>
+            <p style={{ fontSize:"12px", color:"rgba(255,255,255,0.3)", marginBottom:"26px" }}>Not seeing it? Check your junk/spam folder — this page moves on automatically once you click the link.</p>
             <button
-              onClick={() => refreshUser()}
-              style={{ width:"100%", background:"#F5F5F5", color:"#111", border:"none", borderRadius:"13px", padding:"14px", fontSize:"15px", fontWeight:"650", cursor:"pointer", fontFamily:"inherit", marginBottom:"10px", transition:"opacity .15s" }}
+              onClick={checkVerified}
+              disabled={verifyMsg === "checking"}
+              style={{ width:"100%", background:"#F5F5F5", color:"#111", border:"none", borderRadius:"13px", padding:"14px", fontSize:"15px", fontWeight:"650", cursor: verifyMsg === "checking" ? "default" : "pointer", fontFamily:"inherit", marginBottom:"10px", transition:"opacity .15s", opacity: verifyMsg === "checking" ? 0.6 : 1 }}
             >
-              I&apos;ve verified — continue &rarr;
+              {verifyMsg === "checking" ? "Checking…" : <>I&apos;ve verified — continue &rarr;</>}
             </button>
+            {verifyMsg && verifyMsg !== "checking" && (
+              <p style={{ fontSize:"12.5px", color:"rgba(255,180,90,0.85)", lineHeight:1.55, margin:"0 0 10px" }}>{verifyMsg}</p>
+            )}
             <button
               onClick={resendVerification}
               disabled={resendSent}
               style={{ width:"100%", background:"transparent", color: resendSent ? "rgba(48,209,88,0.75)" : "rgba(255,255,255,0.4)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"13px", padding:"13px", fontSize:"14px", fontWeight:"500", cursor: resendSent ? "default" : "pointer", fontFamily:"inherit", transition:"color .2s" }}
             >
-              {resendSent ? "Verification email sent ✓" : "Resend verification email"}
+              {resendSent ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}>Verification email sent<Check size={14} /></span> : "Resend verification email"}
             </button>
             <p style={{ marginTop:"22px", fontSize:"12px", color:"rgba(255,255,255,0.22)" }}>
               Wrong account?{" "}
@@ -713,6 +964,7 @@ export default function App() {
       </div>
 
       <NeuralRing />
+      <ReggieTester />
       {navMode === "tabs" && (
         <BottomNav
           currentPage={currentPage}

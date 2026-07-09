@@ -2,6 +2,7 @@
 // Song field upgraded: iTunes Search API, album art, saves JSON to favorite_song.
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Music, Pencil, X, Search, Check, Image as ImageIcon } from "lucide-react";
 import { useApp } from "../context/AppContext";
 
 /* Hallmark · component: card · genre: atmospheric · theme: App Shell (studied-DNA)
@@ -199,10 +200,10 @@ export default function ShareCard() {
     } catch (err) {
       console.error("Share failed:", err);
       const text = [
-        `📚 ${name} · ${school}`,
-        location ? `📍 ${location}` : null,
+        `${name} · ${school}`,
+        location ? location : null,
         `GPA ${gpa}  ·  ${streak} streak  ·  ${studyTime} studied`,
-        songData ? `🎵 ${songData.title}${songData.artist ? ` — ${songData.artist}` : ""}` : null,
+        songData ? `${songData.title}${songData.artist ? ` — ${songData.artist}` : ""}` : null,
         `via NeuroAGI`,
       ].filter(Boolean).join("\n");
       navigator.clipboard.writeText(text).then(() => {
@@ -235,9 +236,8 @@ export default function ShareCard() {
               width: 40, height: 40, borderRadius: "8px", flexShrink: 0,
               background: "rgba(0,210,190,0.12)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: "18px",
             }}>
-              🎵
+              <Music size={18} style={{ color: "rgba(0,210,190,0.9)" }} />
             </div>
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -269,7 +269,7 @@ export default function ShareCard() {
             onMouseEnter={e => { e.currentTarget.style.color = "rgba(255,255,255,0.55)"; e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
             onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.25)"; e.currentTarget.style.background = "none"; }}
           >
-            ✎
+            <Pencil size={13} />
           </button>
           <button
             onClick={clearSong}
@@ -284,7 +284,7 @@ export default function ShareCard() {
             onMouseEnter={e => { e.currentTarget.style.color = "rgba(255,80,80,0.6)"; e.currentTarget.style.background = "rgba(255,80,80,0.05)"; }}
             onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.18)"; e.currentTarget.style.background = "none"; }}
           >
-            ✕
+            <X size={13} />
           </button>
         </div>
       );
@@ -296,8 +296,8 @@ export default function ShareCard() {
         <div style={{ position: "relative" }}>
           <span style={{
             position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
-            fontSize: "13px", pointerEvents: "none", opacity: 0.4,
-          }}>🔍</span>
+            pointerEvents: "none", opacity: 0.4, display: "flex",
+          }}><Search size={13} /></span>
           <input
             autoFocus
             value={query}
@@ -352,7 +352,7 @@ export default function ShareCard() {
                     width: 36, height: 36, borderRadius: "6px", flexShrink: 0,
                     background: "rgba(255,255,255,0.06)",
                     display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px",
-                  }}>🎵</div>
+                  }}><Music size={16} /></div>
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{
@@ -573,7 +573,9 @@ export default function ShareCard() {
             transition: "background 0.2s, color 0.2s, border-color 0.2s",
           }}
         >
-          {copied ? "Saved! ✓" : "Share Card 🖼️"}
+          {copied
+            ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Saved!<Check size={15} /></span>
+            : <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Share Card<ImageIcon size={15} /></span>}
         </button>
       </div>
     </div>
