@@ -2617,10 +2617,10 @@ const FAQ_DATA = [
   { q: "What's the Founding Card?", a: "A physical NFC titanium card for the first 1,000 members — it holds your AI identity, student number, and lifetime Pro access. See the Card page." },
 ];
 
-export default function Landing({ onEnter }: { onEnter: (args: any) => Promise<void> }) {
+export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: (args: any) => Promise<void>; initialAuthMode?: "login" | "signup" | null }) {
   // Light-primary — no toggle. DARK tokens used directly in the card-preview section.
   const t = LIGHT;
-  const [authMode, setAuthMode] = useState<"login"|"signup"|null>(null);
+  const [authMode, setAuthMode] = useState<"login"|"signup"|null>(initialAuthMode);
   const [forgotStatus, setForgotStatus] = useState<"sent"|"error"|null>(null);
   const [scrollY, setScrollY] = useState(0);
   const [faqOpen, setFaqOpen] = useState<number|null>(null);
