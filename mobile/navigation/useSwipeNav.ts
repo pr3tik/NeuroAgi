@@ -1,16 +1,31 @@
-import { useRef } from "react";
+// useSwipeNav.ts — gesture-handler-based port of src/navigation/useSwipe.ts.
+//
+// Raw View onTouchStart/onTouchEnd (the old approach) doesn't reliably fire
+// on native: once a descendant ScrollView claims the touch responder for a
+// scroll, the parent gets onTouchCancel instead of onTouchEnd, and the swipe
+// is silently dropped. (The web version doesn't have this problem — DOM
+// touch events bubble to ancestors regardless of a child's scroll handling.)
+// react-native-gesture-handler's native gesture composition is the actual
+// fix: failOffsetY lets a ScrollView win any vertical drag while our Pan
+// still reliably wins clearly-horizontal ones.
+//
+// Vertical (up/down) nav is edge-gated instead — mirrors the web's "only
+// navigate vertically when the gesture starts at the scroll boundary" rule,
+// approximated here as two thin swipe strips at the very top/bottom of the
+// content area (see ScreenWrapper.tsx), so it can't fight normal scrolling.
+
+import { Gesture } from "react-native-gesture-handler";
 import { useRouter } from "expo-router";
-import { NAV, PageKey } from "./navConfig";
+import { NAV, PageKey, Direction } from "./navConfig";
 import { setLastDirection } from "./transitionStore";
 
 const MIN_DIST = 50;
-const MIN_VEL  = 0.3; // px/ms
+const MIN_VEL  = 300; // px/s (gesture-handler velocity is px/s, not px/ms)
 
 export function useSwipeNav(currentPage: PageKey) {
   const router = useRouter();
-  const startRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
-  function navigate(direction: "left" | "right" | "up" | "down") {
+  function navigate(direction: Direction) {
     const target = NAV[currentPage]?.[direction];
     if (target) {
       setLastDirection(direction);
@@ -18,31 +33,32 @@ export function useSwipeNav(currentPage: PageKey) {
     }
   }
 
-  const onTouchStart = (e: any) => {
-    const touch = e.nativeEvent.touches[0];
-    startRef.current = { x: touch.pageX, y: touch.pageY, t: Date.now() };
-  };
+  const horizontalGesture = Gesture.Pan()
+    .activeOffsetX([-15, 15])
+    .failOffsetY([-15, 15])
+    .onEnd(e => {
+      const dist = Math.abs(e.translationX);
+      if (dist < MIN_DIST && Math.abs(e.velocityX) < MIN_VEL) return;
+      navigate(e.translationX < 0 ? "right" : "left");
+    });
 
-  const onTouchEnd = (e: any) => {
-    if (!startRef.current) return;
-    const touch = e.nativeEvent.changedTouches[0];
-    const dx = touch.pageX - startRef.current.x;
-    const dy = touch.pageY - startRef.current.y;
-    const dt = Date.now() - startRef.current.t;
-    startRef.current = null;
+  // Pulling down from the top-edge strip → "up" (mirrors a pull-to-refresh
+  // gesture); only the downward bound is reachable, so upward drags here
+  // (unlikely in a 24px strip anyway) don't accidentally activate it.
+  const topEdgeGesture = Gesture.Pan()
+    .activeOffsetY([-1000, 12])
+    .onEnd(e => {
+      if (e.translationY < MIN_DIST && e.velocityY < MIN_VEL) return;
+      navigate("up");
+    });
 
-    const horizontal = Math.abs(dx) > Math.abs(dy);
-    const dist = horizontal ? Math.abs(dx) : Math.abs(dy);
-    const vel  = dist / dt;
+  // Pulling up from the bottom-edge strip → "down".
+  const bottomEdgeGesture = Gesture.Pan()
+    .activeOffsetY([-12, 1000])
+    .onEnd(e => {
+      if (e.translationY > -MIN_DIST && e.velocityY > -MIN_VEL) return;
+      navigate("down");
+    });
 
-    if (dist < MIN_DIST && vel < MIN_VEL) return;
-
-    if (horizontal) {
-      navigate(dx < 0 ? "right" : "left");
-    } else {
-      navigate(dy < 0 ? "down" : "up");
-    }
-  };
-
-  return { onTouchStart, onTouchEnd, navigate };
+  return { horizontalGesture, topEdgeGesture, bottomEdgeGesture, navigate };
 }
