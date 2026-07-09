@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Search, FileText, Flame } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
 
@@ -53,7 +54,7 @@ function AssignmentCard({ a }: { a: any }) {
     <View style={styles.aCard}>
       <View style={styles.aCardLeft}>
         <View style={styles.aIcon}>
-          <Text style={styles.aIconText}>📄</Text>
+          <FileText size={16} color="rgba(200,197,203,0.5)" strokeWidth={1.5} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={styles.aName} numberOfLines={1}>{a.name}</Text>
@@ -188,7 +189,7 @@ export default function WorkScreen() {
 
         {/* ── Search bar ── */}
         <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <Search size={18} color="#C8C5CB" strokeWidth={2} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search curriculum, papers, notes..."
@@ -210,7 +211,7 @@ export default function WorkScreen() {
           </LinearGradient>
 
           <View style={[styles.statCard, { backgroundColor: "rgba(113,104,104,0.12)" }]}>
-            <Text style={{ fontSize: 16 }}>🔥</Text>
+            <Flame size={16} color="#C49A3C" />
             <Text style={styles.statValue}>{streak ? `${streak}d` : "0d"}</Text>
           </View>
         </View>
@@ -267,47 +268,45 @@ const GLASS = {
 
 const styles = StyleSheet.create({
   greeting:       { alignItems: "center", marginBottom: 8 },
-  greetingText:   { fontSize: 36, fontWeight: "300", color: "#E3E2E2", letterSpacing: -1 },
-  greetingName:   { fontStyle: "italic", color: "#343535" },
-  subtitle:       { fontSize: 14, color: "rgba(200,197,203,0.7)", marginTop: 8 },
+  greetingText:   { fontFamily: "FunnelDisplay_300Light", fontSize: 36, color: "#E3E2E2", letterSpacing: -1 },
+  greetingName:   { fontFamily: "Fraunces_300Light_Italic", color: "#343535" },
+  subtitle:       { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(200,197,203,0.7)", marginTop: 8 },
 
   searchBar:      { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 9999, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.05)" },
-  searchIcon:     { fontSize: 14 },
-  searchInput:    { flex: 1, fontSize: 14, color: "#E3E2E2" },
+  searchInput:    { flex: 1, fontFamily: "Inter_400Regular", fontSize: 14, color: "#E3E2E2" },
 
   heroCard:       { ...GLASS, padding: 24, overflow: "hidden", gap: 0 },
   heroBloom:      { position: "absolute", top: -47, right: -47, width: 192, height: 192, borderRadius: 9999, backgroundColor: "rgba(200,197,203,0.05)", zIndex: 0 },
   heroBadge:      { paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "rgba(200,197,203,0.1)", borderWidth: 1, borderColor: "rgba(200,197,203,0.2)", borderRadius: 9999 },
-  heroBadgeText:  { fontSize: 12, fontWeight: "600", color: "#C8C5CB", letterSpacing: 0.6 },
-  heroCourse:     { fontSize: 12, fontWeight: "600", color: "rgba(210,197,177,0.6)", letterSpacing: 0.6, alignSelf: "center" },
-  heroTitle:      { fontSize: 18, fontWeight: "600", color: "#E3E2E2", lineHeight: 24, letterSpacing: -0.18 },
+  heroBadgeText:  { fontFamily: "Inter_600SemiBold", fontSize: 12, color: "#C8C5CB", letterSpacing: 0.6 },
+  heroCourse:     { fontFamily: "Inter_600SemiBold", fontSize: 12, color: "rgba(210,197,177,0.6)", letterSpacing: 0.6, alignSelf: "center" },
+  heroTitle:      { fontFamily: "Inter_600SemiBold", fontSize: 18, color: "#E3E2E2", lineHeight: 24, letterSpacing: -0.18 },
   heroCTA:        { backgroundColor: "#C8C5CB", borderRadius: 8, paddingVertical: 12, paddingHorizontal: 24, alignItems: "center", marginTop: 4 },
-  heroCTAText:    { fontSize: 14, fontWeight: "600", color: "#121414" },
+  heroCTAText:    { fontFamily: "Inter_400Regular", fontSize: 14, color: "#121414" },
 
   statsRow:       { flexDirection: "row", gap: 12 },
   statCard:       { flex: 1, height: 78, borderRadius: 30, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center", gap: 2 },
-  statValue:      { fontSize: 18, color: "#E3E2E2", fontWeight: "400" },
-  statLabel:      { fontSize: 12, color: "rgba(200,197,203,0.5)" },
+  statValue:      { fontFamily: "DMSans_400Regular", fontSize: 18, color: "#E3E2E2" },
+  statLabel:      { fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(200,197,203,0.5)" },
 
   sectionHeader:  { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  sectionTitle:   { fontSize: 18, fontWeight: "600", color: "#E3E2E2", letterSpacing: -0.18 },
-  viewAll:        { fontSize: 12, fontWeight: "600", color: "#C8C5CB" },
+  sectionTitle:   { fontFamily: "Inter_600SemiBold", fontSize: 18, color: "#E3E2E2", letterSpacing: -0.18 },
+  viewAll:        { fontFamily: "Inter_600SemiBold", fontSize: 12, color: "#C8C5CB" },
 
   aCard:          { ...GLASS, backgroundColor: "rgba(26,26,30,0.6)", padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   aCardLeft:      { flexDirection: "row", alignItems: "center", gap: 16, flex: 1, minWidth: 0 },
   aIcon:          { width: 40, height: 40, borderRadius: 8, backgroundColor: "#1F2020", borderWidth: 1, borderColor: "rgba(255,255,255,0.05)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  aIconText:      { fontSize: 16 },
-  aName:          { fontSize: 14, color: "#E3E2E2", marginBottom: 4 },
-  aCourse:        { fontSize: 12, color: "rgba(210,197,177,0.6)" },
+  aName:          { fontFamily: "Inter_400Regular", fontSize: 14, color: "#E3E2E2", marginBottom: 4 },
+  aCourse:        { fontFamily: "Inter_400Regular", fontSize: 12, color: "#D2C5B1" },
   aBadge:         { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 9999, borderWidth: 1, flexShrink: 0 },
-  aBadgeText:     { fontSize: 10 },
+  aBadgeText:     { fontFamily: "Inter_400Regular", fontSize: 10 },
 
   emptyCard:      { ...GLASS, backgroundColor: "rgba(26,26,30,0.6)", padding: 32, alignItems: "center", gap: 4 },
-  emptyTitle:     { fontSize: 16, fontWeight: "600", color: "#E3E2E2" },
-  emptySubtitle:  { fontSize: 14, color: "rgba(200,197,203,0.6)" },
+  emptyTitle:     { fontFamily: "Inter_600SemiBold", fontSize: 18, color: "#E3E2E2" },
+  emptySubtitle:  { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(200,197,203,0.6)" },
 
   activityRow:    { flexDirection: "row", alignItems: "center", gap: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.04)" },
   activityDot:    { width: 8, height: 8, borderRadius: 4, backgroundColor: "#C8C5CB", flexShrink: 0 },
-  activityText:   { flex: 1, fontSize: 14, color: "#E3E2E2" },
-  activityTime:   { fontSize: 10, color: "rgba(200,197,203,0.4)" },
+  activityText:   { fontFamily: "Inter_400Regular", flex: 1, fontSize: 14, color: "#E3E2E2" },
+  activityTime:   { fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(200,197,203,0.4)" },
 });
