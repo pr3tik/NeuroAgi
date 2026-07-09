@@ -9,16 +9,17 @@
 // fix: failOffsetY lets a ScrollView win any vertical drag while our Pan
 // still reliably wins clearly-horizontal ones.
 //
-// Vertical (up/down) nav is edge-gated instead — mirrors the web's "only
-// navigate vertically when the gesture starts at the scroll boundary" rule,
-// approximated here as two thin swipe strips at the very top/bottom of the
-// content area (see ScreenWrapper.tsx), so it can't fight normal scrolling.
-// horizontalGesture.requireExternalGestureToFail(...) below makes it wait for
-// the edge gestures to fail first when a touch starts inside their strip —
-// without this, RNGH doesn't automatically treat a parent gesture (attached
-// to the whole container) and a child gesture (attached to a small nested
-// strip) as mutually exclusive, so the parent could still win a touch that
-// started inside the strip.
+// Vertical (up/down) nav lives on two dedicated, non-scrolling touch targets
+// instead of competing with a screen's own ScrollView for the same region:
+// topEdgeGesture wraps the Header (ScreenWrapper.tsx), bottomEdgeGesture
+// wraps a small handle bar below the content. Both are real layout siblings
+// of the scrollable content, never overlaid on top of it, so there's no
+// ambiguity to resolve. (An earlier version used thin absolute-positioned
+// strips overlaid on the content instead — on-device testing showed real
+// swipes start from the middle of the screen, nowhere near those strips, so
+// they never worked. requireExternalGestureToFail below is still needed
+// because topEdgeGesture wraps the Header, which is a child of the same
+// container horizontalGesture is attached to.)
 //
 // Live drag-follow: the screen tracks your finger in real time via onUpdate
 // (driving the same translateX/translateY/opacity shared values
@@ -50,11 +51,9 @@ export function useSwipeNav(
   currentPage: PageKey,
   translateX: SharedValue<number>,
   translateY: SharedValue<number>,
-  opacity: SharedValue<number>,
-  onDebug?: (msg: string) => void
+  opacity: SharedValue<number>
 ) {
   const router = useRouter();
-  const dbg = onDebug ?? (() => {});
 
   function completeNavigate(direction: Direction) {
     const target = NAV[currentPage]?.[direction];
@@ -67,7 +66,6 @@ export function useSwipeNav(
   const horizontalGesture = Gesture.Pan()
     .activeOffsetX([-15, 15])
     .failOffsetY([-15, 15])
-    .onTouchesDown(e => { runOnJS(dbg)(`horiz: touch down y=${e.allTouches[0]?.y.toFixed(0)}`); })
     .onUpdate(e => {
       translateX.value = e.translationX;
       opacity.value = Math.max(0.4, 1 - Math.abs(e.translationX) / W);
@@ -86,22 +84,18 @@ export function useSwipeNav(
       }
     });
 
-  // Pulling down from the top-edge strip → "up" (mirrors a pull-to-refresh
-  // gesture); only the downward bound is reachable, so upward drags here
-  // (unlikely in a 48px strip anyway) don't accidentally activate it.
+  // Swipe down on the header → "up" (mirrors a pull-to-refresh gesture);
+  // only the downward bound is reachable, so upward drags here don't
+  // accidentally activate it.
   const topEdgeGesture = Gesture.Pan()
     .activeOffsetY([-1000, 12])
-    .onTouchesDown(() => { runOnJS(dbg)("top: touch down"); })
-    .onBegin(() => { runOnJS(dbg)("top: began"); })
     .onUpdate(e => {
       translateY.value = Math.max(0, e.translationY);
       opacity.value = Math.max(0.4, 1 - Math.abs(e.translationY) / H);
-      runOnJS(dbg)(`top: update ty=${e.translationY.toFixed(0)}`);
     })
     .onEnd(e => {
       const target = NAV[currentPage]?.up;
       const past = e.translationY > MIN_DIST || e.velocityY > MIN_VEL;
-      runOnJS(dbg)(`top: end ty=${e.translationY.toFixed(0)} vy=${e.velocityY.toFixed(0)} target=${target ?? "none"} ${past ? "COMMIT" : "cancel"}`);
       if (target && past) {
         translateY.value = withTiming(H, { duration: COMMIT_DURATION, easing: EASE_APPLE }, finished => {
           if (finished) runOnJS(completeNavigate)("up");
@@ -113,20 +107,16 @@ export function useSwipeNav(
       }
     });
 
-  // Pulling up from the bottom-edge strip → "down".
+  // Swipe up on the bottom handle bar → "down".
   const bottomEdgeGesture = Gesture.Pan()
     .activeOffsetY([-12, 1000])
-    .onTouchesDown(() => { runOnJS(dbg)("bottom: touch down"); })
-    .onBegin(() => { runOnJS(dbg)("bottom: began"); })
     .onUpdate(e => {
       translateY.value = Math.min(0, e.translationY);
       opacity.value = Math.max(0.4, 1 - Math.abs(e.translationY) / H);
-      runOnJS(dbg)(`bottom: update ty=${e.translationY.toFixed(0)}`);
     })
     .onEnd(e => {
       const target = NAV[currentPage]?.down;
       const past = e.translationY < -MIN_DIST || e.velocityY < -MIN_VEL;
-      runOnJS(dbg)(`bottom: end ty=${e.translationY.toFixed(0)} vy=${e.velocityY.toFixed(0)} target=${target ?? "none"} ${past ? "COMMIT" : "cancel"}`);
       if (target && past) {
         translateY.value = withTiming(-H, { duration: COMMIT_DURATION, easing: EASE_APPLE }, finished => {
           if (finished) runOnJS(completeNavigate)("down");
@@ -139,9 +129,10 @@ export function useSwipeNav(
     });
 
   // Without this, RNGH treats the parent (horizontalGesture, on the whole
-  // container) and the child (edge gestures, on their own small strips) as
-  // fully independent recognizers — a touch starting inside a strip isn't
-  // guaranteed to go to the more specific gesture first.
+  // container) and the child (topEdgeGesture, on the Header nested inside
+  // that same container) as fully independent recognizers — a touch
+  // starting on the header isn't guaranteed to go to the more specific
+  // gesture first.
   horizontalGesture.requireExternalGestureToFail(topEdgeGesture, bottomEdgeGesture);
 
   return { horizontalGesture, topEdgeGesture, bottomEdgeGesture };
