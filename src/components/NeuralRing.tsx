@@ -802,7 +802,7 @@ function buildNotificationAskCopy(studyWindow) {
 }
 
 export default function NeuralRing({ currentPage }: { currentPage?: string } = {}) {
-  const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, userId, flashcardMap, syllabus, forceSync, canvasToken } = useApp();
+  const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, tutorSeed, setTutorSeed, userId, flashcardMap, syllabus, forceSync, canvasToken } = useApp();
 
   const courseOptions = courses.length
     ? courses.map(c => `${c.courseCode} — ${c.name}`)
@@ -811,6 +811,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   // ── Tutor impressions + living mind — loaded once on mount ─────────────────
   const [impressions,      setImpressions]      = useState([]);
   const abortCtrlRef       = useRef(null);   // cancel in-flight fetch
+  const activeAssignmentRef = useRef(null);  // { assignmentId, courseId, title } when studying a task
   const audioSourceRef     = useRef(null);   // cancel in-flight audio
   const [lastSession,      setLastSession]      = useState(null);
   const [livingMind,       setLivingMind]       = useState(null);
@@ -2182,7 +2183,13 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
 
     try {
       await streamReggie(
-        { userId, message: text, history, voiceMode: voice },
+        {
+          userId, message: text, history, voiceMode: voice,
+          // When the student launched from an assignment, ground the tutor in it — the
+          // agent-manager forwards these into ctx for the assignment-aware tools.
+          courseId:     activeAssignmentRef.current?.courseId ?? null,
+          assignmentId: activeAssignmentRef.current?.assignmentId ?? null,
+        },
         {
           onToken:      (d) => { streamed += d; toolNote = ""; paint(); if (speakLive) chunker.feed(d); },
           onReset:      ()  => { streamed = ""; paint(); chunker.reset(); },
@@ -2266,6 +2273,24 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     // Auto-restart listening after the reply ends, if still in voice mode.
     if (voice && voiceModeRef.current && !micDenied) await startAutoListen();
   };
+
+  // ── Assignment → Reggie handoff ────────────────────────────────────────────
+  // A page (the Assignment detail's "Study this with Reggie" button) sets tutorSeed.
+  // Open the tutor in Reggie mode with that assignment in scope so it can ground the
+  // conversation in the specific task, then clear the seed so it fires once.
+  useEffect(() => {
+    if (!tutorSeed) return;
+    const { assignmentId = null, courseId = null, title = "", course = "" } = tutorSeed;
+    activeAssignmentRef.current = { assignmentId, courseId, title };
+    // Reggie is the only assignment-aware path (agent-manager + assignment tools), so
+    // force it on for this turn (persisted + immediate via the ref).
+    reggieModeRef.current = true;
+    setReggieMode(true);
+    setChatOpen(true);
+    const seed = `I'm working on my assignment "${title}"${course ? ` for ${course}` : ""}. Help me get started. Where should I begin, and what should I focus on?`;
+    sendMessage(seed);
+    setTutorSeed(null);
+  }, [tutorSeed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleDictation() {
     if (dictState === "listening") {
