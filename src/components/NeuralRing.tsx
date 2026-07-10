@@ -19,6 +19,7 @@ import { useApp }      from "../context/AppContext";
 import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
+import { buildRetrievalQuery } from "../lib/ragQuery";
 import { ensureTutorReply } from "../lib/tutorReply";
 import { parseVoiceTags, stripAgentJSON } from "../lib/voiceTags";
 import { createSentenceChunker } from "../lib/ttsChunker";
@@ -2411,12 +2412,15 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       // RAG source material is query-specific, so it's fetched per message here.
       let ragContext = null;
       abortCtrlRef.current = new AbortController();
-      // In Reggie mode the agent does its own retrieval (rag_search tool), so skip this
-      // separate fetch + context injection entirely.
-      const ragFetch = reggieModeRef.current ? Promise.resolve() : fetch("/api/rag?action=query", {
+      // In Reggie mode the agent does its own retrieval (rag_search tool). Otherwise:
+      // a big pasted prompt is self-contained context → skip retrieval (skipRag); a
+      // medium one is capped to its gist → both keep the "thinking" delay small on
+      // large prompts (embedding/searching the whole message was the slow part).
+      const { skip: skipRag, query: ragQuery } = buildRetrievalQuery(userMsg.content);
+      const ragFetch = (reggieModeRef.current || skipRag) ? Promise.resolve() : fetch("/api/rag?action=query", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, query: userMsg.content, rerank: false }),
+        body: JSON.stringify({ userId, query: ragQuery, rerank: false }),
       })
         .then(r => r.ok ? r.json() : null)
         .then(d => {
@@ -2435,7 +2439,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       // keeping it generous costs nothing in the normal (fast) case but stops a
       // slightly-slow query from dropping the file's grounding (the "no SOURCE MATERIAL"
       // bug). Lower caps trade reliable grounding for a worst-case bound that rarely helps.
-      if (!voiceModeRef.current && !reggieModeRef.current) {
+      if (!voiceModeRef.current && !reggieModeRef.current && !skipRag) {
         await Promise.race([ragFetch, new Promise(r => setTimeout(r, 4000))]);
       }
 

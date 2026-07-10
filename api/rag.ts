@@ -316,12 +316,16 @@ async function query(body) {
   if (!userId) return { status: 400, json: { error: "userId required" } };
   if (!q || !String(q).trim()) return { status: 400, json: { error: "query required" } };
 
-  const [queryEmbedding] = await embed([String(q)]);
+  // Cap the query for retrieval — the embedding + full-text search don't benefit from
+  // more than the gist, and an unbounded query (e.g. a whole pasted essay) is slow to
+  // embed and search. Clients should pre-trim (src/lib/ragQuery), this is the backstop.
+  const qStr = String(q).slice(0, 2000);
+  const [queryEmbedding] = await embed([qStr]);
 
   const { data: hits, error } = await supabase.rpc("rag_hybrid_search", {
     p_user_id:         userId,
     p_query_embedding: queryEmbedding,
-    p_query_text:      String(q),
+    p_query_text:      qStr,
     p_course_id:       courseId,
     p_match_count:     12,
   });
