@@ -20,6 +20,7 @@ import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
 import { buildRetrievalQuery } from "../lib/ragQuery";
+import { replaceFlashcardDeck } from "../lib/flashcardsSave";
 import { ensureTutorReply } from "../lib/tutorReply";
 import { parseVoiceTags, stripAgentJSON } from "../lib/voiceTags";
 import { createSentenceChunker } from "../lib/ttsChunker";
@@ -595,15 +596,7 @@ function InlineQuiz({ cards, userId, courseId }) {
   async function saveCards() {
     setSaving(true);
     try {
-      await supabase.from("flashcards").upsert(
-        {
-          user_id:      userId,
-          course_id:    courseId ?? null,
-          cards:        cards.map(c => ({ question: c.q, answer: c.a })),
-          generated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,course_id" }
-      );
+      await replaceFlashcardDeck(supabase, userId, courseId ?? null, cards);   // flashcards_v2 (the read table)
       setSaved(true);
     } catch { /* non-fatal */ }
     setSaving(false);
@@ -2125,12 +2118,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
         })
         .filter(c => c.question && c.answer);
       if (cards.length > 0) {
-        await supabase.from("flashcards").upsert({
-          user_id:      userId,
-          course_id:    null,
-          cards:        cards.map(c => ({ question: c.question, answer: c.answer })),
-          generated_at: new Date().toISOString(),
-        }, { onConflict: "user_id,course_id" });
+        await replaceFlashcardDeck(supabase, userId, null, cards);   // flashcards_v2 (the read table)
         awardTokens("flashcards_generated", {}).catch(() => {});
         const msg = `${cards.length} flashcards ready for ${course}. Head to Study to review them.`;
         setMessages(m => [...m, { role: "assistant", content: msg }]);

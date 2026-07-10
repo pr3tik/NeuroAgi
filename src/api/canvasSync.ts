@@ -7,6 +7,7 @@
  * Blob storage (canvas_data): announcements, modules, assignment_groups, discussion_topics
  */
 
+import { replaceFlashcardDeck } from "../lib/flashcardsSave";
 import {
   fetchCourses,
   fetchAssignments,
@@ -100,12 +101,9 @@ async function generateAndSaveFlashcards(userId, courseDbId, courseName, assignm
 
     if (!cards.length) return null;
 
-    await supabase
-      .from('flashcards')
-      .upsert(
-        { user_id: userId, course_id: courseDbId, cards, generated_at: new Date().toISOString() },
-        { onConflict: 'user_id,course_id' }
-      );
+    // flashcards_v2 (per-row) is the table the app READS; the old single-row
+    // `flashcards` table is retired + unread. Replace this course's deck.
+    await replaceFlashcardDeck(supabase, userId, courseDbId, cards);
 
     return cards;
   } catch (err) {
@@ -763,11 +761,15 @@ async function syncToBrainDB(userId, courses, assignments, courseIdMap, now) {
       synced_at:        now,
     }));
 
-    await fetch(`${brainUrl}/rest/v1/fschool_assignments`, {
+    // Courses go to fschool_COURSES (was wrongly POSTing to fschool_assignments — the
+    // assignments table lacks name/course_code/*_score, so PostgREST 400'd and, since
+    // fetch doesn't reject on 4xx, the .catch never fired and courses silently never synced).
+    const cr = await fetch(`${brainUrl}/rest/v1/fschool_courses`, {
       method:  'POST',
       headers: brainHeaders,
       body:    JSON.stringify(courseRows),
-    }).catch(err => console.error('[syncToBrainDB] courses write failed:', err.message));
+    }).catch(err => { console.error('[syncToBrainDB] courses write failed:', err.message); return null; });
+    if (cr && !cr.ok) console.error('[syncToBrainDB] courses write HTTP', cr.status, (await cr.text().catch(() => '')).slice(0, 200));
   }
 
   // Upsert assignments to fschool.assignments (cap at 100 most recent)
