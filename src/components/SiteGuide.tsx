@@ -262,38 +262,32 @@ export default function SiteGuide() {
           </div>
         )}
 
-        {/* ── FAB — clean dark pill, no gold, no glow ── */}
+        {/* ── FAB — compact 44×44 icon circle ── */}
         <button
           onClick={open ? handleClose : handleOpen}
           onMouseEnter={() => setFabHover(true)}
           onMouseLeave={() => setFabHover(false)}
           aria-label="Ask FschoolAI"
           style={{
-            display: "flex", alignItems: "center", gap: open ? 0 : 9,
-            width: open ? 48 : "auto",
-            height: 48,
-            borderRadius: 980,
-            padding: open ? "0" : "0 20px 0 14px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 44, height: 44, borderRadius: "50%",
             background: fabHover ? "#333" : "#1d1d1f",
             border: "none", cursor: "pointer",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.22), 0 1px 4px rgba(0,0,0,0.10)",
-            overflow: "hidden",
-            justifyContent: "center",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.20), 0 1px 3px rgba(0,0,0,0.10)",
             animation: !open ? "sgFabPulse 4s ease-in-out 2s infinite" : "none",
-            transition: "background 0.18s, width 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.18s cubic-bezier(0.16,1,0.3,1), box-shadow 0.18s",
-            transform: fabHover ? "scale(1.04)" : "scale(1)",
+            transition: "background 0.18s, transform 0.18s cubic-bezier(0.16,1,0.3,1)",
+            transform: fabHover ? "scale(1.08)" : "scale(1)",
           }}
         >
           {open ? (
-            <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M1 1l12 12M13 1L1 13" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/>
             </svg>
           ) : (
             <>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
-              <span style={{ fontSize: 13, fontWeight: 500, color: "#fff", whiteSpace: "nowrap", fontFamily: FONT }}>Ask anything</span>
             </>
           )}
         </button>
