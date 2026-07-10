@@ -271,7 +271,9 @@ async function fetchCloudFile(href) {
 
   const mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "application/octet-stream";
   const buffer   = await res.arrayBuffer();
-  return { bytes: bufferToBase64(buffer), mimeType };
+  // Drive's download endpoints declare the real filename — beats link-text guesses.
+  const filename = filenameFromDisposition(res.headers.get("content-disposition"));
+  return { bytes: bufferToBase64(buffer), mimeType, filename };
 }
 
 // ── SW-side file fetch (CORS bypass; used when the content script can't) ────
@@ -712,6 +714,173 @@ function bumpStat(key, by) {
   });
 }
 
+// ── Google Classroom capture ─────────────────────────────────────────────────
+// Schools can block third-party Classroom API access (admin app allowlists),
+// which kills the server-side OAuth sync (api/drive-auth.ts) — but the student's
+// own browser session still renders classroom.google.com. The content script
+// scrapes route-stable data (course cards, classwork links, Drive attachment
+// hrefs) and this handler:
+//   1. decodes the base64 web ids to the numeric API ids → the SAME gc_<id> keys
+//      the OAuth sync writes, so both paths merge into one courses/assignments row;
+//   2. upserts structure through /api/extension-sync (source: google_classroom);
+//   3. downloads Drive attachments with the user's Google session cookies —
+//      no OAuth involved, so the admin block doesn't apply — and routes them
+//      through the normal import queue. Canonical Drive URLs dedupe against
+//      OAuth-synced files server-side.
+
+function decodeClassroomId(webId) {
+  const s = String(webId || "").replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
+  try {
+    const digits = atob(s + "=".repeat((4 - (s.length % 4)) % 4));
+    if (/^\d{6,20}$/.test(digits)) return "gc_" + digits;
+  } catch { /* not base64 */ }
+  // Deterministic per item, just doesn't merge with OAuth-synced rows.
+  return "gcw_" + String(webId).replace(/[^\w-]/g, "").slice(0, 48);
+}
+
+const CR_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+
+// English-locale v1 (parses the visible "Due Mar 14, 11:59 PM" row text).
+// Anything unparseable syncs with due_at null rather than a wrong date.
+function parseClassroomDue(dueText) {
+  if (!dueText) return null;
+  const s = String(dueText);
+  const time = s.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+  let hours = 23, minutes = 59;                      // all-day due dates → end of day (matches drive-auth)
+  if (time) {
+    const h = parseInt(time[1], 10);
+    const ap = (time[3] || "").toLowerCase();
+    hours   = ap === "pm" ? (h % 12) + 12 : ap === "am" ? h % 12 : h;
+    minutes = parseInt(time[2], 10);
+  }
+  const now = new Date();
+  if (/\btoday\b/i.test(s))    return new Date(now.getFullYear(), now.getMonth(), now.getDate(),     hours, minutes).toISOString();
+  if (/\btomorrow\b/i.test(s)) return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, hours, minutes).toISOString();
+  const m = s.match(/([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?/);
+  if (!m) return null;
+  const mon = CR_MONTHS[m[1].slice(0, 3).toLowerCase()];
+  if (mon === undefined) return null;
+  // Classroom omits the year only within the CURRENT calendar year (other years
+  // are shown explicitly), so a yearless "Mar 14" seen in July is last March —
+  // a past assignment — not the upcoming one. Never bump the year.
+  const year = m[3] ? parseInt(m[3], 10) : now.getFullYear();
+  return new Date(year, mon, parseInt(m[2], 10), hours, minutes).toISOString();
+}
+
+const classroomUpserted = new Set();          // gc keys written this SW lifetime (re-upsert on restart is a cheap no-op)
+let classroomCourseMap = { t: 0, map: {} };   // canvas_course_id → courses.id (for assignment linking)
+
+async function extensionSync(auth, action, payload) {
+  const r = await fetch(`${API_BASE}/api/extension-sync`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ userId: auth.userId, action, ...payload }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `extension-sync ${action} failed (${r.status})`);
+  return data;
+}
+
+async function classroomCourseIds(auth, force = false) {
+  if (!force && Date.now() - classroomCourseMap.t < 5 * 60 * 1000) return classroomCourseMap.map;
+  const { courses = [] } = await extensionSync(auth, "get_courses", {});
+  const map = {};
+  for (const c of courses) if (c.canvas_course_id) map[c.canvas_course_id] = c.id;
+  classroomCourseMap = { t: Date.now(), map };
+  return map;
+}
+
+async function classroomCapture({ courses = [], items = [], attachments = [] }) {
+  const auth = await getAuth();
+  if (!auth) return { ok: false, reason: "signed-out" };
+  if (!(await getSettings()).autoCapture) return { ok: false, reason: "disabled" };
+  // Defense in depth: the content script already gates on consent, but this
+  // capture writes structure AND ingests files — re-check server-side of the message.
+  if (await siteMode("classroom.google.com") !== "on") return { ok: false, reason: "no-consent" };
+
+  const summary = { courses: 0, assignments: 0, imported: 0, skipped: 0, errors: [] };
+
+  // 1. Courses — only named ones (course cards). gc_<id> matches the OAuth
+  //    sync's rows, so an API-blocked school produces the same data shape.
+  try {
+    const rows = [];
+    for (const c of (courses ?? [])) {
+      const key = decodeClassroomId(c.webId);
+      if (!c.name || classroomUpserted.has("c:" + key)) continue;
+      classroomUpserted.add("c:" + key);
+      rows.push({ canvas_course_id: key, name: String(c.name).slice(0, 200), source: "google_classroom" });
+    }
+    if (rows.length) {
+      await extensionSync(auth, "upsert_courses", { rows });
+      summary.courses = rows.length;
+      await classroomCourseIds(auth, true);   // refresh the id map for assignment linking
+    }
+  } catch (e) { summary.errors.push("courses: " + e.message); }
+
+  // 2. Classwork → assignments. Materials (kind m/mc) carry files but aren't
+  //    assignments — same courseWork vs courseWorkMaterials split as the OAuth sync.
+  try {
+    const workItems = (items ?? []).filter((it) => it.kind !== "m" && it.kind !== "mc");
+    if (workItems.length) {
+      const idMap = await classroomCourseIds(auth);
+      const rows = [];
+      for (const it of workItems) {
+        const key = decodeClassroomId(it.itemWebId);
+        if (classroomUpserted.has("a:" + key)) continue;
+        classroomUpserted.add("a:" + key);
+        rows.push({
+          canvas_assignment_id: key,
+          course_id:            idMap[decodeClassroomId(it.courseWebId)] ?? null,
+          title:                String(it.title || "Untitled").slice(0, 300),
+          due_at:               parseClassroomDue(it.dueText),
+          source:               "google_classroom",
+        });
+      }
+      if (rows.length) {
+        await extensionSync(auth, "upsert_assignments", { rows });
+        summary.assignments = rows.length;
+      }
+    }
+  } catch (e) { summary.errors.push("assignments: " + e.message); }
+
+  // 3. Drive attachments → bytes via the user's own Google session, then the
+  //    normal import queue (size routing, RAG ingest, canonical dedup). Only
+  //    Google file hosts are ever fetched from this path — a page can't use it
+  //    to drive credentialed GETs anywhere else.
+  for (const at of (attachments ?? [])) {
+    let host = "";
+    try { host = new URL(at.href).hostname; } catch { continue; }
+    if (!/(^|\.)(drive|docs)\.google\.com$/i.test(host)) continue;
+    const key = canonicalizeUrl(at.href);
+    if ((await getCaptured()).includes(key) || inFlight.has(key)) { summary.skipped++; continue; }
+    if (await isBlockedByFailures(key)) { summary.skipped++; continue; }
+    inFlight.add(key);
+    try {
+      const fetched = await fetchCloudFile(at.href);
+      const gcCourse = at.courseWebId ? decodeClassroomId(at.courseWebId) : null;
+      const r = await importFile({
+        url:      at.href,
+        filename: fetched.filename || at.filename || null,
+        courseId: gcCourse,
+        bytes:    fetched.bytes,
+        mimeType: fetched.mimeType,
+        platform: "classroom",
+      });
+      if (r?.ok) { if (r.skipped) summary.skipped++; else summary.imported++; }
+      else { if (!r?.transient) await recordFailure(key); summary.errors.push((at.filename || "file") + ": " + (r?.error || "failed")); }
+    } catch (e) {
+      // fetchCloudFile throws on private/HTML responses — a permanent property
+      // of this attachment for this session; strike it so we don't loop.
+      await recordFailure(key);
+      summary.errors.push((at.filename || "file") + ": " + (e?.message || "fetch failed"));
+    } finally {
+      inFlight.delete(key);
+    }
+  }
+  if (summary.imported > 0) bumpStat("autoImported", summary.imported);
+  return { ok: true, ...summary };
+}
+
 // ── Full-course API sync ─────────────────────────────────────────────────────
 // The zero-friction path: once the user has consented to a host, enumerate EVERY
 // course file via the LMS's own API (injected into the page's MAIN world) and
@@ -1096,6 +1265,7 @@ function summarizeSync(r) {
     case "signed-out":        return "Sign into the extension first.";
     case "autocapture-off":   return "Auto-capture is turned off (see the toggle below).";
     case "already-running":   return "A sync is already running…";
+    case "classroom-passive": return "Google Classroom syncs as you browse — open your courses, the Classwork tab, and assignments, and they'll import automatically.";
     case "throttled":         return "Already synced recently — files are up to date.";
     case "done": {
       const label = r.lms === "generic" ? "This site" : r.lms;
@@ -1130,6 +1300,9 @@ async function runFullSync(tabId, host, { force = false } = {}) {
   try {
     const auth = await getAuth();
     if (!auth) return { ok: false, reason: "signed-out" };
+    // Classroom has no enumeration adapter — it syncs passively as the student
+    // browses (CLASSROOM_CAPTURE). Tell the popup that instead of "no-lms".
+    if (/(^|\.)classroom\.google\.com$/i.test(host)) return { ok: true, reason: "classroom-passive" };
     if (await siteMode(host) !== "on") return { ok: false, reason: "no-consent" };
     if (!(await getSettings()).autoCapture) return { ok: false, reason: "autocapture-off" };
     if (!force) {
@@ -1237,8 +1410,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const auth = await getAuth();
       if (!auth) return { error: "Not signed in. Open the extension popup to sign in." };
       try {
-        const { bytes, mimeType } = await fetchCloudFile(href);
-        return await importFile({ url: href, filename, pageUrl, courseId: null, bytes, mimeType, platform });
+        const { bytes, mimeType, filename: serverName } = await fetchCloudFile(href);
+        return await importFile({ url: href, filename: serverName || filename, pageUrl, courseId: null, bytes, mimeType, platform });
       } catch (e) {
         return { error: e.message ?? "Cloud fetch failed" };
       }
@@ -1248,6 +1421,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "AUTO_IMPORT") {
     autoImportBatch(msg.payload ?? {}).then(sendResponse);
+    return true;
+  }
+
+  // Google Classroom structure + attachment capture. Only honored from a
+  // classroom.google.com tab — no other page can feed this path.
+  if (msg.type === "CLASSROOM_CAPTURE") {
+    let senderHost = "";
+    try { senderHost = new URL(sender.tab?.url || sender.url || "").hostname; } catch { /* no sender url */ }
+    if (!/(^|\.)classroom\.google\.com$/i.test(senderHost)) {
+      sendResponse({ ok: false, reason: "bad-origin" });
+      return false;
+    }
+    classroomCapture(msg.payload ?? {}).then(sendResponse);
     return true;
   }
 

@@ -118,6 +118,10 @@ export default function Connections() {
     const p = new URLSearchParams(window.location.search);
     return p.get("lms") ?? null;
   });
+  // The callback forwards Google's OAuth error code (?reason=access_denied etc.) —
+  // an admin-blocked school app needs different guidance than a flaky connection.
+  const [bannerReason] = useState<string | null>(() => new URLSearchParams(window.location.search).get("reason"));
+  const googleAdminBlocked = banner === "google_error" && /access_denied|admin_policy|policy_enforced|org_internal|disallowed/i.test(bannerReason ?? "");
 
   // Provider connection state
   const [googleStatus,    setGoogleStatus]    = useState<{ connected: boolean; connectedAt: string | null } | null>(null);
@@ -137,7 +141,8 @@ export default function Connections() {
     url.searchParams.delete("lms");
     url.searchParams.delete("reason");
     window.history.replaceState({}, "", url.toString());
-    const t = setTimeout(() => setBanner(null), 5000);
+    // The admin-blocked message carries instructions — give it time to be read.
+    const t = setTimeout(() => setBanner(null), googleAdminBlocked ? 30000 : 5000);
     return () => clearTimeout(t);
   }, [banner]);
 
@@ -280,7 +285,9 @@ export default function Connections() {
           <span style={{ fontSize: "13px", color: bannerIsError ? "#ff6961" : "#30d158", fontWeight: "600" }}>
             {banner === "google_connected"    && "Google connected — browse your Classroom files below"}
             {banner === "microsoft_connected" && "Microsoft connected — browse your Teams files below"}
-            {banner === "google_error"        && "Google connection failed. Try again."}
+            {banner === "google_error"        && (googleAdminBlocked
+              ? "Your school blocks third-party Classroom access. Install the FschoolAI Chrome extension instead — with it on, your courses, assignments and files sync automatically as you browse Classroom."
+              : "Google connection failed. Try again.")}
             {banner === "microsoft_error"     && "Microsoft connection failed. Try again."}
           </span>
         </div>

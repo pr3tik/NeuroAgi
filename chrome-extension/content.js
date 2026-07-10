@@ -57,8 +57,10 @@
     return false;
   }
 
-  // Google Classroom is owned by the Drive OAuth sync (same files, canonical dedup) —
-  // auto-capture there would only duplicate work, so it stays manual-button-only.
+  // Google Classroom is excluded from the GENERIC auto-capture/full-sync paths
+  // (its DOM has no file hrefs those paths could use) — it has its own dedicated
+  // route-based capture below (scheduleClassroomCapture), which covers schools
+  // whose admin blocks the Classroom API for the server-side OAuth sync.
   const AUTO_EXCLUDED_HOSTS = /classroom\.google\.com$/i;
 
   // Auto-capture imports DOCUMENT types only (media is large + often not study
@@ -446,6 +448,117 @@
     }, 2500);   // let SPA content settle; batches instead of per-link spam
   }
 
+  // ── Google Classroom capture (SPA — Google's Wiz framework) ────────────────
+  // Classroom's DOM is obfuscated (class names rotate between builds) and its
+  // files are minted by XHR, so the generic anchor/auto-capture model finds
+  // nothing there. But its ROUTES and Drive-attachment hrefs are stable:
+  //   /u/{n}/h                        → course cards (name + web id)
+  //   /u/{n}/w/{cid}/t/all            → classwork tab (assignment links)
+  //   /u/{n}/c/{cid}/a/{iid}/details  → assignment detail (attachments, due date)
+  // The web ids are base64 of the numeric Classroom API ids; the background
+  // decodes them to the same gc_<id> keys the server-side OAuth sync
+  // (api/drive-auth.ts) writes, so both paths upsert the SAME rows. This is the
+  // fallback for schools whose admin blocks third-party Classroom API access —
+  // the student's own browser session still renders everything.
+  // Selectors: href routes + aria-labels/text only, never CSS classes.
+  const IS_CLASSROOM = /(^|\.)classroom\.google\.com$/i.test(location.hostname);
+  const CR_B64 = "[A-Za-z0-9_=-]{8,}";
+  const CR_COURSE_LINK_RE = new RegExp(`^/(?:u/\\d+/)?[cw]/(${CR_B64})$`);
+  const CR_ITEM_LINK_RE   = new RegExp(`^/(?:u/\\d+/)?c/(${CR_B64})/(a|m|sa|mc|qa)/(${CR_B64})(?:/details)?$`);
+  const crSent = new Set();     // session-level capture dedup (courses/items/files)
+
+  function crPageCourseId() {
+    const m = location.pathname.match(new RegExp(`/(?:c|w)/(${CR_B64})`));
+    return m ? m[1] : null;
+  }
+
+  function crLabel(el) {
+    return (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ");
+  }
+
+  function collectClassroom() {
+    const courses = [], items = [], attachments = [];
+    const pageCid = crPageCourseId();
+
+    // The details page itself identifies one classwork item even when no list
+    // anchors are rendered (the user navigated straight to it).
+    const self = location.pathname.match(CR_ITEM_LINK_RE);
+    if (self && !crSent.has("i:" + self[3])) {
+      crSent.add("i:" + self[3]);
+      const title = document.title.replace(/\s*[-–]\s*Google Classroom.*$/i, "").trim();
+      items.push({ courseWebId: self[1], kind: self[2], itemWebId: self[3], title: title || "Untitled", dueText: null });
+    }
+
+    for (const a of document.querySelectorAll("a[href]")) {
+      let u; try { u = new URL(a.href); } catch { continue; }
+
+      // Drive/Docs attachment cards (assignment details, stream posts, classwork).
+      if (/(^|\.)(drive|docs)\.google\.com$/i.test(u.hostname) && CLOUD_STORAGE_RE.test(a.href)) {
+        const key = "f:" + a.href;
+        if (crSent.has(key)) continue;
+        crSent.add(key);
+        const label = crLabel(a);
+        attachments.push({ href: a.href, filename: label.slice(0, 120) || null, courseWebId: pageCid });
+        continue;
+      }
+
+      if (u.hostname !== location.hostname) continue;
+
+      // Course cards (/c/{cid} with the course name as the link label). Nav/tab
+      // links match the same route shape but carry generic labels — skip those;
+      // the background only creates courses it has a real name for.
+      let m = u.pathname.match(CR_COURSE_LINK_RE);
+      if (m) {
+        const key = "c:" + m[1];
+        if (crSent.has(key)) continue;
+        const label = crLabel(a);
+        if (label && label.length >= 2 && !/^(stream|classwork|people|grades|to-?do|open)$/i.test(label)) {
+          crSent.add(key);
+          courses.push({ webId: m[1], name: label.slice(0, 200) });
+        }
+        continue;
+      }
+
+      // Classwork item links (a = assignment, sa/qa = question, m/mc = material).
+      m = u.pathname.match(CR_ITEM_LINK_RE);
+      if (m) {
+        const key = "i:" + m[3];
+        if (crSent.has(key)) continue;
+        crSent.add(key);
+        const title = crLabel(a).slice(0, 300);
+        // The due date is text in the surrounding list row, not on the anchor.
+        let dueText = null;
+        let el = a;
+        for (let i = 0; i < 4 && el; i++, el = el.parentElement) {
+          const t = (el.innerText || "").match(/\bdue\b[^\n]{0,60}/i);
+          if (t) { dueText = t[0].slice(0, 80); break; }
+        }
+        items.push({ courseWebId: m[1], kind: m[2], itemWebId: m[3], title: title || "Untitled", dueText });
+      }
+    }
+    return { courses, items, attachments };
+  }
+
+  let crTimer = null;
+  function scheduleClassroomCapture() {
+    if (crTimer) return;
+    crTimer = setTimeout(async () => {
+      crTimer = null;
+      try {
+        if (!chrome?.runtime?.sendMessage) return;             // orphaned script
+        if (window !== window.top) return;                     // top frame only
+        // Same consent gate as every other capture path — one prompt per host.
+        if (await ensureSiteConsent() !== "on") return;
+        const { courses, items, attachments } = collectClassroom();
+        if (!courses.length && !items.length && !attachments.length) return;
+        chrome.runtime.sendMessage({
+          type: "CLASSROOM_CAPTURE",
+          payload: { courses, items, attachments, pageUrl: location.href },
+        }, () => void chrome.runtime.lastError);
+      } catch { /* never break the host page */ }
+    }, 2500);   // let the SPA settle; batches instead of per-mutation spam
+  }
+
   // Universal selector — catches file links on any website.
   const SELECTOR = [
     "a[download]",
@@ -718,6 +831,12 @@
 
   function scan() {
     injectButtons();
+    if (IS_CLASSROOM) {
+      // Classroom has its own route-based capture; the generic auto-capture and
+      // full-sync paths stay excluded (AUTO_EXCLUDED_HOSTS) — they'd find nothing.
+      scheduleClassroomCapture();
+      return;
+    }
     scheduleAutoCapture();
     maybeEngageLms();     // offer/trigger full-course sync even with no file links on the page
   }

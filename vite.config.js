@@ -654,6 +654,7 @@ export default defineConfig({
     handlerProxy("/api/content-connector",() => import("./api/content-connector.js")),
     handlerProxy("/api/writing-tracker",  () => import("./api/writing-tracker.js")),
     handlerProxy("/api/lms-ingest",       () => import("./api/lms-ingest.js"),    [...HANDLER_ENV, "ANTHROPIC_MODEL_OCR"]),
+    handlerProxy("/api/extension-sync",   () => import("./api/extension-sync.js")),
     handlerProxy("/api/drive-auth",       () => import("./api/drive-auth.js"),    LMS_ENV),
     handlerProxy("/api/lms-microsoft",    () => import("./api/lms-microsoft.js"), LMS_ENV),
     handlerProxy("/api/lms-proxy",        () => import("./api/lms-proxy.js"),     [...HANDLER_ENV, "EXTENSION_AUTH_SECRET"]),
