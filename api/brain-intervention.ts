@@ -192,8 +192,11 @@ export default async function handler(req: any, res: any) {
       // Week-1 accounts stay pure delight — skip stress-triggered nudges specifically
       // (other trigger reasons, e.g. a genuinely stale context, still pass through).
       if (userId && trigger.reason === "high_stress") {
-        const uRows = await fsGet(`users?id=eq.${encodeURIComponent(userId)}&select=created_at`).catch(() => []);
-        const createdAt = uRows[0]?.created_at ? new Date(uRows[0].created_at).getTime() : 0;
+        // users has NO created_at column (live schema) → the old select 42703'd → catch →
+        // createdAt=0 → this Week-1 guard NEVER fired, so brand-new accounts got the stress
+        // nudges it was meant to suppress. email_verify_sent_at is set at signup and is real.
+        const uRows = await fsGet(`users?id=eq.${encodeURIComponent(userId)}&select=email_verify_sent_at`).catch(() => []);
+        const createdAt = uRows[0]?.email_verify_sent_at ? new Date(uRows[0].email_verify_sent_at).getTime() : 0;
         if (createdAt && (Date.now() - createdAt) <= WEEK1_MS) { results.skipped++; continue; }
       }
 
@@ -312,8 +315,8 @@ export default async function handler(req: any, res: any) {
       const cutoffCreated = new Date(started - WEEK1_MS).toISOString();
       const idleCutoff     = new Date(started - RE_ENGAGE_IDLE_MS).toISOString();
       const quiet = await fsGet(
-        `users?select=id,name,created_at,last_active_date` +
-        `&created_at=lte.${encodeURIComponent(cutoffCreated)}` +
+        `users?select=id,name,email_verify_sent_at,last_active_date` +
+        `&email_verify_sent_at=lte.${encodeURIComponent(cutoffCreated)}` +
         `&or=(last_active_date.is.null,last_active_date.lt.${encodeURIComponent(idleCutoff.slice(0, 10))})`
       ).catch(() => []);
 

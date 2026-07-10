@@ -179,6 +179,16 @@ describe("canvas-reads handler", () => {
     expect(res.body.status).toBe("all");
   });
 
+  it("status:'all' KEEPS submitted assignments (regression: all must mean everything)", async () => {
+    stubFetch({ assignments: [
+      { id: "a1", course_id: "c1", title: "Done", due_at: "2020-01-01T00:00:00Z", submitted_at: "2020-02-01T00:00:00Z", courses: { name: "Bio" } },
+      { id: "a2", course_id: "c1", title: "Not done", due_at: "2999-01-01T00:00:00Z", submitted_at: null, courses: { name: "Bio" } },
+    ] });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "upcoming", userId: "u1", status: "all" } }, res);
+    expect(res.body.assignments.map((a: any) => a.name).sort()).toEqual(["Done", "Not done"]);
+  });
+
   it("unknown action → 400", async () => {
     stubFetch();
     const h = await load(); const res = makeRes();
