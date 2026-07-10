@@ -100,7 +100,7 @@ export default async function handler(req: any, res: any) {
       const hit = ((await existing.json()) as any[])[0];
       if (hit) {
         const { position, total } = await positionOf(hit.created_at);
-        return res.status(200).json({ ok: true, alreadyJoined: true, invited: !!hit.invited_at, position, total });
+        return res.status(200).json({ ok: true, success: true, already: true, alreadyJoined: true, invited: !!hit.invited_at, position, total });
       }
 
       const ins = await fetch(`${url}/rest/v1/waitlist`, {
@@ -124,7 +124,7 @@ export default async function handler(req: any, res: any) {
           emailSent = true;
         } catch (e: any) { console.error("[waitlist] confirmation email failed:", e?.message); }
       }
-      return res.status(200).json({ ok: true, alreadyJoined: false, position, total, emailSent });
+      return res.status(200).json({ ok: true, success: true, already: false, alreadyJoined: false, position, total, emailSent });
     }
 
     // ── admin: batch invite (Bearer CRON_SECRET — same fail-closed pattern as crons) ──

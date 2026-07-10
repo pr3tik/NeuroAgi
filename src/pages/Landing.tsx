@@ -3,8 +3,6 @@
 // --sk-body-text-color: rgb(29,29,31)  --sk-fill: #fff  --sk-fill-secondary: #fafafc
 // --sk-fill-tertiary: #f5f5f7  --sk-glyph-gray-secondary: rgb(110,110,115)
 
-import WaitlistInline from "../components/WaitlistInline";
-import WaitlistModal from "../components/WaitlistModal";
 import React, { useState, useEffect, useRef } from "react";
 
 // ── naroai.co + Apple hybrid design tokens ────────────────────────────────────
@@ -329,10 +327,10 @@ function TutorMockup({ t }: { t: typeof DARK }) {
 
 // ── Recording mockup — waveform + speaker-turn transcript ────────────────────
 const TRANSCRIPT_LINES = [
-  { speaker: "Prof", text: "Working memory has strict capacity limits: roughly seven items." },
+  { speaker: "Prof", text: "Working memory has strict capacity limits, roughly seven items." },
   { speaker: "Prof", text: "Four components govern how we take in new information." },
   { speaker: "You",  text: "Is this the same as Miller's Law?" },
-  { speaker: "Prof", text: "Exactly, seven plus or minus two chunks per modality." },
+  { speaker: "Prof", text: "Exactly. Seven plus or minus two chunks per modality." },
 ];
 
 function RecordingMockup({ t }: { t: typeof DARK }) {
@@ -573,7 +571,7 @@ function DocDropMockup({ t }: { t: typeof DARK }) {
   const inDrop = phase < 4;
 
   const NOTES = [
-    "Working memory holds 7±2 chunks: design around this limit",
+    "Working memory holds 7±2 chunks. Design around this limit",
     "Four components: phonological loop, visuospatial, central exec, episodic buffer",
     "Germane load = schema-building; intrinsic = task complexity; extraneous = poor design",
   ];
@@ -896,7 +894,7 @@ function LeaderboardMockup({ t }: { t: typeof DARK }) {
 
 const SHOWCASE_TABS = [
   { id: "tutor"     as const, label: "AI Tutor",    word: "AI Tutor",    desc: "Grounded in your actual lecture notes, not just the internet." },
-  { id: "leaderboard" as const, label: "Leaderboard", word: "Leaderboard", desc: "XP, streaks, and weekly rankings: study with momentum and compete with classmates." },
+  { id: "leaderboard" as const, label: "Leaderboard", word: "Leaderboard", desc: "XP, streaks, and weekly rankings. Study with momentum and compete with classmates." },
   { id: "documents" as const, label: "Documents",   word: "Library",     desc: "PDFs and slides transform into notes and flashcards instantly." },
   { id: "rooms"     as const, label: "Study Rooms", word: "Study Room",  desc: "Focus together: shared timers, live presence, group AI." },
 ];
@@ -997,7 +995,7 @@ function FeaturesShowcase({ t, chromaStyle, ghostRef }: {
 
       {/* Glassmorphic demo card — gradient border via padding-box / border-box trick */}
       <Reveal delay={0.18}>
-        <div style={{
+        <div className="feat-card" style={{
           maxWidth: 460, margin: "0 auto", borderRadius: 26, padding: 2,
           background: "linear-gradient(white,white) padding-box, linear-gradient(135deg,#b8a0dc,#f0a4bc,#94c4f0,#96e8a8) border-box",
           border: "1.5px solid transparent",
@@ -1066,19 +1064,23 @@ function IntegrationPill({ name, bg, icon }: { name: string; bg: string; icon: R
 const ORBIT_R = 195;
 const SVG_CENTER = 260;
 
+// Real brand SVG icons for ecosystem apps
+const ECO_ICON = {
+  canvas: <svg viewBox="0 0 32 32" width="22" height="22"><text x="16" y="23" textAnchor="middle" fontSize="18" fontWeight="800" fill="#E66000" fontFamily="inherit">C</text></svg>,
+  youtube: <svg viewBox="0 0 32 32" width="22" height="22"><rect x="2" y="6" width="28" height="20" rx="6" fill="#FF0000"/><polygon points="13,11 13,22 23,16.5" fill="#fff"/></svg>,
+  gdrive: <svg viewBox="0 0 48 48" width="22" height="22" fill="none"><path d="M6 40l8-14h20l-8 14H6z" fill="#4285F4"/><path d="M34 26L24 8h-4L10 26h24z" fill="#34A853"/><path d="M42 40l-8-14-10 0 8 14h10z" fill="#FBBC05"/></svg>,
+  microsoft: <svg viewBox="0 0 32 32" width="20" height="20"><rect x="4" y="4" width="11" height="11" fill="#F25022"/><rect x="17" y="4" width="11" height="11" fill="#7FBA00"/><rect x="4" y="17" width="11" height="11" fill="#00A4EF"/><rect x="17" y="17" width="11" height="11" fill="#FFB900"/></svg>,
+  discord: <svg viewBox="0 0 127.14 96.36" width="22" height="16" fill="#5865F2"><path d="M107.7 8.07A105.15 105.15 0 0081.47 0a72.06 72.06 0 00-3.36 6.83 97.68 97.68 0 00-29.11 0A72.37 72.37 0 0045.64 0a105.89 105.89 0 00-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0032.17 16.15 77.7 77.7 0 006.89-11.11 68.42 68.42 0 01-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0064.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 01-10.87 5.19 77 77 0 006.89 11.1 105.25 105.25 0 0032.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15zM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69z"/></svg>,
+  pdf: <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="#EB5757" strokeWidth="1.5" strokeLinecap="round"/><path d="M14 2v6h6M9 13h1.5a1.5 1.5 0 010 3H9v-3zm0 0v5m6-5h1a2 2 0 010 4h-1V13z" stroke="#EB5757" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+};
+
 const ECOSYSTEM_APPS = [
-  { name:"Canvas",       angle:-90,  scatter:{x:-230,y:-175,r:-22}, color:"#E66000", bg:"#fff4ee", svgX:260, svgY:65,
-    icon:<svg viewBox="0 0 32 32" width="22" height="22"><text x="16" y="23" textAnchor="middle" fontSize="18" fontWeight="800" fill="#E66000" fontFamily="inherit">C</text></svg> },
-  { name:"YouTube",      angle:-30,  scatter:{x:205,y:-215,r:16},  color:"#FF0000", bg:"#fff0f0", svgX:429, svgY:162,
-    icon:<svg viewBox="0 0 32 32" width="22" height="22"><rect x="2" y="7" width="28" height="18" rx="5" fill="#FF0000"/><polygon points="12,11 12,21 22,16" fill="#fff"/></svg> },
-  { name:"Google Drive", angle:30,   scatter:{x:265,y:55,r:-14},   color:"#34A853", bg:"#f0f8f0", svgX:429, svgY:358,
-    icon:<svg viewBox="0 0 32 32" fill="none" width="22" height="22"><path d="M16 12.45L12.54 6.34c.11-.12.24-.19.38-.25-1.02.34-1.49 1.48-1.49 1.48L5.11 18.73c-.09.35-.12.67-.11.95h6.9L16 12.45z" fill="#34A853"/><path d="M16 12.45l4.1 7.23h6.9c.01-.28-.01-.61-.11-.95L20.57 7.58s-.47-1.14-1.49-1.48c.13.05.27.13.38.25L16 12.45z" fill="#FBBC05"/><path d="M16 12.45l3.46-6.11c-.12-.12-.25-.19-.38-.25-.15-.05-.31-.08-.49-.09h-5.56c-.17.01-.34.04-.49.09-.13.05-.26.13-.38.25L16 12.45z" fill="#188038"/><path d="M11.91 19.68L8.49 25.72h13.44c.74 0 .9-.28.9-.28l-3.42-6.07H11.91z" fill="#4285F4"/></svg> },
-  { name:"Microsoft",    angle:90,   scatter:{x:155,y:240,r:22},   color:"#00A4EF", bg:"#edf4ff", svgX:260, svgY:455,
-    icon:<svg viewBox="0 0 32 32" width="20" height="20"><rect x="5" y="5" width="10" height="10" fill="#F25022"/><rect x="17" y="5" width="10" height="10" fill="#7FBA00"/><rect x="5" y="17" width="10" height="10" fill="#00A4EF"/><rect x="17" y="17" width="10" height="10" fill="#FFB900"/></svg> },
-  { name:"Discord",      angle:150,  scatter:{x:-180,y:230,r:-16}, color:"#5865F2", bg:"#f2f0ff", svgX:91,  svgY:358,
-    icon:<svg viewBox="0 0 32 32" width="22" height="22"><text x="16" y="23" textAnchor="middle" fontSize="15" fontWeight="800" fill="#5865F2" fontFamily="inherit">D</text></svg> },
-  { name:"PDFs & Docs",  angle:210,  scatter:{x:-270,y:38,r:12},   color:"#EB5757", bg:"#fff1f1", svgX:91,  svgY:162,
-    icon:<svg viewBox="0 0 32 32" width="16" height="16" fill="none"><path d="M6 4h13l7 7v17a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z" stroke="#EB5757" strokeWidth="2"/><path d="M19 4v7h7" stroke="#EB5757" strokeWidth="2"/></svg> },
+  { name:"Canvas",       angle:-90,  scatter:{x:-230,y:-175,r:-22}, color:"#E66000", bg:"#fff4ee", svgX:260, svgY:65,  icon:ECO_ICON.canvas    },
+  { name:"YouTube",      angle:-30,  scatter:{x:205,y:-215,r:16},   color:"#FF0000", bg:"#fff0f0", svgX:429, svgY:162, icon:ECO_ICON.youtube   },
+  { name:"Google Drive", angle:30,   scatter:{x:265,y:55,r:-14},    color:"#34A853", bg:"#f0f8f0", svgX:429, svgY:358, icon:ECO_ICON.gdrive    },
+  { name:"Microsoft",    angle:90,   scatter:{x:155,y:240,r:22},    color:"#00A4EF", bg:"#edf4ff", svgX:260, svgY:455, icon:ECO_ICON.microsoft },
+  { name:"Discord",      angle:150,  scatter:{x:-180,y:230,r:-16},  color:"#5865F2", bg:"#f2f0ff", svgX:91,  svgY:358, icon:ECO_ICON.discord   },
+  { name:"PDFs & Docs",  angle:210,  scatter:{x:-270,y:38,r:12},    color:"#EB5757", bg:"#fff1f1", svgX:91,  svgY:162, icon:ECO_ICON.pdf       },
 ] as const;
 
 function EcosystemCircle({ t }: { t: typeof DARK }) {
@@ -1100,7 +1102,7 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
   }, [inView]);
 
   return (
-    <section style={{ background: "#f5f5f7", padding: "100px 0" }}>
+    <section className="eco-section" style={{ background: "#f5f5f7", padding: "100px 0", overflow: "hidden" }}>
       {/* Header */}
       <div style={{ textAlign: "center", padding: "0 20px", marginBottom: 52 }}>
         <Reveal>
@@ -1114,8 +1116,9 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
         </Reveal>
       </div>
 
-      {/* Orbital container */}
-      <div ref={containerRef} style={{ width: "min(520px,90vw)", height: "min(520px,90vw)", position: "relative", margin: "0 auto" }}>
+      {/* Orbital container — desktop only */}
+      <div className="eco-orbital-wrap">
+      <div ref={containerRef} className="eco-orbital" style={{ width: "min(520px,90vw)", height: "min(520px,90vw)", position: "relative", margin: "0 auto" }}>
 
         {/* SVG overlay: orbit ring + connection lines + data packets */}
         <svg
@@ -1157,18 +1160,30 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
             );
           })}
 
-          {/* Data packet dots */}
-          {phase >= 5 && ECOSYSTEM_APPS.map((app, i) => (
-            <circle key={i} r="3" fill={app.color}>
-              <animateMotion
-                dur="2.4s"
-                begin={`${i * 0.35}s`}
-                repeatCount="indefinite"
-              >
-                <mpath href={`#eco-line-${i}`} />
-              </animateMotion>
-            </circle>
-          ))}
+          {/* Data packet dots — CSS-only (no animateMotion, avoids browser jank) */}
+          {phase >= 5 && ECOSYSTEM_APPS.map((app, i) => {
+            const dx = Math.cos(app.angle * Math.PI / 180) * ORBIT_R;
+            const dy = Math.sin(app.angle * Math.PI / 180) * ORBIT_R;
+            const kfName = `eco-pkt-${i}`;
+            return (
+              <g key={i}>
+                <style>{`
+                  @keyframes ${kfName} {
+                    0%   { transform: translate(${SVG_CENTER}px, ${SVG_CENTER}px) scale(0); opacity: 0; }
+                    8%   { opacity: 0.9; transform: translate(${SVG_CENTER}px, ${SVG_CENTER}px) scale(1); }
+                    88%  { opacity: 0.7; }
+                    100% { transform: translate(${SVG_CENTER + dx}px, ${SVG_CENTER + dy}px) scale(0.4); opacity: 0; }
+                  }
+                `}</style>
+                <circle r="3.5" fill={app.color}
+                  style={{
+                    animation: `${kfName} ${2.2 + i * 0.18}s ease-in-out ${i * 0.38}s infinite`,
+                    willChange: "transform, opacity",
+                  }}
+                />
+              </g>
+            );
+          })}
         </svg>
 
         {/* App nodes */}
@@ -1196,6 +1211,7 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
                   ? `transform 0.88s cubic-bezier(0.16,1,0.3,1) ${i * 0.085}s, opacity 0.2s ease`
                   : "opacity 0.1s ease",
                 zIndex: 2,
+                willChange: "transform, opacity",
               }}
             >
               <div style={{
@@ -1248,9 +1264,33 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
         </div>
       </div>
 
+      </div>{/* end eco-orbital-wrap */}
+
+      {/* Mobile fallback — two-row marquee, real brand icons */}
+      <div className="eco-marquee-wrap" style={{ overflow: "hidden", paddingBottom: 8 }}>
+        {/* Row 1 — scrolls left */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 12, animation: "marqueeL 22s linear infinite", width: "max-content" }}>
+          {[...ECOSYSTEM_APPS, ...ECOSYSTEM_APPS].map((app, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid rgba(0,0,0,0.09)", borderRadius: 50, padding: "9px 16px 9px 10px", flexShrink: 0, boxShadow: "0 1px 6px rgba(0,0,0,0.07)" }}>
+              <div style={{ width: 26, height: 26, borderRadius: "50%", background: app.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{app.icon}</div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#1d1d1f", whiteSpace: "nowrap" }}>{app.name}</span>
+            </div>
+          ))}
+        </div>
+        {/* Row 2 — scrolls right */}
+        <div style={{ display: "flex", gap: 12, animation: "marqueeR 26s linear infinite", width: "max-content" }}>
+          {[...[...ECOSYSTEM_APPS].reverse(), ...[...ECOSYSTEM_APPS].reverse()].map((app, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid rgba(0,0,0,0.09)", borderRadius: 50, padding: "9px 16px 9px 10px", flexShrink: 0, boxShadow: "0 1px 6px rgba(0,0,0,0.07)" }}>
+              <div style={{ width: 26, height: 26, borderRadius: "50%", background: app.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{app.icon}</div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#1d1d1f", whiteSpace: "nowrap" }}>{app.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Bottom tagline */}
       <Reveal delay={0.1}>
-        <p style={{ textAlign: "center", fontSize: 13, color: "#a3a3a3", marginTop: 44, lineHeight: 1.7, padding: "0 20px" }}>
+        <p style={{ textAlign: "center", fontSize: 13, color: "#a3a3a3", marginTop: 52, lineHeight: 1.7, padding: "0 20px" }}>
           Canvas · YouTube · Google Drive · Microsoft · Discord · PDFs. Your academic world, connected.
         </p>
       </Reveal>
@@ -1264,9 +1304,9 @@ function EcosystemCircle({ t }: { t: typeof DARK }) {
 
 // RecordingAppMockup — realistic iPhone-frame showing FschoolAI live recording UI
 const TX = [
-  { speaker: "Prof", text: "Working memory has strict capacity limits: roughly seven items." },
+  { speaker: "Prof", text: "Working memory has strict capacity limits, roughly seven items." },
   { speaker: "You",  text: "Is this the same as Miller's Law?" },
-  { speaker: "Prof", text: "Exactly, seven plus or minus two chunks per modality." },
+  { speaker: "Prof", text: "Exactly. Seven plus or minus two chunks per modality." },
   { speaker: "Prof", text: "Germane load builds long-term schema. Design for it." },
 ];
 const WAVE_H = [14,22,36,18,44,28,16,40,24,48,20,34,18,42,26,36,16,40,22,32,18,38,24,30];
@@ -1475,13 +1515,13 @@ function ThreeMoments({ t }: { t: typeof DARK }) {
     <>
       {/* ── Row 1: During Lecture ── */}
       <section style={{ ...SECTION, background: "#ffffff" }}>
-        <div style={INNER}>
+        <div className="tm-row" style={INNER}>
           <Reveal style={{ flex: "1 1 300px" }}>
             <p style={EYEBROW}>During lecture</p>
             <div style={DISPLAY}>Real-time</div>
-            <p style={SUBLINE}>transcription: live as it happens</p>
+            <p style={SUBLINE}>transcription, live as it happens</p>
             <p style={BODY}>
-              FschoolAI captures your lectures the moment they start. No typing, no missed words. Just the full transcript, ready to search and study from.
+              FschoolAI captures your lectures the moment they start. No typing, no missed words: just the full transcript, ready to search and study from.
             </p>
           </Reveal>
           <Reveal delay={0.12} style={{ flex: "1 1 280px" }}>
@@ -1492,7 +1532,7 @@ function ThreeMoments({ t }: { t: typeof DARK }) {
 
       {/* ── Row 2: After Class ── */}
       <section style={{ ...SECTION, background: "#f5f5f7" }}>
-        <div style={{ ...INNER, flexDirection: "row-reverse" as const }}>
+        <div className="tm-row-rev" style={{ ...INNER, flexDirection: "row-reverse" as const }}>
           <Reveal style={{ flex: "1 1 300px" }}>
             <p style={EYEBROW}>After class</p>
             <div ref={countRef} style={DISPLAY}>{count47}</div>
@@ -1509,11 +1549,11 @@ function ThreeMoments({ t }: { t: typeof DARK }) {
 
       {/* ── Row 3: Before the Exam ── */}
       <section style={{ ...SECTION, background: "#ffffff" }}>
-        <div style={INNER}>
+        <div className="tm-row" style={INNER}>
           <Reveal style={{ flex: "1 1 300px" }}>
             <p style={EYEBROW}>Before the exam</p>
             <div style={DISPLAY}>1 month</div>
-            <p style={SUBLINE}>free on beta signup · no credit card</p>
+            <p style={SUBLINE}>free on beta signup, no credit card</p>
             <p style={BODY}>
               Start for free. Every tool (live recording, AI tutor, flashcards, study rooms) works from day one. No feature gates, no trial tricks.
             </p>
@@ -1962,7 +2002,7 @@ function FlashcardGenDemo({ t }: { t: typeof DARK }) {
 const LIVE_LINES = [
   { speaker: "Prof", text: "Working memory holds roughly seven chunks at once." },
   { speaker: "You",  text: "Is this the Miller's Law?" },
-  { speaker: "Prof", text: "Exactly, seven plus or minus two. It's fundamental." },
+  { speaker: "Prof", text: "Exactly. Seven plus or minus two. It's fundamental." },
   { speaker: "Prof", text: "Germane load builds long-term schema. Design for it." },
 ];
 
@@ -2249,7 +2289,7 @@ function DemoCarousel({ t }: { t: typeof DARK }) {
           </button>
 
           {/* Demo content */}
-          <div style={{ flex: 1, maxWidth: 420, opacity: visible ? 1 : 0, transform: visible ? "translateX(0)" : `translateX(${slideDir * 24}px)`, transition: "opacity 0.2s ease, transform 0.2s ease" }}>
+          <div className="feat-card" style={{ flex: 1, maxWidth: 420, opacity: visible ? 1 : 0, transform: visible ? "translateX(0)" : `translateX(${slideDir * 24}px)`, transition: "opacity 0.2s ease, transform 0.2s ease" }}>
             {/* Glassmorphic card */}
             <div style={{
               background: "linear-gradient(white,white) padding-box, linear-gradient(135deg,#b8a0dc,#f0a4bc,#94c4f0,#96e8a8) border-box",
@@ -2304,7 +2344,7 @@ const STREAM_EVENTS = [
   { type: "LINK",  color: "#5856d6", text: "Cross-referenced COMP 101 with Study Guide"        },
   { type: "LEARN", color: "#34c759", text: "Pattern: stronger in theory, weaker in application"},
   { type: "SYNC",  color: "#0066cc", text: "MATH 202 lecture: 23 min, 31 concepts indexed"    },
-  { type: "GRADE", color: "#ff9500", text: "Grade updated: BIOL assignment 84% (B)"            },
+  { type: "GRADE", color: "#ff9500", text: "Grade updated: BIOL assignment 84% · B"            },
 ];
 
 function NeuralCoreSection({ t }: { t: typeof DARK }) {
@@ -2449,7 +2489,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
           transform: inView ? "none" : "translateY(22px) scale(0.97)",
           transition: "opacity 0.72s ease 0.07s, transform 0.72s cubic-bezier(0.16,1,0.3,1) 0.07s",
         }}>
-          Start learning<br />smarter today.
+          Launching<br />August 1st.
         </h2>
 
         {/* Body */}
@@ -2460,7 +2500,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
           transform: inView ? "none" : "translateY(16px)",
           transition: "opacity 0.72s ease 0.14s, transform 0.72s cubic-bezier(0.16,1,0.3,1) 0.14s",
         }}>
-          Free for your first month. Every tool from day one, no credit card, no feature gates.
+          Get early access. Every tool from day one. No credit card, no feature gates.
         </p>
 
         {/* Buttons */}
@@ -2486,7 +2526,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
                 : "0 4px 16px rgba(0,113,227,0.24), 0 1px 4px rgba(0,113,227,0.12)",
             }}
           >
-            Create account
+            Join the waitlist
             {/* Shimmer sweep */}
             <span aria-hidden="true" style={{
               position: "absolute", inset: 0,
@@ -2509,7 +2549,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
           }}
             onMouseEnter={e => { const b = e.currentTarget; b.style.background = "rgba(255,255,255,0.85)"; b.style.transform = "scale(1.03)"; }}
             onMouseLeave={e => { const b = e.currentTarget; b.style.background = "rgba(255,255,255,0.60)"; b.style.transform = "scale(1)"; }}
-          >Log in</button>
+          >Already on the list?</button>
         </div>
 
         {/* Social proof */}
@@ -2530,6 +2570,360 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
         @keyframes btnShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
       `}</style>
     </section>
+  );
+}
+
+// ── Countdown to Aug 1, 2026 ──────────────────────────────────────────────────
+const LAUNCH_DATE = new Date("2026-08-01T00:00:00Z").getTime();
+
+// HeroBtnCountdown — live "22d 4h" chip inside the hero CTA button
+function HeroBtnCountdown() {
+  const [t, setT] = useState({ d: 0, h: 0 });
+  useEffect(() => {
+    const tick = () => {
+      const diff = Math.max(0, LAUNCH_DATE - Date.now());
+      setT({ d: Math.floor(diff / 86400000), h: Math.floor((diff % 86400000) / 3600000) });
+    };
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span style={{
+      borderLeft: "1px solid rgba(255,255,255,0.15)",
+      padding: "14px 18px",
+      fontSize: 13, fontWeight: 400, color: "rgba(255,255,255,0.38)",
+      fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+      background: "transparent",
+    }}>
+      {t.d}d {String(t.h).padStart(2,"0")}h left
+    </span>
+  );
+}
+
+// NavCountdown — compact pill shown in the nav bar
+function NavCountdown() {
+  const [t, setT] = useState({ d: 0, h: 0, m: 0 });
+  useEffect(() => {
+    const tick = () => {
+      const diff = Math.max(0, LAUNCH_DATE - Date.now());
+      setT({
+        d: Math.floor(diff / 86400000),
+        h: Math.floor((diff % 86400000) / 3600000),
+        m: Math.floor((diff % 3600000) / 60000),
+      });
+    };
+    tick();
+    const id = setInterval(tick, 30000); // update every 30s in nav
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 6,
+      background: "rgba(0,0,0,0.05)", borderRadius: 980,
+      padding: "4px 12px 4px 8px", fontSize: 12, fontFamily: FONT,
+      fontVariantNumeric: "tabular-nums", color: "rgba(0,0,0,0.62)",
+      letterSpacing: "-0.01em",
+    }}>
+      {/* Pulsing red dot — "live" launch indicator */}
+      <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#ff3b30", flexShrink: 0, animation: "recPulse 2s ease-in-out infinite" }} />
+      <span style={{ fontWeight: 500 }}>
+        {t.d}d {String(t.h).padStart(2, "0")}h {String(t.m).padStart(2, "0")}m
+      </span>
+    </div>
+  );
+}
+
+function Countdown({ large = false }: { large?: boolean }) {
+  const [t, setT] = useState({ d: 0, h: 0, m: 0, s: 0 });
+  useEffect(() => {
+    const tick = () => {
+      const diff = Math.max(0, LAUNCH_DATE - Date.now());
+      setT({
+        d: Math.floor(diff / 86400000),
+        h: Math.floor((diff % 86400000) / 3600000),
+        m: Math.floor((diff % 3600000) / 60000),
+        s: Math.floor((diff % 60000) / 1000),
+      });
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const numSize = large ? 44 : 28;
+  const lblSize = large ? 11 : 9;
+  return (
+    <div style={{ display: "flex", gap: large ? 20 : 12, alignItems: "center", fontFamily: FONT }}>
+      {[{ v: t.d, l: "days" }, { v: t.h, l: "hrs" }, { v: t.m, l: "min" }, { v: t.s, l: "sec" }].map(({ v, l }) => (
+        <div key={l} style={{ textAlign: "center", minWidth: large ? 56 : 36 }}>
+          <div style={{
+            fontSize: numSize, fontWeight: 700, letterSpacing: "-0.04em",
+            lineHeight: 1, color: large ? "#0d2b40" : "#1d1d1f",
+            fontVariantNumeric: "tabular-nums",
+            overflow: "hidden",
+          }}>
+            <span style={{ display: "inline-block", animation: "countFlip 0.3s ease" }} key={v}>{pad(v)}</span>
+          </div>
+          <div style={{ fontSize: lblSize, color: large ? "rgba(0,40,80,0.50)" : "#a3a3a3", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 5 }}>{l}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Confetti burst ─────────────────────────────────────────────────────────────
+const CONFETTI_COLORS = ["#0071e3", "#34c759", "#ff9500", "#ff3b30", "#5856d6", "#30b0c7"];
+function Confetti() {
+  const pieces = Array.from({ length: 48 }, (_, i) => ({
+    left: `${(i / 48) * 100 + (Math.sin(i) * 3)}%`,
+    delay: `${(i * 0.04) % 0.9}s`,
+    dur: `${0.9 + (i % 5) * 0.14}s`,
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    w: 5 + (i % 4),
+    h: 8 + (i % 3) * 2,
+    rot: (i * 37) % 360,
+  }));
+  return (
+    <div aria-hidden="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 9999, overflow: "hidden" }}>
+      {pieces.map((p, i) => (
+        <div key={i} style={{
+          position: "absolute", left: p.left, top: -12,
+          width: p.w, height: p.h, background: p.color, borderRadius: 2,
+          animation: `confettiFall ${p.dur} ease-in ${p.delay} both`,
+          transform: `rotate(${p.rot}deg)`,
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ── WaitlistModal ─────────────────────────────────────────────────────────────
+// Apple/iOS native — centered card on desktop, bottom sheet on mobile.
+// States: idle → loading → success | error | duplicate
+function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () => void }) {
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error" | "duplicate">("idle");
+  const [position, setPosition] = useState(0);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 320); }, []);
+
+  async function submit() {
+    const q = email.trim();
+    if (!q || status === "loading") return;
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: q }),
+      });
+      const data = await res.json();
+      if (data.already) { setStatus("duplicate"); return; }
+      if (data.success) {
+        setPosition(data.position ?? 0);
+        setStatus("success");
+        setShowConfetti(true);
+        setTimeout(() => setShowConfetti(false), 3600);
+      } else { setStatus("error"); }
+    } catch { setStatus("error"); }
+  }
+
+  const isSuccess = status === "success";
+
+  return (
+    <>
+      {showConfetti && <Confetti />}
+
+      <style>{`
+        .wl-overlay {
+          position: fixed; inset: 0; z-index: 1000;
+          background: rgba(0,0,0,0.48);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          display: flex; align-items: flex-end; justify-content: center;
+        }
+        .wl-card {
+          width: 100%; max-width: 100%;
+          background: #ffffff;
+          border-radius: 22px 22px 0 0;
+          padding: 6px 24px 40px;
+          font-family: ${FONT};
+          animation: waitIn 0.38s cubic-bezier(0.16,1,0.3,1) both;
+          box-shadow: 0 -2px 0 rgba(0,0,0,0.04), 0 -24px 60px rgba(0,0,0,0.18);
+          max-height: 90dvh;
+          overflow-y: auto;
+        }
+        @media (min-width: 640px) {
+          .wl-overlay { align-items: center; padding: 20px; }
+          .wl-card {
+            max-width: 440px; border-radius: 22px;
+            padding: 28px 32px 32px;
+            box-shadow: 0 32px 80px rgba(0,0,0,0.20), 0 8px 24px rgba(0,0,0,0.10);
+            animation: successPop 0.38s cubic-bezier(0.16,1,0.3,1) both;
+          }
+        }
+        .wl-handle { display: flex; justify-content: center; padding: 10px 0 16px; }
+        @media (min-width: 640px) { .wl-handle { display: none; } }
+        .wl-inp {
+          width: 100%; background: #f5f5f7; border: 1.5px solid transparent;
+          border-radius: 14px; padding: 15px 16px; color: #1d1d1f; font-size: 17px;
+          font-family: ${FONT}; outline: none; box-sizing: border-box;
+          transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+        }
+        .wl-inp::placeholder { color: rgba(0,0,0,0.30); }
+        .wl-inp:focus { background: #fff; border-color: rgba(0,102,204,0.55); box-shadow: 0 0 0 4px rgba(0,102,204,0.10); }
+        .wl-btn-primary {
+          width: 100%; background: #0071e3; color: #fff; border: none;
+          border-radius: 980px; padding: 16px; font-size: 17px; font-weight: 400;
+          cursor: pointer; font-family: ${FONT}; transition: opacity 0.15s, transform 0.15s;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .wl-btn-primary:hover { opacity: 0.86; }
+        .wl-btn-primary:active { transform: scale(0.98); }
+        .wl-btn-primary:disabled { background: rgba(0,0,0,0.08); color: rgba(0,0,0,0.30); cursor: default; transform: none; opacity: 1; }
+      `}</style>
+
+      <div className="wl-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+        <div className="wl-card">
+
+          {/* Drag handle — mobile only */}
+          <div className="wl-handle">
+            <div onClick={onClose} style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(0,0,0,0.14)", cursor: "pointer" }} />
+          </div>
+
+          {isSuccess ? (
+            /* ── Success ── */
+            <div style={{ textAlign: "center", paddingTop: 8 }}>
+              {/* Animated check ring */}
+              <div style={{
+                width: 80, height: 80, borderRadius: "50%",
+                background: "rgba(52,199,89,0.10)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                margin: "0 auto 24px",
+                animation: "successPop 0.45s cubic-bezier(0.16,1,0.3,1) both",
+              }}>
+                <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                  <circle cx="20" cy="20" r="19" stroke="#34c759" strokeWidth="2" opacity="0.4" />
+                  <path d="M11 20l7 7 11-11"
+                    stroke="#34c759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                    strokeDasharray="64" strokeDashoffset="64"
+                    style={{ animation: "checkIn 0.55s cubic-bezier(0.16,1,0.3,1) 0.15s forwards" }} />
+                </svg>
+              </div>
+
+              <h2 style={{ fontSize: 28, fontWeight: 600, letterSpacing: "-0.025em", color: "#1d1d1f", margin: "0 0 10px" }}>
+                You're in.
+              </h2>
+              <p style={{ fontSize: 17, color: "#6e6e73", lineHeight: 1.6, margin: "0 0 4px" }}>
+                You're <strong style={{ color: "#1d1d1f", fontWeight: 600 }}>#{position.toLocaleString()}</strong> on the waitlist.
+              </p>
+              <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.55, marginBottom: 28 }}>
+                Check your inbox. We just sent a confirmation. We launch{" "}
+                <strong style={{ color: "#0066cc", fontWeight: 500 }}>August 1st, 2026.</strong>
+              </p>
+
+              {/* Mini countdown */}
+              <div style={{ background: "#f5f5f7", borderRadius: 16, padding: "16px 20px", marginBottom: 24, display: "flex", justifyContent: "center" }}>
+                <Countdown />
+              </div>
+
+              <button className="wl-btn-primary" onClick={onClose}>Done</button>
+            </div>
+          ) : (
+            /* ── Entry form ── */
+            <>
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 22 }}>
+                <img src="/fschoolai-logo.jpeg" alt="FschoolAI"
+                  style={{ width: 32, height: 32, borderRadius: 8, filter: "invert(1)", mixBlendMode: "multiply" }} />
+                <button onClick={onClose} style={{
+                  background: "rgba(0,0,0,0.06)", border: "none", cursor: "pointer",
+                  width: 30, height: 30, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "background 0.15s",
+                }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(0,0,0,0.10)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(0,0,0,0.06)")}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M1 1l10 10M11 1L1 11" stroke="#1d1d1f" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
+
+              <h2 style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-0.025em", color: "#1d1d1f", margin: "0 0 6px" }}>
+                Reserve your spot.
+              </h2>
+              <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.6, marginBottom: 24 }}>
+                FschoolAI launches August 1st, 2026. Get early access, free for your first month.
+              </p>
+
+              {/* Countdown strip */}
+              <div style={{
+                display: "flex", justifyContent: "center",
+                padding: "16px 0", marginBottom: 24,
+                borderTop: "1px solid rgba(0,0,0,0.07)",
+                borderBottom: "1px solid rgba(0,0,0,0.07)",
+              }}>
+                <Countdown />
+              </div>
+
+              {/* Email input */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "rgba(0,0,0,0.52)", marginBottom: 8, letterSpacing: "0.01em" }}>
+                  Email address
+                </label>
+                <input
+                  ref={inputRef}
+                  className="wl-inp"
+                  type="email"
+                  placeholder="student@university.edu"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && submit()}
+                  disabled={status === "loading"}
+                  style={status === "error" ? { borderColor: "rgba(255,59,48,0.55)", background: "rgba(255,59,48,0.04)" } : {}}
+                />
+                {status === "error" && (
+                  <p style={{ fontSize: 13, color: "rgba(255,59,48,0.85)", marginTop: 8 }}>Something went wrong. Please try again.</p>
+                )}
+                {status === "duplicate" && (
+                  <p style={{ fontSize: 13, color: "#34c759", marginTop: 8 }}>You're already on the list. See you August 1st.</p>
+                )}
+              </div>
+
+              {/* Primary CTA */}
+              <button
+                className="wl-btn-primary"
+                onClick={submit}
+                disabled={!email.trim() || status === "loading"}
+                style={{ marginBottom: 16 }}
+              >
+                {status === "loading" ? (
+                  <span style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
+                    {[0,.15,.30].map((d,i) => (
+                      <span key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(255,255,255,0.7)", display: "inline-block", animation: `dot .8s ease-in-out ${d}s infinite` }} />
+                    ))}
+                  </span>
+                ) : "Notify me when we launch"}
+              </button>
+
+              {/* Login escape hatch for team */}
+              <p style={{ fontSize: 13, color: "rgba(0,0,0,0.36)", textAlign: "center", lineHeight: 1.6 }}>
+                Already have access?{" "}
+                <button onClick={onLogin} style={{
+                  background: "none", border: "none", color: "#0066cc", fontSize: 13,
+                  cursor: "pointer", fontFamily: FONT, padding: 0, textDecoration: "underline",
+                }}>Log in here</button>
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -2619,38 +3013,18 @@ const FAQ_DATA = [
   { q: "What's the Founding Card?", a: "A physical NFC titanium card for the first 1,000 members. It holds your AI identity, student number, and lifetime Pro access. See the Card page." },
 ];
 
-// Waitlist mode (default ON): new-signup CTAs open the waitlist instead of account
-// creation. Escape hatches: VITE_WAITLIST_MODE=0 restores open signup, and an invite
-// link (/?invite=<waitlist id> — sent by /api/waitlist?action=invite) bypasses the
-// gate for that visitor. "Sign in" stays available for existing accounts either way.
-function waitlistModeActive(): boolean {
-  if ((import.meta as any)?.env?.VITE_WAITLIST_MODE === "0") return false;
-  try { if (new URLSearchParams(window.location.search).has("invite")) return false; } catch { /* SSR-safe */ }
-  return true;
-}
-
 export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: (args: any) => Promise<void>; initialAuthMode?: "login" | "signup" | null }) {
   // Light-primary — no toggle. DARK tokens used directly in the card-preview section.
   const t = LIGHT;
-  const waitlistMode = waitlistModeActive();
-  // In waitlist mode a seeded "signup" (from the pre-signup demo) opens the waitlist too.
-  const [authMode, setAuthMode] = useState<"login"|"signup"|null>(
-    waitlistMode && initialAuthMode === "signup" ? null : initialAuthMode,
-  );
-  // Deep link for bios/socials: fschoolai.com/waitlist (or ?waitlist=1) lands with the
-  // join prompt already open. A link can't auto-JOIN (no email yet) — this is the
-  // closest honest thing. ?src=<channel> overrides the source tag (default: instagram,
-  // since the bio link is the primary use).
-  const deepLink = (() => {
+  const [authMode, setAuthMode] = useState<"login"|"signup"|null>(initialAuthMode);
+  // Deep link for socials (IG bio): fschoolai.com/waitlist or ?waitlist=1 lands with the
+  // join modal open. Preserved across the design merge (PR #146/#148 behavior).
+  const [waitlistOpen, setWaitlistOpen] = useState(() => {
     try {
-      const path = window.location.pathname === "/waitlist";
       const q = new URLSearchParams(window.location.search);
-      if (!path && !q.has("waitlist")) return null;
-      return q.get("src") || "instagram";
-    } catch { return null; }
-  })();
-  const [waitlistOpen, setWaitlistOpen] = useState((waitlistMode && initialAuthMode === "signup") || (waitlistMode && !!deepLink));
-  const requestSignup = () => (waitlistMode ? setWaitlistOpen(true) : setAuthMode("signup"));
+      return window.location.pathname === "/waitlist" || q.has("waitlist");
+    } catch { return false; }
+  });
   const [forgotStatus, setForgotStatus] = useState<"sent"|"error"|null>(null);
   const [scrollY, setScrollY] = useState(0);
   const [faqOpen, setFaqOpen] = useState<number|null>(null);
@@ -2704,7 +3078,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
 
   return (
     <div style={{ background: "#ffffff", color: "#141414", fontFamily: FONT, minHeight: "100vh",
-      overflowX: "hidden", WebkitFontSmoothing: "antialiased" as any }}>
+      overflowX: "hidden", WebkitFontSmoothing: "antialiased" as any, maxWidth: "100vw" }}>
 
       <style>{`
         /* Apple.com exact typography base — matches html{font-size:106.25%} on apple.com */
@@ -2739,12 +3113,50 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
         @keyframes marqueeR    { from{transform:translateX(-50%)} to{transform:translateX(0)} }
         @keyframes statCount   { from{opacity:0;transform:translateY(20px) scale(0.96)} to{opacity:1;transform:translateY(0) scale(1)} }
         @keyframes pulseGlow   { 0%,100%{box-shadow:0 0 0 0 rgba(0,210,190,0.4)} 50%{box-shadow:0 0 0 6px rgba(0,210,190,0)} }
+        @keyframes confettiFall { 0%{transform:translateY(-20px) rotate(0deg);opacity:1} 100%{transform:translateY(110vh) rotate(720deg);opacity:0} }
+        @keyframes checkIn     { 0%{stroke-dashoffset:60} 100%{stroke-dashoffset:0} }
+        @keyframes successPop  { 0%{opacity:0;transform:scale(0.8)} 60%{transform:scale(1.04)} 100%{opacity:1;transform:scale(1)} }
+        @keyframes countFlip   { 0%{transform:translateY(100%);opacity:0} 100%{transform:translateY(0);opacity:1} }
+        @keyframes waitIn      { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
         .apple-nav-links { display:flex; gap:28px; align-items:center; }
         @media(max-width:680px){ .apple-nav-links{ display:none!important; } }
         /* Responsive nav padding — tight on mobile, relaxed on desktop */
         .apple-nav-bar { padding: 0 12px; }
         @media(min-width:480px){ .apple-nav-bar { padding: 0 16px; } }
         @media(min-width:768px){ .apple-nav-bar { padding: 0 22px; } }
+        /* ── Mobile layout resets ── */
+        @media(max-width:768px){
+          .hero-inner   { flex-direction:column!important; gap:32px!important; }
+          .hero-cards   { width:100%!important; min-width:unset!important; }
+          .tm-row       { flex-direction:column!important; padding:60px 20px!important; gap:36px!important; }
+          .tm-row-rev   { flex-direction:column!important; padding:60px 20px!important; gap:36px!important; }
+          .eco-orbital  { width:min(380px,88vw)!important; height:min(380px,88vw)!important; }
+          .demo-inner   { flex-direction:column!important; align-items:center!important; }
+          .cta-btns     { flex-direction:column!important; align-items:stretch!important; }
+          .cta-btns button { width:100%!important; justify-content:center!important; }
+        }
+        @media(max-width:480px){
+          .tm-row { padding:48px 16px!important; }
+          .tm-row-rev { padding:48px 16px!important; }
+          .nav-countdown { display:none!important; }
+        }
+        /* ── Ecosystem: orbital on desktop, marquee on mobile ── */
+        .eco-orbital-wrap { display:block; }
+        .eco-marquee-wrap { display:none; }
+        @media(max-width:700px){
+          .eco-orbital-wrap { display:none!important; }
+          .eco-marquee-wrap { display:block!important; }
+        }
+        /* ── FeaturesShowcase: demo card + tab row mobile clamp ── */
+        @media(max-width:600px){
+          .sa-tab-row { padding:0 4px!important; }
+          .feat-card   { max-width:calc(100vw - 40px)!important; margin:0 auto!important; }
+          .feat-card > div { border-radius:18px!important; }
+        }
+        /* ── Prevent any horizontal overflow across all sections ── */
+        @media(max-width:768px){
+          section, .eco-section { overflow-x:hidden!important; }
+        }
       `}</style>
 
       {/* ── PRODUCT STICKY BAR — slides in independently, staggered after nav slides out ── */}
@@ -2778,24 +3190,16 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
             onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = "0.84"; }}
             onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = "1"; }}
           >Learn more</a>
-          <button onClick={() => {
-            // Ride up to the hero with the cursor already blinking in the email box.
-            // preventScroll keeps focus from jump-cutting the smooth scroll; if the
-            // input isn't there (waitlist mode off / already joined), open the modal.
-            const el = document.getElementById("waitlist-email") as HTMLInputElement | null;
-            if (el) { el.focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: "smooth" }); }
-            else if (waitlistMode) { window.scrollTo({ top: 0, behavior: "smooth" }); setWaitlistOpen(true); }
-            else requestSignup();
-          }} style={{
+          <a href="/card#order" style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
-            padding: "7px 17px", fontSize: 13, fontWeight: 400, cursor: "pointer",
-            color: "#0066cc", background: "transparent", fontFamily: FONT,
+            padding: "7px 17px", fontSize: 13, fontWeight: 400,
+            color: "#0066cc", textDecoration: "none", background: "transparent",
             display: "inline-flex", alignItems: "center",
             transition: "background 0.15s, border-color 0.15s",
           }}
-            onMouseEnter={e => { const a = e.currentTarget as HTMLButtonElement; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
-            onMouseLeave={e => { const a = e.currentTarget as HTMLButtonElement; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
-          >Join the waitlist</button>
+            onMouseEnter={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
+            onMouseLeave={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
+          >Apply</a>
         </div>
       </div>
 
@@ -2816,19 +3220,18 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
           fontSize: 12, fontWeight: 400, letterSpacing: "0.015em",
           color: "rgba(0,0,0,0.52)", margin: 0, textAlign: "center",
         }}>
-          Early access is rolling out{" "}
+          Founding members receive{" "}
           <span style={{ fontWeight: 500, color: "rgba(0,0,0,0.72)" }}>
-            in waves&nbsp;· free while in beta&nbsp;· founding spots numbered
+            Lifetime Pro&nbsp;· guaranteed founding number&nbsp;· express delivery
           </span>
-          {" "}·{" "}
-          <button onClick={requestSignup} style={{
-            background: "none", border: "none", padding: 0, fontSize: 12,
-            fontFamily: "inherit", color: "#0066cc", cursor: "pointer",
+          {" · "}
+          <a href="/card#order" style={{
+            color: "#0066cc", textDecoration: "none",
             transition: "color 0.12s",
           }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#004499"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "#0066cc"; }}
-          >Join the waitlist →</button>
+            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = "#004499"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = "#0066cc"; }}
+          >Apply now →</a>
         </p>
       </div>
 
@@ -2870,22 +3273,17 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
             >{label}</a>
           ))}
         </div>
-        {/* Right — Apple-style: text links only */}
-        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 2, justifyContent: "flex-end" }}>
+        {/* Right — compact countdown + Log in for existing team members */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
+          {/* Compact nav countdown — hidden on tiny screens */}
+          <div className="nav-countdown"><NavCountdown /></div>
           <button onClick={() => setAuthMode("login")}
-            style={{ background: "none", border: "none", padding: "5px 12px", fontSize: 13,
+            style={{ background: "none", border: "none", padding: "5px 10px", fontSize: 13,
               fontWeight: 400, color: "#737373", cursor: "pointer", fontFamily: FONT,
-              transition: "color 0.15s" }}
+              transition: "color 0.15s", whiteSpace: "nowrap" }}
             onMouseEnter={e => (e.currentTarget.style.color = "#000")}
             onMouseLeave={e => (e.currentTarget.style.color = "#737373")}
           >Log in</button>
-          <button onClick={requestSignup}
-            style={{ background: "none", border: "none", padding: "5px 12px", fontSize: 13,
-              fontWeight: 400, color: "#0066cc", cursor: "pointer", fontFamily: FONT,
-              transition: "color 0.15s" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "#004499")}
-            onMouseLeave={e => (e.currentTarget.style.color = "#0066cc")}
-          >Sign up</button>
         </div>
       </nav>
 
@@ -2900,7 +3298,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
         {/* Faint radial highlight behind cards */}
         <div aria-hidden="true" style={{ position: "absolute", top: "30%", right: "5%", width: 640, height: 640, borderRadius: "50%", background: "radial-gradient(circle, rgba(148,196,240,0.10) 0%, rgba(182,160,220,0.06) 40%, transparent 70%)", pointerEvents: "none" }} />
 
-        <div style={{ width: "100%", maxWidth: 1180, margin: "0 auto", padding: "0 clamp(20px,4vw,48px)", display: "flex", alignItems: "center", gap: "clamp(32px,5vw,72px)", flexWrap: "wrap" }}>
+        <div className="hero-inner" style={{ width: "100%", maxWidth: 1180, margin: "0 auto", padding: "0 clamp(20px,4vw,48px)", display: "flex", alignItems: "center", gap: "clamp(32px,5vw,72px)", flexWrap: "wrap" }}>
 
           {/* ── LEFT: copy + CTAs ── */}
           <div style={{ flex: "0 0 auto", width: "min(480px, 100%)", animation: "appleTitle 0.9s cubic-bezier(0.16,1,0.3,1) 0.1s both" }}>
@@ -2914,33 +3312,31 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
               The AI that reads your Canvas, explains your lectures, and builds your exam prep, grounded in your actual notes.
             </p>
 
-            {/* CTAs — Apple exact: "Learn more" solid blue, "Apply" ghost outline */}
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", width: "100%" }}>
+            {/* Hero CTAs — waitlist pill + learn more ghost */}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+              <button
+                onClick={() => setWaitlistOpen(true)}
+                style={{
+                  display: "inline-flex", alignItems: "center",
+                  background: "#0071e3", color: "#fff", border: "none",
+                  borderRadius: 980, cursor: "pointer", fontFamily: FONT,
+                  overflow: "hidden", transition: "opacity 0.15s, transform 0.18s cubic-bezier(0.16,1,0.3,1)",
+                  boxShadow: "0 4px 16px rgba(0,113,227,0.28), 0 1px 4px rgba(0,113,227,0.14)",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = "0.86"; e.currentTarget.style.transform = "scale(1.02)"; }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1)"; }}
+              >
+                <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Join the waitlist</span>
+                <HeroBtnCountdown />
+              </button>
               <a href="/card" style={{
-                background: "#0071e3", color: "#fff",
-                border: "none",
-                textDecoration: "none", borderRadius: 980,
-                padding: "12px 22px", fontSize: 16, fontWeight: 400,
-                display: "inline-flex", alignItems: "center", flexShrink: 0,
-                whiteSpace: "nowrap",
-                fontFamily: FONT, transition: "opacity 0.15s",
+                color: "#0066cc", fontSize: 17, fontWeight: 400,
+                textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
+                fontFamily: FONT, transition: "color 0.15s",
               }}
-                onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = "0.84")}
-                onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = "1")}
-              >Learn more</a>
-              {/* Apply removed — the waitlist capture IS the second CTA (falls back to a
-                  signup button when waitlist mode is off) */}
-              {waitlistMode ? (
-                <WaitlistInline source="landing-hero" inRow />
-              ) : (
-                <button onClick={requestSignup} style={{
-                  background: "transparent", color: "#0066cc",
-                  border: "1px solid rgba(0,102,204,0.56)", borderRadius: 980,
-                  padding: "12px 24px", fontSize: 17, fontWeight: 400,
-                  display: "inline-flex", alignItems: "center", cursor: "pointer",
-                  fontFamily: FONT, transition: "background 0.15s, border-color 0.15s",
-                }}>Sign up</button>
-              )}
+                onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.color = "#004499")}
+                onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.color = "#0066cc")}
+              >Learn more <span style={{ fontSize: 15 }}>›</span></a>
             </div>
 
             {/* Subtle stat pills */}
@@ -3003,7 +3399,7 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
       <ThreeMoments t={t} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
-      <PremiumCTA onSignup={requestSignup} onLogin={() => setAuthMode("login")} />
+      <PremiumCTA onSignup={() => setWaitlistOpen(true)} onLogin={() => setWaitlistOpen(true)} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
       {/* ── FAQ — clean solid tile ── */}
@@ -3053,8 +3449,14 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
         </div>
       </footer>
 
-      {/* ── AUTH + BANNER ── */}
-      <WaitlistModal open={waitlistOpen} onClose={() => setWaitlistOpen(false)} source={deepLink ?? "landing"} />
+      {/* ── WAITLIST MODAL ── */}
+      {waitlistOpen && (
+        <WaitlistModal
+          onClose={() => setWaitlistOpen(false)}
+          onLogin={() => { setWaitlistOpen(false); setTimeout(() => setAuthMode("login"), 50); }}
+        />
+      )}
+      {/* ── AUTH MODAL — existing team members only ── */}
       {authMode && (
         <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onEnter={onEnter}
           onSwitchMode={m => setAuthMode(m as any)} onForgotPassword={handleForgotPassword} t={t} />
