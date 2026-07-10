@@ -277,6 +277,11 @@ export default async function handler(req, res) {
       if (meta.score == null || meta.total == null) {
         return res.status(400).json({ error: "meta.score and meta.total required" });
       }
+      // The "perfect" bonus must actually be perfect — the endpoint is public, so don't
+      // trust the caller's choice of action (was: presence-only check → any score got it).
+      if (awardAction === "quiz_perfect" && Number(meta.score) !== Number(meta.total)) {
+        return res.status(400).json({ error: "quiz_perfect requires meta.score === meta.total" });
+      }
     }
 
     // ── Streak logic (streak_day action) ─────────────────────────────────────

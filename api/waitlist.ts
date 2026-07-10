@@ -145,6 +145,7 @@ export default async function handler(req: any, res: any) {
       for (const email of emails) {
         try {
           const r = await fetch(`${url}/rest/v1/waitlist?email=eq.${encodeURIComponent(email)}&select=id,invited_at`, { headers });
+          if (!r.ok) { results.push({ email, ok: false, reason: `lookup failed (${r.status})` }); continue; }
           const row = ((await r.json().catch(() => [])) as any[])[0];
           if (!row) { results.push({ email, ok: false, reason: "not on the waitlist" }); continue; }
           await resend.emails.send({

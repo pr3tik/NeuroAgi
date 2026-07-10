@@ -1,6 +1,6 @@
 // @vitest-environment node
 // Phase D: engagement-tier strategy on top of api/brain-intervention.ts —
-//   1. Week-1 accounts (created_at within 14d) skip stress-triggered nudges.
+//   1. Week-1 accounts (account age within 14d) skip stress-triggered nudges.
 //   2. Established (>14d) accounts still get stress nudges as before (regression).
 //   3. A separate re-engagement pass proposes a low-urgency "we miss you" signal
 //      for established accounts that have gone quiet (5+ days), independent of
@@ -23,7 +23,7 @@ afterEach(() => vi.unstubAllGlobals());
 const DAY = 24 * 60 * 60 * 1000;
 
 // Stub fetch (PostgREST for brain + fschool DBs). `users` covers both the per-context
-// week1 created_at lookup (`select=created_at`) and the re-engagement scan (`or=(`).
+// week1 age lookup (`select=email_verify_sent_at`) and the re-engagement scan (`or=(`).
 function stubFetch({
   context = [] as any[], history = [] as any[], nq = [] as any[], tuning = [] as any[],
   userCreatedAt = null as string | null,      // per-context week1 lookup response
@@ -37,7 +37,7 @@ function stubFetch({
     if (u.includes("/interventions"))        return R(history);
     if (u.includes("/notification_queue"))   return R(nq);
     if (u.includes("/users?") && u.includes("or=("))            return R(quietUsers);
-    if (u.includes("/users?") && u.includes("select=created_at")) return R(userCreatedAt ? [{ created_at: userCreatedAt }] : []);
+    if (u.includes("/users?") && u.includes("select=email_verify_sent_at")) return R(userCreatedAt ? [{ email_verify_sent_at: userCreatedAt }] : []);
     return R([]);
   });
   vi.stubGlobal("fetch", fn);
@@ -91,7 +91,7 @@ describe("brain-intervention: engagement-tier strategy (Phase D)", () => {
   it("proposes a re-engagement signal for an established account that's gone quiet, even with no context_window entry at all", async () => {
     stubFetch({
       context: [],   // this user generates NO brain-DB signal — the main loop never sees them
-      quietUsers: [{ id: "u2", name: "Sam", created_at: new Date(Date.now() - 60 * DAY).toISOString(), last_active_date: null }],
+      quietUsers: [{ id: "u2", name: "Sam", email_verify_sent_at: new Date(Date.now() - 60 * DAY).toISOString(), last_active_date: null }],
     });
     const { handler, calls } = await loadBI();
     const res = makeRes();
