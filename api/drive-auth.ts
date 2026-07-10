@@ -416,13 +416,17 @@ export default async function handler(req: any, res: any) {
       // 1. Upsert the course (gc_ prefix keeps Classroom ids from colliding with numeric Canvas ids).
       let courseId: string | null = null;
       try {
-        const { data: cRow } = await sb().from("courses").upsert({
+        // supabase-js returns errors instead of throwing — check explicitly, or a
+        // failed upsert silently reports success (this hid the courses_source_check
+        // violation that broke Classroom sync for weeks).
+        const { data: cRow, error: cErr } = await sb().from("courses").upsert({
           user_id:          userId,
           canvas_course_id: `gc_${course.id}`,
           name:             course.name ?? "Untitled course",
           course_code:      course.section ?? course.name ?? null,
           source:           "google_classroom",
         }, { onConflict: "user_id,canvas_course_id" }).select("id").maybeSingle();
+        if (cErr) throw new Error(cErr.message);
         courseId = cRow?.id ?? null;
         summary.courses++;
       } catch (e: any) { summary.errors.push(`course ${course.name}: ${e.message}`); }
@@ -452,7 +456,7 @@ export default async function handler(req: any, res: any) {
         const { courseWork = [] } = await cwRes.json();
         for (const cw of courseWork) {
           try {
-            await sb().from("assignments").upsert({
+            const { error: aErr } = await sb().from("assignments").upsert({
               user_id:              userId,
               course_id:            courseId,
               canvas_assignment_id: `gc_${cw.id}`,
@@ -462,6 +466,7 @@ export default async function handler(req: any, res: any) {
               points_possible:      cw.maxPoints ?? null,
               source:               "google_classroom",
             }, { onConflict: "user_id,canvas_assignment_id" });
+            if (aErr) throw new Error(aErr.message);
             summary.assignments++;
           } catch (e: any) { summary.errors.push(`assignment ${cw.title}: ${e.message}`); }
           collect(cw.materials);
