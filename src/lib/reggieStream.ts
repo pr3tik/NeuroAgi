@@ -31,6 +31,9 @@ export interface ReggieStreamBody {
   message: string;
   history?: Array<{ role: string; content: string }>;
   courseId?: any;
+  /** Assignment the student is actively working on — grounds the tutor's answers and
+   *  lets the assignment-aware tools (agent-manager reads ctx.assignmentId) fire. */
+  assignmentId?: any;
   hint?: string | null;
   /** Client is in voice mode — the loop teaches the model the voice-tag protocol. */
   voiceMode?: boolean;

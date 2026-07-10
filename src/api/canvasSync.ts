@@ -475,6 +475,25 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
       .filter(c => !canvasIds.has(String(c.id))); // Canvas (live) rows win on overlap
   } catch { /* non-fatal — return Canvas courses alone */ }
 
+  // Preserve in-app "Mark as done" across this Canvas re-sync. Canvas returns
+  // submitted_at=null for work the student finished only inside FschoolAI, which would
+  // resurface the task. manual_done_at is our app-only completion flag (Canvas never
+  // writes it) — OR it into submittedAt so a mid-session force-sync doesn't undo it.
+  try {
+    const { data: doneRows } = await supabase
+      .from('assignments')
+      .select('canvas_assignment_id, manual_done_at')
+      .eq('user_id', userId)
+      .not('manual_done_at', 'is', null);
+    if (doneRows?.length) {
+      const doneMap = new Map(doneRows.map(r => [String(r.canvas_assignment_id), r.manual_done_at]));
+      for (const a of allAssignments) {
+        const dm = doneMap.get(String(a.id));
+        if (dm && !a.submission?.submittedAt) a.submission = { ...(a.submission || {}), submittedAt: dm };
+      }
+    }
+  } catch { /* manual_done_at column may not exist yet — non-fatal */ }
+
   return {
     courses:          [...courses, ...extraCourses],
     assignments:      allAssignments,
@@ -576,7 +595,10 @@ export async function loadCanvasData(userId) {
       isManual,
       submission: {
         score:          a.score,
-        submittedAt:    a.submitted_at,
+        // manual_done_at = the student marked this done inside FschoolAI (Canvas doesn't
+        // know). OR it in so every "done" check (which keys off submittedAt) reflects it,
+        // and it survives a Canvas re-sync (sync writes submitted_at only, never this column).
+        submittedAt:    a.submitted_at ?? a.manual_done_at ?? null,
         submissionType: a.submission_type,
         late:           a.late    ?? false,
         missing:        a.missing ?? false,

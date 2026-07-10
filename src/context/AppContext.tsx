@@ -111,6 +111,9 @@ export function AppProvider({ children }) {
   const [pendingNav, setPendingNav]   = useState(null);
   // Pre-config for Study page: { course: string, mode: 'flashcards'|'guide' }
   const [studyConfig, setStudyConfig] = useState(null);
+  // Assignment → tutor handoff: a page sets this to { assignmentId, courseId, title, course }
+  // and NeuralRing opens Reggie with that assignment in scope, then clears it.
+  const [tutorSeed, setTutorSeed]     = useState(null);
   // Token economy
   const [tokenSummary, setTokenSummary] = useState(null);
   // Per-course-card change badges: { [courseId]: { newAssignments, gradedAssignments, scoreChanged, scoreDelta } }
@@ -524,6 +527,31 @@ export function AppProvider({ children }) {
     }
   }, [userData?.nav_mode]);
 
+  // Mark an assignment done from inside the app (not via a Canvas submission). Persists to
+  // `manual_done_at` — a column Canvas sync never writes, so it survives re-syncs — and
+  // optimistically flips submission.submittedAt so every list/counter that derives "done"
+  // from it (Work dashboard, DailyBriefing, Assignments) drops the task immediately.
+  const markAssignmentDone = useCallback(async (assignment) => {
+    if (!assignment || !userId) return;
+    const doneAt = new Date().toISOString();
+    const aid = assignment.id;
+    setAssignments(prev => prev.map(a =>
+      String(a.id) === String(aid)
+        ? { ...a, manualDoneAt: doneAt, submission: { ...(a.submission || {}), submittedAt: a.submission?.submittedAt ?? doneAt } }
+        : a
+    ));
+    try {
+      // Canvas assignments key on canvas_assignment_id; manual ones (no Canvas id) on the DB id.
+      const base = supabase.from('assignments').update({ manual_done_at: doneAt }).eq('user_id', userId);
+      const { error } = assignment.isManual
+        ? await base.eq('id', aid)
+        : await base.eq('canvas_assignment_id', String(aid));
+      if (error) console.warn('[markAssignmentDone] persist failed (run supabase-assignment-done-migration.sql?):', error.message);
+    } catch (e) {
+      console.warn('[markAssignmentDone]', e?.message);
+    }
+  }, [userId]);
+
   return (
     <AppContext.Provider value={{
       userId,
@@ -556,6 +584,9 @@ export function AppProvider({ children }) {
       setPendingNav,
       studyConfig,
       setStudyConfig,
+      tutorSeed,
+      setTutorSeed,
+      markAssignmentDone,
       tokenSummary,
       refreshTokens,
       navMode,

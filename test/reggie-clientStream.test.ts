@@ -60,4 +60,19 @@ describe("streamReggie (client SSE consumer)", () => {
     await streamReggie({ userId: "u1", message: "hi" }, { onError: (m) => (err = m) });
     expect(err).toBe("Reggie failed");
   });
+
+  it("forwards assignmentId + courseId in the request body (the assignment→tutor handoff)", async () => {
+    const fetchMock = vi.fn(async () => fakeRes([
+      frame("done", { ok: true, route: "tutor", output: "ok", toolCalls: [], steps: 1, budgetExhausted: false, brainContextUsed: false }),
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    await streamReggie(
+      { userId: "u1", message: "help with my essay", assignmentId: "a-123", courseId: "c-9" },
+      { onDone: () => {} },
+    );
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as any).body);
+    expect(body.assignmentId).toBe("a-123");   // reaches agent-manager -> ctx.assignmentId
+    expect(body.courseId).toBe("c-9");
+    expect(body.stream).toBe(true);
+  });
 });
