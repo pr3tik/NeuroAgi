@@ -3182,16 +3182,6 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           Founding Card
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <a href="/card" style={{
-            borderRadius: 980, border: "none",
-            padding: "7px 17px", fontSize: 13, fontWeight: 400,
-            color: "#fff", textDecoration: "none", background: "#0071e3",
-            display: "inline-flex", alignItems: "center",
-            transition: "opacity 0.15s",
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = "0.84"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = "1"; }}
-          >Learn more</a>
           <button onClick={() => setWaitlistOpen(true)} style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
             padding: "7px 17px", fontSize: 13, fontWeight: 400,
@@ -3327,14 +3317,6 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
                 <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Join the waitlist</span>
                 <HeroBtnCountdown />
               </button>
-              <a href="/card" style={{
-                color: "#0066cc", fontSize: 17, fontWeight: 400,
-                textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
-                fontFamily: FONT, transition: "color 0.15s",
-              }}
-                onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.color = "#004499")}
-                onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.color = "#0066cc")}
-              >Learn more <span style={{ fontSize: 15 }}>›</span></a>
             </div>
 
             {/* Subtle stat pills */}

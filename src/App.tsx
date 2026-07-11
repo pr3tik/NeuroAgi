@@ -28,7 +28,6 @@ import { fetchUnreadCount, AppNotification } from "./api/notifications";
 // Pages are code-split: each loads as its own chunk only when first navigated to, so
 // the initial bundle stays small and a page's JS isn't downloaded until it's used.
 // (Only one page is mounted at a time — PAGES[currentPage] — so nothing offscreen renders.)
-const Card        = lazy(() => import("./pages/Card"));
 const Work        = lazy(() => import("./pages/Work"));
 const Canvas      = lazy(() => import("./pages/Canvas"));
 const Assignment  = lazy(() => import("./pages/Assignment"));
@@ -128,10 +127,6 @@ function PageLoader() {
 }
 
 export default function App() {
-  // ── /card route — standalone page, no auth required ─────────────────────
-  if (window.location.pathname === "/card") {
-    return <Suspense fallback={<PageLoader />}><Card /></Suspense>;
-  }
   const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary, navMode } = useApp();
 
   const [isLoggedIn, setIsLoggedIn] = useState(
