@@ -3013,7 +3013,7 @@ const FAQ_DATA = [
   { q: "What's the Founding Card?", a: "A physical NFC titanium card for the first 1,000 members. It holds your AI identity, student number, and lifetime Pro access. See the Card page." },
 ];
 
-export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: (args: any) => Promise<void>; initialAuthMode?: "login" | "signup" | null }) {
+export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: { onEnter: (args: any) => Promise<void>; initialAuthMode?: "login" | "signup" | null; onTryDemo?: () => void }) {
   // Light-primary — no toggle. DARK tokens used directly in the card-preview section.
   const t = LIGHT;
   const [authMode, setAuthMode] = useState<"login"|"signup"|null>(initialAuthMode);
@@ -3329,6 +3329,19 @@ export default function Landing({ onEnter, initialAuthMode = null }: { onEnter: 
                 <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Join the waitlist</span>
                 <HeroBtnCountdown />
               </button>
+              {onTryDemo && (
+                <button
+                  onClick={onTryDemo}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer", padding: 0,
+                    color: "#0066cc", fontSize: 17, fontWeight: 400,
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                    fontFamily: FONT, transition: "color 0.15s",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.color = "#004499")}
+                  onMouseLeave={e => (e.currentTarget.style.color = "#0066cc")}
+                >Try it, no signup <span style={{ fontSize: 15 }}>›</span></button>
+              )}
               <a href="/card" style={{
                 color: "#0066cc", fontSize: 17, fontWeight: 400,
                 textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
