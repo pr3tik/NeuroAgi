@@ -2724,21 +2724,33 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
     const q = email.trim();
     if (!q || status === "loading") return;
     setStatus("loading");
+    // Never spin forever — abort after 12s and surface an error.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
     try {
-      const res = await fetch("/api/waitlist", {
+      const res = await fetch("/api/waitlist?action=join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: q }),
+        body: JSON.stringify({ email: q, source: "landing" }),
+        signal: ctrl.signal,
       });
-      const data = await res.json();
-      if (data.already) { setStatus("duplicate"); return; }
-      if (data.success) {
+      const data = await res.json().catch(() => ({}));
+      if (data.already || data.alreadyJoined) { setStatus("duplicate"); return; }
+      if (res.ok && data.success) {
         setPosition(data.position ?? 0);
         setStatus("success");
         setShowConfetti(true);
         setTimeout(() => setShowConfetti(false), 3600);
-      } else { setStatus("error"); }
-    } catch { setStatus("error"); }
+      } else {
+        console.error("[waitlist] join failed:", data.error || `HTTP ${res.status}`);
+        setStatus("error");
+      }
+    } catch (e) {
+      console.error("[waitlist] join error:", e);
+      setStatus("error");
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   const isSuccess = status === "success";
