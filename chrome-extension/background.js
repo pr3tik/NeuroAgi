@@ -11,15 +11,23 @@
 //   • Captures completed downloads from academic sites (pending list / opt-in auto)
 
 // Dev vs prod: change to "http://localhost:5173" for local testing
-const FSCHOOLAI_ORIGIN = "http://localhost:5174";
+const FSCHOOLAI_ORIGIN = "http://localhost:5173";
 const API_BASE         = FSCHOOLAI_ORIGIN;
 
 const FULL_SYNC_TTL_MS = 6 * 60 * 60 * 1000;    // re-sync a given LMS host at most every 6h
 
 const INLINE_B64_LIMIT = 3_000_000;             // base64 chars (~2.2MB binary) — under Vercel's cap
+const INLINE_RAW_LIMIT = Math.floor(INLINE_B64_LIMIT * 0.75);   // raw-byte equivalent (base64 inflates ~4/3)
 const MAX_FILE_BYTES   = 100 * 1024 * 1024;     // absolute cap, matches the course-files bucket's 100MB limit
 const CAPTURED_MAX     = 800;                    // LRU size of the "already imported" URL set
 const QUEUE_MAX        = 40;                     // max queued imports at once
+
+// No transcription pipeline is wired into this extension for either LMS — a
+// video/audio file uploads fine then always dead-ends at "no text extracted".
+// Skip by filename BEFORE even fetching, wherever the LMS gives us a title —
+// pure wasted bandwidth/storage otherwise, on exactly the largest files.
+const VIDEO_AUDIO_EXT_RE = /\.(mp4|mov|avi|wmv|flv|m4v|webm|mkv|mp3|wav|m4a|ogg|aac|flac)(\?|#|$)/i;
+const looksLikeVideoAudio = (name) => VIDEO_AUDIO_EXT_RE.test(String(name || ""));
 
 // ── Auth state ─────────────────────────────────────────────────────────────
 
@@ -331,16 +339,42 @@ async function bytesFromResponse(res, allowedHost) {
   // permits Canvas inst-fs / D2L CDN, so this doesn't break the API adapters.
   if (allowedHost && res.url && !isAllowedSyncFileUrl(res.url, allowedHost)) throw new Error("Refusing a cross-origin redirect target");
   const mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "application/octet-stream";
+  // Reject oversized files from the Content-Length header BEFORE downloading the
+  // body — a 500MB lecture video used to be fully downloaded just to be thrown
+  // away here, stalling the whole sync. Cancel the stream so the transfer stops.
+  const declaredLen = Number(res.headers.get("content-length") || 0);
+  if (declaredLen > MAX_FILE_BYTES) {
+    try { res.body?.cancel(); } catch { /* already consumed/locked */ }
+    throw new Error("File too large (max 100 MB)");
+  }
+  // D2L sometimes wraps a media download (e.g. a lecture video topic) in a ZIP
+  // container instead of serving the raw file — /api/extract has no text to pull
+  // from a zip, so this used to fully download (often huge, since it's video),
+  // upload to storage, and only THEN fail at the extract step. Reject upfront —
+  // this extension has no zip-extraction path, so nothing is lost by skipping fast.
+  if (mimeType === "application/zip" || mimeType === "application/x-zip-compressed") {
+    try { res.body?.cancel(); } catch { /* already consumed/locked */ }
+    throw new Error("Zip-wrapped file (likely a video) — no extractable text, skipped");
+  }
   const buffer = await res.arrayBuffer();
   if (buffer.byteLength > MAX_FILE_BYTES) throw new Error("File too large (max 100 MB)");
   if (buffer.byteLength === 0) throw new Error("Empty response");
-  const b64 = bufferToBase64(buffer);
-  if (mimeType.includes("text/html") || base64LooksLikeHtml(b64)) {
+  // HTML/login-wall sniffing only needs the FRONT of the file, not the whole thing
+  // base64-encoded — for a 90MB file that used to mean encoding 90MB just to peek
+  // at it. Sniff a small prefix instead; base64 the full buffer only when the
+  // caller actually needs it (small files bound for the inline-JSON path).
+  const sniffLen = Math.min(buffer.byteLength, 4096);
+  const prefixB64 = bufferToBase64(buffer.slice(0, sniffLen));
+  if (mimeType.includes("text/html") || base64LooksLikeHtml(prefixB64)) {
     if (looksLikeLoginUrl(res.url)) throw transientError("LMS session expired — log in to your LMS and retry");
     throw new Error("Got a login/HTML page instead of the file — are you signed in to the LMS?");
   }
   const filename = filenameFromDisposition(res.headers.get("content-disposition")) || filenameFromUrl(res.url);
-  return { bytes: b64, mimeType, filename, finalUrl: res.url };
+  // Big files (headed for the storage-upload path) keep the raw buffer and skip
+  // base64 entirely — uploadViaStorage can PUT it directly. Small files still get
+  // base64 now since they're bound for an inline JSON body either way.
+  const bytes = buffer.byteLength > INLINE_RAW_LIMIT ? null : bufferToBase64(buffer);
+  return { bytes, buffer, mimeType, filename, finalUrl: res.url };
 }
 
 async function fetchFileBytes(url, allowedHost) {
@@ -423,7 +457,10 @@ async function resolveViewerFile(url, hint, allowedHost) {
 
 // ── Signed-upload path for big files (Vercel body limit) ────────────────────
 
-async function uploadViaStorage(auth, filename, b64, mimeType) {
+// Accepts either a raw ArrayBuffer (preferred — no re-encode) or a base64 string
+// (defensive fallback for a caller that only ever had bytes, e.g. content.js's
+// direct-fetch path, which in practice never exceeds INLINE_RAW_LIMIT anyway).
+async function uploadViaStorage(auth, filename, bufferOrB64, mimeType) {
   const signRes = await fetch(`${API_BASE}/api/lms-ingest?action=sign`, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
@@ -432,23 +469,37 @@ async function uploadViaStorage(auth, filename, b64, mimeType) {
   const sign = await signRes.json().catch(() => ({}));
   if (!signRes.ok || !sign.signedUrl) throw new Error(sign.error ?? "could not get upload URL");
 
-  // Rebuild the binary from base64 for the PUT body.
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  let body;
+  if (bufferOrB64 instanceof ArrayBuffer) {
+    body = bufferOrB64;
+  } else {
+    const bin = atob(bufferOrB64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    body = arr;
+  }
 
   const putRes = await fetch(sign.signedUrl, {
     method:  "PUT",
     headers: { "Content-Type": mimeType || "application/octet-stream" },
-    body:    bytes,
+    body,
   });
-  if (!putRes.ok) throw new Error(`storage upload failed (${putRes.status})`);
+  if (!putRes.ok) {
+    // Surface the actual rejection reason (was previously discarded) — a bare
+    // status code isn't enough to diagnose a signed-upload failure.
+    const detail = await putRes.text().catch(() => "");
+    throw new Error(`storage upload failed (${putRes.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+  }
   return { storagePath: sign.path, bucket: sign.bucket };
 }
 
 // ── File import (single entry point; queue-serialized) ──────────────────────
 
-let importChain = Promise.resolve();
+const IMPORT_CONCURRENCY = 8;   // parallel imports — raised from 4 now that big files use a raw
+                                 // ArrayBuffer (not a duplicated base64 string), so memory pressure
+                                 // per concurrent import is lower than it used to be
+let activeImports = 0;
+const importWaiters = [];       // resolvers parked while the pool is full
 let queueDepth  = 0;
 const inFlight  = new Set();   // canonical URLs currently queued/downloading (cross-frame dedup)
 
@@ -522,12 +573,22 @@ function enqueueImport(task) {
   queueDepth++;
   keepaliveStart();
   writeLiveState(queueDepth === 1);       // 0→1: flush so the spinner turns on instantly
-  const run = importChain.then(task).finally(() => {
+  const run = (async () => {
+    // Bounded POOL, not a serial chain: the old `importChain.then(task)` pattern
+    // meant every import in the whole extension ran one-at-a-time — runFullSync's
+    // 12-wide download pool all funnelled into a single-file pipeline, which was
+    // the dominant cause of hour-long syncs. Concurrency is kept small because a
+    // task can hold a whole file (as base64) in SW memory while uploading.
+    while (activeImports >= IMPORT_CONCURRENCY) {
+      await new Promise((r) => importWaiters.push(r));
+    }
+    activeImports++;
+    try { return await task(); }
+    finally { activeImports--; importWaiters.shift()?.(); }
+  })().finally(() => {
     queueDepth--; keepaliveStop();
     writeLiveState(queueDepth === 0);     // →0: flush the idle edge before the worker can sleep
   });
-  // Keep the chain alive even when a task rejects.
-  importChain = run.catch(() => {});
   return run;
 }
 
@@ -573,7 +634,7 @@ async function importFileInner(payload) {
   return result;
 }
 
-async function importFileWork({ url, filename, pageUrl, courseId, bytes, mimeType, platform, fetchUrl, resolveHint, allowedHost }) {
+async function importFileWork({ url, filename, pageUrl, courseId, bytes, buffer, mimeType, platform, fetchUrl, resolveHint, allowedHost }) {
   const auth = await getAuth();
   // transient: signed-out is not a property of the file — must not burn backoff strikes.
   if (!auth) return { error: "Not signed in. Open the extension popup to sign in.", transient: true };
@@ -587,16 +648,19 @@ async function importFileWork({ url, filename, pageUrl, courseId, bytes, mimeTyp
     // Fetch here (SW bypasses CORS) when the content script couldn't, or for
     // pending-download imports where only the URL is known. Viewer links carry a
     // resolveHint and go through the platform resolver.
-    if (!bytes && fetchUrl) {
+    if (!bytes && !buffer && fetchUrl) {
       if (isPrivateTarget(fetchUrl)) return { error: "Refusing to fetch a private/internal address" };
       const fetched = await resolveViewerFile(fetchUrl, resolveHint, allowedHost);
-      bytes    = fetched.bytes;
+      bytes    = fetched.bytes;    // null for big files — buffer carries them instead
+      buffer   = fetched.buffer;
       mimeType = mimeType && mimeType !== "application/octet-stream" ? mimeType : fetched.mimeType;
       // Server-declared name (Content-Disposition / final URL) beats link-text guesses.
       if (fetched.filename) filename = fetched.filename;
     }
-    if (!bytes) return { error: "No file data" };
-    if (base64LooksLikeHtml(bytes)) {
+    if (!bytes && !buffer) return { error: "No file data" };
+    // bytesFromResponse already HTML-sniffs buffer-only (big) files internally —
+    // this second check only applies when we have a base64 string to look at.
+    if (bytes && base64LooksLikeHtml(bytes)) {
       return { error: "Got a login/HTML page instead of the file — are you signed in to the LMS?" };
     }
 
@@ -611,8 +675,11 @@ async function importFileWork({ url, filename, pageUrl, courseId, bytes, mimeTyp
     };
 
     // Big files can't ride an inline JSON body (Vercel ~4.5MB cap) → storage path.
-    if (bytes.length > INLINE_B64_LIMIT) {
-      const { storagePath, bucket } = await uploadViaStorage(auth, filename, bytes, filePayload.mimeType);
+    // Prefer the raw buffer when we have one — skips a base64 encode+decode
+    // round trip that used to double memory/CPU on exactly the biggest files.
+    const isBig = buffer ? buffer.byteLength > INLINE_RAW_LIMIT : bytes.length > INLINE_B64_LIMIT;
+    if (isBig) {
+      const { storagePath, bucket } = await uploadViaStorage(auth, filename, buffer || bytes, filePayload.mimeType);
       filePayload.storagePath = storagePath;
       filePayload.bucket      = bucket;
     } else {
@@ -869,13 +936,19 @@ async function enumCanvasSW(origin) {
       const mods = await pageAll(`/courses/${c.id}/modules?include[]=items&include[]=content_details`);
       const pageSlugs = new Set();
       for (const mod of mods) for (const it of (mod.items || [])) {
-        if (it.type === "File" && it.content_id) add(c.id, it.content_id, it.title || (it.content_details && it.content_details.display_name));
+        const displayName = it.title || (it.content_details && it.content_details.display_name);
+        if (it.type === "File" && it.content_id && !looksLikeVideoAudio(displayName)) add(c.id, it.content_id, displayName);
         else if (it.type === "Page" && it.page_url) pageSlugs.add(it.page_url);
       }
       await Promise.all([...pageSlugs].map((slug) => scanPage(c.id, slug)));
     } catch { /* modules off */ }
     // Files tab (best effort; often 403 for students).
-    try { for (const f of await pageAll(`/courses/${c.id}/files`)) add(c.id, f.id, f.display_name || f.filename); } catch { /* files tab off */ }
+    try {
+      for (const f of await pageAll(`/courses/${c.id}/files`)) {
+        const name = f.display_name || f.filename;
+        if (!looksLikeVideoAudio(name)) add(c.id, f.id, name);
+      }
+    } catch { /* files tab off */ }
     // Syllabus body.
     try { const { data } = await swGetJSON(`${origin}/api/v1/courses/${c.id}?include[]=syllabus_body`); addFromHtml(c.id, data && data.syllabus_body); } catch { /* no syllabus */ }
     // Pages index (catches pages not linked from any module), bounded.
@@ -948,7 +1021,7 @@ async function enumD2LSW(origin, xsrf) {
     const htmlUrls = new Set();
     const walk = (mod) => {
       for (const t of (mod.Topics || [])) {
-        if (t.TypeIdentifier === "File" && t.TopicId) {
+        if (t.TypeIdentifier === "File" && t.TopicId && !looksLikeVideoAudio(t.Title)) {
           addUrl(`${origin}/d2l/le/content/${ou}/topics/files/download/${t.TopicId}/DirectFileTopicDownload`, ou);
         }
         // Skip external links (Url/Link topics point off-site).
@@ -1103,7 +1176,13 @@ async function enumMoodleSW(origin, sesskey) {
   const mc = (cres && cres.courses) || [];
   const files = [];
   await Promise.all(mc.map(async (c) => {
-    try { const secs = await call("core_course_get_contents", { courseid: Number(c.id) }); for (const sec of (secs || [])) for (const mod of (sec.modules || [])) for (const ct of (mod.contents || [])) { if (ct.type === "file" && ct.fileurl) files.push({ url: ct.fileurl, filename: ct.filename || mod.name || "file", courseId: String(c.id) }); } } catch { /* skip */ }
+    try {
+      const secs = await call("core_course_get_contents", { courseid: Number(c.id) });
+      for (const sec of (secs || [])) for (const mod of (sec.modules || [])) for (const ct of (mod.contents || [])) {
+        const name = ct.filename || mod.name || "file";
+        if (ct.type === "file" && ct.fileurl && !looksLikeVideoAudio(name)) files.push({ url: ct.fileurl, filename: name, courseId: String(c.id) });
+      }
+    } catch { /* skip */ }
   }));
   return { lms: "moodle", files, courses: mc.length };
 }
@@ -1311,12 +1390,17 @@ async function runFullSync(tabId, host, { force = false } = {}) {
     // link a course_id (same lookup api/lms-ingest.ts already does for Canvas).
     if (Array.isArray(res.courses) && res.courses.length) {
       try {
-        await fetch(`${API_BASE}/api/lms-ingest?action=courses`, {
+        const cr = await fetch(`${API_BASE}/api/lms-ingest?action=courses`, {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify({ userId: auth.userId, courses: res.courses, assignments: res.assignments ?? [] }),
         });
-      } catch (e) { console.warn("[FschoolAI] course/assignment sync failed:", e.message); }
+        const crBody = await cr.text();
+        if (!cr.ok) console.error(`[FschoolAI] course/assignment sync HTTP ${cr.status}:`, crBody.slice(0, 300));
+        else console.log("[FschoolAI] course/assignment sync ok:", crBody.slice(0, 200));
+      } catch (e) { console.error("[FschoolAI] course/assignment sync failed (network):", e.message); }
+    } else {
+      console.warn("[FschoolAI] no res.courses to sync — enumD2LSW returned", Array.isArray(res.courses) ? "an empty array" : typeof res.courses);
     }
 
     const files = Array.isArray(res.files) ? res.files : [];

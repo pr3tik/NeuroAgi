@@ -353,7 +353,9 @@ export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = n
   //      ?action=backfill can finish any remainder for very large docs.
   try {
     for (let i = 0; i < EMBED_MAX_LOOPS; i++) {
-      const r = await embedBatch({ userId, documentId });
+      // 128 = embedBatch's clamp ceiling — halves the OpenAI round trips per
+      // document vs the default 64, which is most of a large file's wall time.
+      const r = await embedBatch({ userId, documentId, batchSize: 128 });
       if (r.status !== 200 || r.json?.done) break;
     }
   } catch (e: any) {
@@ -400,7 +402,10 @@ export default async function handler(req: any, res: any) {
   if (req.query?.action === "courses") {
     try {
       const { userId, courses, assignments } = req.body ?? {};
+      console.log(`[lms-ingest] courses action: userId=${userId} courses=${courses?.length ?? 0} assignments=${assignments?.length ?? 0}`);
       const result = await ingestLmsCourses({ userId, courses, assignments });
+      if (result.status !== 200) console.error("[lms-ingest] courses action failed:", result.json?.error);
+      else console.log(`[lms-ingest] courses action ok: upserted ${result.json.courses} course(s), ${result.json.assignments} assignment(s)`);
       return res.status(result.status).json(result.json);
     } catch (e: any) {
       console.error("[lms-ingest] courses action error:", e.message);

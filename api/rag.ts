@@ -231,6 +231,13 @@ export async function ingest(body) {
 
   if (!chunkRows.length) return { status: 400, json: { error: "no content to index" } };
 
+  // Bound the damage a single pathological document can do (garbled binary
+  // misread as text, or a many-thousand-page dump): ~2500 chunks ≈ 600+ real
+  // pages, beyond which we index the front of the document and stop. Retrieval
+  // quality on genuine course material is unaffected.
+  const CHUNKS_MAX = 2500;
+  if (chunkRows.length > CHUNKS_MAX) chunkRows.length = CHUNKS_MAX;
+
   // Persist rows WITHOUT embeddings first — fast and never times out. Embeddings get
   // filled in afterward in bounded batches via action=embed, so a 300-page textbook
   // can't blow the serverless time limit in one request. Chunks are immediately
@@ -243,13 +250,21 @@ export async function ingest(body) {
   const { error: sErr } = await supabase.from("rag_sections").insert(sectionRows);
   if (sErr) return { status: 500, json: { error: `sections insert: ${sErr.message}` } };
 
-  // Each row computes a tsvector (GIN-indexed) on insert — 200 rows/statement was
-  // hitting Postgres's statement_timeout on documents with enough chunks. Smaller
-  // batches trade more round trips for each statement finishing well under the cap.
-  const CHUNK_INSERT_BATCH = 40;
-  for (let i = 0; i < chunkRows.length; i += CHUNK_INSERT_BATCH) {
-    const { error: cErr } = await supabase.from("rag_chunks").insert(chunkRows.slice(i, i + CHUNK_INSERT_BATCH));
-    if (cErr) return { status: 500, json: { error: `chunks insert: ${cErr.message}` } };
+  // Each row computes a tsvector (GIN-indexed) on insert — big batches hit
+  // Postgres's statement_timeout on documents with enough chunks. ADAPTIVE:
+  // start at 40 rows/statement, and on a timeout halve the batch and retry the
+  // same slice (down to a floor of 5) instead of failing the whole document —
+  // a busy/slow DB now just ingests slower rather than erroring out.
+  let batch = 40;
+  for (let i = 0; i < chunkRows.length; ) {
+    const slice = chunkRows.slice(i, i + batch);
+    const { error: cErr } = await supabase.from("rag_chunks").insert(slice);
+    if (!cErr) { i += slice.length; continue; }
+    if (/statement timeout|canceling statement|57014/i.test(cErr.message) && batch > 5) {
+      batch = Math.max(5, Math.floor(batch / 2));
+      continue;   // retry the SAME slice at the smaller size
+    }
+    return { status: 500, json: { error: `chunks insert: ${cErr.message}` } };
   }
 
   return { status: 200, json: { ok: true, documentId, sections: sectionRows.length, chunks: chunkRows.length } };
