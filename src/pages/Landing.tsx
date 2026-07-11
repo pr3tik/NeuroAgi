@@ -3254,7 +3254,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
         pointerEvents: showProductBar ? "none" : "auto",
       }}>
         {/* Left — F+brain logo in corner */}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
           <img
             src="/fschoolai-logo.jpeg"
             alt="FschoolAI"
@@ -3267,22 +3267,15 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
             }}
           />
         </div>
-        {/* Center — hidden on mobile via CSS */}
-        <div className="apple-nav-links">
-          {[{ label:"Card", href:"/card" }, { label:"Features", href:"#features" }, { label:"Pricing", href:"#pricing" }, { label:"Blog", href:"/blog" }].map(({ label, href }) => (
-            <a key={label} href={href} style={{ fontSize: 12, fontWeight: 400, color: "rgba(0,0,0,0.72)", textDecoration: "none", letterSpacing: "0em", transition: "color 0.15s" }}
-              onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.color = "#1d1d1f")}
-              onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(0,0,0,0.72)")}
-            >{label}</a>
-          ))}
-        </div>
-        {/* Right — compact countdown + Log in for existing team members */}
-        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
-          {/* Compact nav countdown — hidden on tiny screens */}
+        {/* Center — the launch countdown, dead-center in the nav (equal flex:1 sides
+            keep it centered). Hidden on tiny screens via .nav-countdown. */}
+        <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div className="nav-countdown"><NavCountdown /></div>
-          {/* Invisible login — text is transparent so only people who know it's here
-              click it. Still fully clickable; never reveals on hover. This is the ONLY
-              path to the login screen (aside from an injected ?/link). */}
+        </div>
+        {/* Right — invisible login. Text is transparent so only people who know it's
+            here click it; still fully clickable, never reveals on hover. This is the
+            ONLY discoverable path to the login screen (an injected ?/link aside). */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
           <button onClick={() => setAuthMode("login")}
             aria-label="Log in"
             style={{ background: "none", border: "none", padding: "5px 10px", fontSize: 13,

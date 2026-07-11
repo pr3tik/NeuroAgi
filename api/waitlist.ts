@@ -123,6 +123,16 @@ export default async function handler(req: any, res: any) {
           });
           emailSent = true;
         } catch (e: any) { console.error("[waitlist] confirmation email failed:", e?.message); }
+
+        // Internal: notify Vincent on every NEW signup with the running waitlist count.
+        // Fire-and-forget — never blocks or fails the join.
+        resend.emails.send({
+          from: "FSchoolAI <noreply@fschoolai.com>",
+          to: "vincent@fschoolai.com",
+          subject: `New waitlist signup — ${total} total`,
+          html: `<p>New FschoolAI waitlist signup: <b>${email}</b>${name ? ` (${name})` : ""}.</p>`
+              + `<p>The waitlist now has <b>${total}</b> ${total === 1 ? "person" : "people"}.</p>`,
+        }).catch((e: any) => console.error("[waitlist] signup notify failed:", e?.message));
       }
       return res.status(200).json({ ok: true, success: true, already: false, alreadyJoined: false, position, total, emailSent });
     }
