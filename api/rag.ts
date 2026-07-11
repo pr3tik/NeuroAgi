@@ -157,7 +157,20 @@ export function chunkText(text) {
       let sBuf = "";
       for (const s of sentences) {
         if ((sBuf + s).length > CHUNK_MAX) { if (sBuf.trim()) chunks.push(sBuf.trim()); sBuf = ""; }
-        sBuf += s;
+        // A "sentence" itself can exceed CHUNK_MAX when the source has no
+        // punctuation to split on (e.g. garbled/binary content misread as text,
+        // such as a video file served with the wrong content-type) — hard-slice
+        // it so no chunk is ever unbounded, regardless of input structure. An
+        // unbounded chunk here is what fed a multi-MB row into rag_chunks and
+        // blew the Postgres statement timeout on insert.
+        if (s.length > CHUNK_MAX) {
+          for (let i = 0; i < s.length; i += CHUNK_MAX) {
+            const piece = s.slice(i, i + CHUNK_MAX).trim();
+            if (piece) chunks.push(piece);
+          }
+        } else {
+          sBuf += s;
+        }
       }
       if (sBuf.trim()) chunks.push(sBuf.trim());
     } else if ((buf + "\n\n" + para).length > CHUNK_MAX) {
@@ -230,8 +243,12 @@ export async function ingest(body) {
   const { error: sErr } = await supabase.from("rag_sections").insert(sectionRows);
   if (sErr) return { status: 500, json: { error: `sections insert: ${sErr.message}` } };
 
-  for (let i = 0; i < chunkRows.length; i += 200) {
-    const { error: cErr } = await supabase.from("rag_chunks").insert(chunkRows.slice(i, i + 200));
+  // Each row computes a tsvector (GIN-indexed) on insert — 200 rows/statement was
+  // hitting Postgres's statement_timeout on documents with enough chunks. Smaller
+  // batches trade more round trips for each statement finishing well under the cap.
+  const CHUNK_INSERT_BATCH = 40;
+  for (let i = 0; i < chunkRows.length; i += CHUNK_INSERT_BATCH) {
+    const { error: cErr } = await supabase.from("rag_chunks").insert(chunkRows.slice(i, i + CHUNK_INSERT_BATCH));
     if (cErr) return { status: 500, json: { error: `chunks insert: ${cErr.message}` } };
   }
 

@@ -11,13 +11,13 @@
 //   • Captures completed downloads from academic sites (pending list / opt-in auto)
 
 // Dev vs prod: change to "http://localhost:5173" for local testing
-const FSCHOOLAI_ORIGIN = "https://fschoolai.com";
+const FSCHOOLAI_ORIGIN = "http://localhost:5174";
 const API_BASE         = FSCHOOLAI_ORIGIN;
 
 const FULL_SYNC_TTL_MS = 6 * 60 * 60 * 1000;    // re-sync a given LMS host at most every 6h
 
 const INLINE_B64_LIMIT = 3_000_000;             // base64 chars (~2.2MB binary) — under Vercel's cap
-const MAX_FILE_BYTES   = 50 * 1024 * 1024;      // absolute cap, matches the server
+const MAX_FILE_BYTES   = 25 * 1024 * 1024;      // absolute cap, matches the course-files bucket's 25MB limit
 const CAPTURED_MAX     = 800;                    // LRU size of the "already imported" URL set
 const QUEUE_MAX        = 40;                     // max queued imports at once
 
@@ -332,7 +332,7 @@ async function bytesFromResponse(res, allowedHost) {
   if (allowedHost && res.url && !isAllowedSyncFileUrl(res.url, allowedHost)) throw new Error("Refusing a cross-origin redirect target");
   const mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "application/octet-stream";
   const buffer = await res.arrayBuffer();
-  if (buffer.byteLength > MAX_FILE_BYTES) throw new Error("File too large (max 50 MB)");
+  if (buffer.byteLength > MAX_FILE_BYTES) throw new Error("File too large (max 25 MB)");
   if (buffer.byteLength === 0) throw new Error("Empty response");
   const b64 = bufferToBase64(buffer);
   if (mimeType.includes("text/html") || base64LooksLikeHtml(b64)) {
@@ -893,10 +893,15 @@ async function enumD2LSW(origin, xsrf) {
   const dget = async (p) => (await swGetJSON(origin + p, { "X-Csrf-Token": xsrf || "" })).data;
   let lpV = "1.30", leV = "1.50";
   try { const vers = await dget("/d2l/api/versions/"); const pick = (c) => (vers.find((v) => v.ProductCode === c) || {}).LatestVersion; lpV = pick("lp") || lpV; leV = pick("le") || leV; } catch { /* defaults */ }
+  // Full course objects (not just ids) — needed so course names/codes/grades can be
+  // synced alongside files, matching what the app already does for Canvas.
   const courses = []; let bm = "";
   for (let i = 0; i < 25; i++) {
     const ps = await dget(`/d2l/api/lp/${lpV}/enrollments/myenrollments/?orgUnitTypeId=3&isActive=true${bm ? `&bookmark=${encodeURIComponent(bm)}` : ""}`);
-    for (const it of (ps.Items || [])) { const o = it.OrgUnit || {}; if (o.Id) courses.push(String(o.Id)); }
+    for (const it of (ps.Items || [])) {
+      const o = it.OrgUnit || {};
+      if (o.Id) courses.push({ id: String(o.Id), name: o.Name || "", code: o.Code || "", currentScore: null, finalScore: null });
+    }
     if (ps.PagingInfo && ps.PagingInfo.HasMoreItems) bm = ps.PagingInfo.Bookmark; else break;
   }
   const files = [];
@@ -916,8 +921,10 @@ async function enumD2LSW(origin, xsrf) {
       if (abs.startsWith(origin + "/")) addUrl(abs, ou);   // same-origin course resource only
     }
   };
-  await Promise.all(courses.map(async (ou) => {
-    let toc; try { toc = await dget(`/d2l/api/le/${leV}/${ou}/content/toc`); } catch { return; }
+  let tocFailures = 0;
+  await Promise.all(courses.map(async (course) => {
+    const ou = course.id;
+    let toc; try { toc = await dget(`/d2l/api/le/${leV}/${ou}/content/toc`); } catch { tocFailures++; return; }
     // Walk the TOC. File topics → the direct download. Content/HTML topics (and any
     // topic whose Url isn't an external Link) → fetch the page the user would see
     // and extract embedded files — so a PDF linked inside an HTML content topic
@@ -947,8 +954,147 @@ async function enumD2LSW(origin, xsrf) {
         if (r.ok && (r.headers.get("content-type") || "").includes("text/html")) addFromHtml(await r.text(), ou);
       } catch { /* page blocked */ }
     });
+    // Assignment (Dropbox) + quiz instructions can embed course materials the same
+    // way a Canvas assignment description can — scan them too, mirroring
+    // enumCanvasSW's "Assignment descriptions" pass so D2L reaches the same coverage.
+    try {
+      for (const f of ((await dget(`/d2l/api/le/${leV}/${ou}/dropbox/folders/`)) || [])) {
+        const instr = f && f.CustomInstructions;
+        addFromHtml(instr && (instr.Html || instr.Text), ou);
+      }
+    } catch { /* dropbox tool off for this course */ }
+    try {
+      const qz = await dget(`/d2l/api/le/${leV}/${ou}/quizzes/`);
+      for (const q of ((qz && qz.Objects) || (Array.isArray(qz) ? qz : []))) {
+        const instr = q && q.Instructions;
+        addFromHtml(instr && (instr.Html || instr.Text), ou);
+      }
+    } catch { /* quizzes tool off for this course */ }
   }));
-  return { lms: "d2l", files, courses: courses.length };
+
+  // ── Assignments + grades (parity with Canvas's canvasSync.ts) ────────────
+  // Mirrors the D2L logic proven out in the old extension (extension/shared-sync.js),
+  // with one fix: per-item weight's denominator must EXCLUDE items the "best N of M"
+  // scheme dropped for this student (they show as 0/0 in myGradeValues), otherwise
+  // weight gets diluted across items that don't actually count toward the grade —
+  // e.g. "best 8 of 10 quizzes, 24% of grade, 3pts each" should give each counted
+  // quiz 24%×(3/24)=3%, not 24%×(3/30)=2.4% (using all 10 as the denominator).
+  const assignments = [];
+  await Promise.all(courses.map(async (course) => {
+    const ou = course.id;
+    const norm = (s) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const byTitle = new Map();
+    const titleId = (k) => {
+      let h = 0; for (let i = 0; i < k.length; i++) h = (Math.imul(h, 31) + k.charCodeAt(i)) | 0;
+      return "d2l_" + ou + "_" + (h >>> 0).toString(36) + "_" + k.slice(0, 32);
+    };
+    const upsertAssign = (title, patch) => {
+      const k = norm(title);
+      if (!k) return;
+      const cur = byTitle.get(k) || {
+        courseId: ou, id: titleId(k), title,
+        dueAt: null, pointsPossible: null, score: null,
+        weight: null, weightAchieved: null, submittedAt: null, missing: false,
+      };
+      byTitle.set(k, Object.assign(cur, patch));
+    };
+
+    try {
+      for (const f of ((await dget(`/d2l/api/le/${leV}/${ou}/dropbox/folders/`)) || []))
+        upsertAssign(f.Name || "Assignment", { dueAt: f.DueDate || null });
+    } catch { /* dropbox tool off for this course */ }
+
+    try {
+      const qz = await dget(`/d2l/api/le/${leV}/${ou}/quizzes/`);
+      for (const q of ((qz && qz.Objects) || (Array.isArray(qz) ? qz : [])))
+        upsertAssign(q.Name || "Quiz", { dueAt: q.DueDate || null });
+    } catch { /* quizzes tool off for this course */ }
+
+    let catList = [];
+    try { catList = (await dget(`/d2l/api/le/${leV}/${ou}/grades/categories/`)) || []; } catch { /* categories tool off */ }
+
+    let items = [];
+    try { items = (await dget(`/d2l/api/le/${leV}/${ou}/grades/values/myGradeValues/`)) || []; } catch { /* grades tool off */ }
+    const valById = {};
+    for (const it of items) valById[String(it.GradeObjectIdentifier)] = it;
+
+    // Per-category weight info — totalMax sums only children that actually count
+    // for THIS student (a real PointsDenominator in their own grade value), so a
+    // dropped item's max points don't dilute the others' weight.
+    const childIds = new Set();
+    const childWeight = {};
+    for (const cat of catList) {
+      const kids = cat.Grades || [];
+      const counted = kids.filter((g) => { const v = valById[String(g.Id)]; return v && v.PointsDenominator; });
+      const totalMax = counted.reduce((s, g) => s + (g.MaxPoints || 0), 0);
+      for (const g of kids) {
+        childIds.add(String(g.Id));
+        childWeight[String(g.Id)] = { catWeight: cat.Weight, totalMax, childMax: g.MaxPoints || 0 };
+      }
+    }
+
+    const r2 = (n) => (n == null ? null : Math.round(n * 100) / 100);
+    for (const it of items) {
+      if (it.GradeObjectTypeName === "Category") continue;
+      const id = String(it.GradeObjectIdentifier);
+      let weight = null, weightAch = null;
+      const ci = childWeight[id];
+      if (ci && ci.totalMax > 0) {
+        weight = ci.catWeight * (ci.childMax / ci.totalMax);
+        weightAch = it.PointsDenominator ? weight * (it.PointsNumerator / it.PointsDenominator) : null;
+      } else if (it.WeightedDenominator != null) {
+        weight = it.WeightedDenominator; weightAch = it.WeightedNumerator;
+      }
+      upsertAssign(it.GradeObjectName, {
+        score:          it.PointsNumerator != null && it.PointsNumerator > 0 ? it.PointsNumerator : null,
+        pointsPossible: it.PointsDenominator ?? null,
+        weight:         r2(weight),
+        weightAchieved: r2(weightAch),
+      });
+    }
+
+    // Overall course grade: categories → average only their graded children
+    // (ungraded/dropped = 0/0, excluded, not treated as a real zero), scaled by
+    // category weight; standalone items → their own weighted contribution.
+    let num = 0, den = 0;
+    for (const cat of catList) {
+      const w = cat.Weight;
+      if (w == null) continue;
+      let cn = 0, cd = 0;
+      for (const g of (cat.Grades || [])) {
+        const v = valById[String(g.Id)];
+        if (v && v.PointsNumerator > 0 && v.PointsDenominator) { cn += v.PointsNumerator; cd += v.PointsDenominator; }
+      }
+      if (cd > 0) { num += w * (cn / cd); den += w; }
+    }
+    for (const it of items) {
+      const id = String(it.GradeObjectIdentifier);
+      if (childIds.has(id) || it.GradeObjectTypeName === "Category") continue;
+      if (!(it.PointsNumerator > 0)) continue;
+      if (it.WeightedNumerator != null && it.WeightedDenominator != null) { num += it.WeightedNumerator; den += it.WeightedDenominator; }
+    }
+    if (den > 0) course.currentScore = Math.round((num / den) * 1000) / 10;
+
+    try {
+      const gv = await dget(`/d2l/api/le/${leV}/${ou}/grades/final/values/myGradeValue/`);
+      if (gv && gv.PointsNumerator != null && gv.PointsDenominator) course.finalScore = Math.round((gv.PointsNumerator / gv.PointsDenominator) * 1000) / 10;
+    } catch { /* final grade not released */ }
+
+    assignments.push(...byTitle.values());
+  }));
+
+  // Unlike Canvas's fixed "v1" API, D2L's LP/LE versions are auto-discovered per
+  // tenant (line ~895) and can be wrong. If every course's content/toc call failed,
+  // the sync would otherwise silently report "0 files, done" with no clue why —
+  // surface it as a real, diagnosable error instead (matches the Moodle no-sesskey
+  // error shape below).
+  if (courses.length > 0 && tocFailures === courses.length) {
+    return {
+      lms: "d2l", error: true, files: [],
+      detail: `content/toc failed for all ${courses.length} course(s) — LE API version ${leV} may not match this tenant, or the session/XSRF token is stale`,
+    };
+  }
+  return { lms: "d2l", files, courses, assignments };
 }
 
 async function enumMoodleSW(origin, sesskey) {
@@ -1166,6 +1312,19 @@ async function runFullSync(tabId, host, { force = false } = {}) {
     if (res && res.error) { syncErrorAt.set(host, Date.now()); return { ok: false, reason: "enum-error", lms: ctx.lms, detail: res.detail }; }
     if (!res || !res.lms) return { ok: false, reason: "no-lms" };
     syncErrorAt.delete(host);
+
+    // Course/assignment/grade sync (currently D2L only — see enumD2LSW). Runs BEFORE
+    // files so the courses table already has a row by the time file ingest tries to
+    // link a course_id (same lookup api/lms-ingest.ts already does for Canvas).
+    if (Array.isArray(res.courses) && res.courses.length) {
+      try {
+        await fetch(`${API_BASE}/api/lms-ingest?action=courses`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ userId: auth.userId, courses: res.courses, assignments: res.assignments ?? [] }),
+        });
+      } catch (e) { console.warn("[FschoolAI] course/assignment sync failed:", e.message); }
+    }
 
     const files = Array.isArray(res.files) ? res.files : [];
     let imported = 0, skipped = 0, failed = 0, blocked = 0, lastError = null, firstFailUrl = null;

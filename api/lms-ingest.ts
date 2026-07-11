@@ -37,7 +37,7 @@ import { ingest, embedBatch } from "./rag.js";
 export const config = { maxDuration: 300 };
 
 const DEFAULT_BUCKET   = "course-files";
-const MAX_FILE_BYTES   = 50 * 1024 * 1024;  // absolute cap
+const MAX_FILE_BYTES   = 25 * 1024 * 1024;  // absolute cap, matches the course-files bucket's 25MB limit
 const INLINE_B64_LIMIT = 3_500_000;          // base64 chars ≈ 2.6MB binary; Vercel body cap is ~4.5MB
 const OCR_MAX_BYTES    = 10 * 1024 * 1024;  // Claude document-block practical cap (base64 inflation)
 const EMBED_MAX_LOOPS  = 12;                 // 12 × 64 chunks ≈ multi-hundred-page doc; rest → backfill
@@ -140,6 +140,69 @@ function sanitize(raw: string): string {
   return raw.replace(/ /g, "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
 }
 
+// ── Courses + assignments (currently D2L only — see chrome-extension's enumD2LSW) ──
+// Mirrors src/api/canvasSync.ts's upsert shape/keys exactly so both LMSs land in the
+// same courses/assignments tables the rest of the app already reads from. Runs BEFORE
+// file ingest (caller's responsibility) so ingestLmsFile's course_id lookup — which
+// already matches on canvas_course_id — finds a row instead of ingesting unlinked.
+export async function ingestLmsCourses({ userId, courses, assignments = [] }: {
+  userId: string;
+  courses: { id: string; name?: string; code?: string; currentScore?: number | null; finalScore?: number | null }[];
+  assignments?: { courseId: string; id: string; title?: string; dueAt?: string | null; pointsPossible?: number | null;
+    score?: number | null; weight?: number | null; weightAchieved?: number | null; submittedAt?: string | null; missing?: boolean }[];
+}): Promise<{ status: number; json: any }> {
+  if (!userId || !Array.isArray(courses) || !courses.length)
+    return { status: 400, json: { error: "Required: userId, courses[]" } };
+
+  const supabase = sb();
+  const now = new Date().toISOString();
+
+  const courseRows = courses.filter((c) => c?.id).map((c) => ({
+    user_id:          userId,
+    canvas_course_id: String(c.id),
+    name:             c.name || c.code || String(c.id),
+    course_code:      c.code || null,
+    current_score:    c.currentScore ?? null,
+    final_score:      c.finalScore ?? null,
+    source:           "extension",
+    updated_at:       now,
+  }));
+  const { data: upserted, error: courseErr } = await supabase
+    .from("courses")
+    .upsert(courseRows, { onConflict: "user_id,canvas_course_id" })
+    .select("id, canvas_course_id");
+  if (courseErr) return { status: 500, json: { error: `courses upsert: ${courseErr.message}` } };
+
+  const idByCourse: Record<string, string> = {};
+  (upserted || []).forEach((c: any) => { idByCourse[String(c.canvas_course_id)] = c.id; });
+
+  if (assignments.length) {
+    const assignRows = assignments.filter((a) => a?.id && a?.courseId).map((a) => ({
+      user_id:              userId,
+      course_id:            idByCourse[String(a.courseId)] ?? null,
+      canvas_assignment_id: String(a.id),
+      title:                a.title || "Assignment",
+      due_at:               a.dueAt || null,
+      points_possible:      a.pointsPossible ?? null,
+      score:                a.score ?? null,
+      weight:               a.weight ?? null,
+      weight_achieved:      a.weightAchieved ?? null,
+      submitted_at:         a.submittedAt || null,
+      missing:              Boolean(a.missing),
+      source:               "extension",
+      updated_at:           now,
+    }));
+    if (assignRows.length) {
+      const { error: assignErr } = await supabase
+        .from("assignments")
+        .upsert(assignRows, { onConflict: "user_id,canvas_assignment_id" });
+      if (assignErr) return { status: 500, json: { error: `assignments upsert: ${assignErr.message}` } };
+    }
+  }
+
+  return { status: 200, json: { ok: true, courses: courseRows.length, assignments: assignments.length } };
+}
+
 // ── Core (exported — server-side callers import this directly, no HTTP hop) ──
 export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = null }: {
   userId: string; courseId?: string | null;
@@ -203,7 +266,7 @@ export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = n
   if (file.bytes) {
     buf = Buffer.isBuffer(file.bytes) ? file.bytes : Buffer.from(String(file.bytes), "base64");
     if (!buf.length) return { status: 400, json: { error: "Empty file" } };
-    if (buf.length > MAX_FILE_BYTES) return { status: 413, json: { error: "File too large (max 50 MB)" } };
+    if (buf.length > MAX_FILE_BYTES) return { status: 413, json: { error: "File too large (max 25 MB)" } };
     if (!storagePath) {
       storagePath = `${userId}/lms/${Date.now()}-${djb2(canonical)}-${safeName(file.name)}`;
       const { error: upErr } = await supabase.storage.from(bucket)
@@ -332,6 +395,18 @@ export default async function handler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // ── courses: course/assignment/grade sync (D2L today — see enumD2LSW) ────
+  if (req.query?.action === "courses") {
+    try {
+      const { userId, courses, assignments } = req.body ?? {};
+      const result = await ingestLmsCourses({ userId, courses, assignments });
+      return res.status(result.status).json(result.json);
+    } catch (e: any) {
+      console.error("[lms-ingest] courses action error:", e.message);
+      return res.status(500).json({ error: e.message ?? "courses ingest failed" });
+    }
+  }
 
   // ── sign: signed upload URL for files too big for an inline JSON body ────
   if (req.query?.action === "sign") {
