@@ -166,14 +166,18 @@ export default async function handler(req: any, res: any) {
   const results = { proposed: 0, skipped: 0, escalated: 0, errors: 0, reEngaged: 0, persons: [] as any[] };
 
   try {
-    const contexts = await brainGet("context_window?select=*,persons(id,name,fschool_user_id)&order=stress_level.desc");
+    const contexts = await brainGet("context_window?select=*,persons(id,name,source_id,metadata)&order=stress_level.desc");
     console.log(`[brain-intervention] ${contexts.length} context windows loaded`);
 
     for (const ctx of contexts) {
       const person = ctx.persons;
       if (!person) { results.skipped++; continue; }
 
-      const userId = person.fschool_user_id;
+      // brain-person-link stores the FschoolAI user id in persons.source_id (and mirrors
+      // it in metadata.fschoolai_user_id). It never wrote a `fschool_user_id` column, so
+      // the old read here was always null → every candidate was skipped_no_user and no
+      // intervention ever fired. Read the field the linker actually sets.
+      const userId = person.source_id ?? person.metadata?.fschoolai_user_id ?? null;
 
       // Effectiveness feedback (§3.5.4): read this student's tuned stress threshold (default 7).
       let tuning: Tuning = { stressThreshold: 7, channelPref: null, labelCount: 0 };

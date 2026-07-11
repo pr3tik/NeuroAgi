@@ -44,7 +44,7 @@ async function loadBI() {
 const ctxFor = (over: any = {}) => ({
   id: "cw1", stress_level: 8, momentum_state: "steady",
   expires_at: new Date(Date.now() + 3600_000).toISOString(), knowledge_gaps: [],
-  persons: { id: "p1", name: "Sam", fschool_user_id: "u1" }, ...over,
+  persons: { id: "p1", name: "Sam", source_id: "u1" }, ...over,
 });
 const auth = () => ({ headers: { authorization: "Bearer test-secret" } });
 const proposed = (calls: any[]) => calls.some(c => c.table === "proactive_signals" && c.op === "insert");
@@ -61,7 +61,7 @@ describe("brain-intervention handler", () => {
   });
 
   it("does NOT propose when the person has no linked FschoolAI user", async () => {
-    stubFetch({ context: [ctxFor({ persons: { id: "p1", name: "Sam", fschool_user_id: null } })] });
+    stubFetch({ context: [ctxFor({ persons: { id: "p1", name: "Sam", source_id: null } })] });
     const { handler, calls } = await loadBI();
     const res = makeRes();
     await handler(auth(), res);

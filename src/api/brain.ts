@@ -35,7 +35,7 @@ export const brainSupabase = (BRAIN_URL && BRAIN_ANON)
  * @returns {object|null} brain context window or null if not available
  *
  * Fields returned (when brain is active):
- *   stress_level          — 0.0–1.0 (0 = calm, 1 = high stress)
+ *   stress_level          — 0–10 (0 = calm, 10 = high stress; intervention fires at >=7)
  *   momentum_state        — 'building' | 'strong' | 'declining' | 'unknown'
  *   most_urgent_deadline  — { name, hours_remaining, course, assignment_id }
  *   pending_intervention  — string message the brain wants to deliver
@@ -91,9 +91,10 @@ export function formatBrainContextForPrompt(brainContext, studentName = 'the stu
 
   // Stress and momentum
   if (brainContext.stress_level !== undefined && brainContext.stress_level !== null) {
-    const stressLabel = brainContext.stress_level > 0.7 ? 'HIGH'
-      : brainContext.stress_level > 0.4 ? 'MODERATE' : 'LOW';
-    lines.push(`Stress level: ${stressLabel} (${Math.round(brainContext.stress_level * 100)}%)`);
+    // stress_level is 0–10 (set by the brain schedulers; read by brain-intervention at >=7).
+    const stressLabel = brainContext.stress_level > 7 ? 'HIGH'
+      : brainContext.stress_level > 4 ? 'MODERATE' : 'LOW';
+    lines.push(`Stress level: ${stressLabel} (${Math.round(brainContext.stress_level * 10)}%)`);
   }
   if (brainContext.momentum_state && brainContext.momentum_state !== 'unknown') {
     lines.push(`Momentum: ${brainContext.momentum_state}`);
@@ -169,7 +170,7 @@ export function getBrainSuggestedCapability(brainContext, message) {
   // High stress + deadline pressure + avoidance → focus mode
   // Even if the message is about a specific subject
   if (
-    brainContext.stress_level > 0.7 &&
+    brainContext.stress_level > 7 &&
     brainContext.most_urgent_deadline?.hours_remaining < 24 &&
     brainContext.confirmed_hypotheses?.some(h =>
       h.toLowerCase().includes('avoid') || h.toLowerCase().includes('procrastinat')

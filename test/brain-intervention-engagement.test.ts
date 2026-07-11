@@ -55,7 +55,7 @@ async function loadBI() {
 const ctxFor = (over: any = {}) => ({
   id: "cw1", stress_level: 8, momentum_state: "steady",
   expires_at: new Date(Date.now() + 3600_000).toISOString(), knowledge_gaps: [],
-  persons: { id: "p1", name: "Sam", fschool_user_id: "u1" }, ...over,
+  persons: { id: "p1", name: "Sam", source_id: "u1" }, ...over,
 });
 const auth = () => ({ headers: { authorization: "Bearer test-secret" } });
 const proposedWith = (calls: any[], dedupKey: string) =>
