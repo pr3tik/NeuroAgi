@@ -610,7 +610,7 @@
         if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
         mimeType = fileRes.headers.get("content-type")?.split(";")[0]?.trim() ?? "application/octet-stream";
         const buffer = await fileRes.arrayBuffer();
-        if (buffer.byteLength > 25 * 1024 * 1024) throw new Error("File too large (max 25 MB)");
+        if (buffer.byteLength > 100 * 1024 * 1024) throw new Error("File too large (max 100 MB)");
 
         // Validate we got an actual PDF and not an HTML redirect/login page.
         if (mimeType === "application/pdf" || href.match(/\.pdf/i)) {

@@ -168,7 +168,7 @@ function KnowledgeGraph({ courses, assignments }) {
 
 // ── Class Notes Tab ───────────────────────────────────────────────────────────
 function ClassNotesTab() {
-  const { courses, assignments } = useApp();
+  const { courses, assignments, files } = useApp();
   const [expanded,      setExpanded]      = useState(null);
   const [courseFiles,   setCourseFiles]   = useState(() => { try { return JSON.parse(localStorage.getItem("toolkit_notes") || "{}"); } catch { return {}; } });
   const [rubrics,       setRubrics]       = useState(() => { try { return JSON.parse(localStorage.getItem("toolkit_rubrics") || "{}"); } catch { return {}; } });
@@ -269,7 +269,12 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
       <input ref={fileInputRef} type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" style={{ display: "none" }} onChange={handleFileChange} />
       {courses.map((course) => {
         const cid   = String(course.id);
-        const files = courseFiles[cid] || [];
+        const manualFiles = courseFiles[cid] || [];
+        // Files the extension/Canvas sync already pulled in for this course — joined
+        // on dbId (the courses table's real UUID), NOT course.id (the native LMS id
+        // assignments use), matching how Files.tsx groups synced files by course.
+        const syncedFiles = (files || []).filter((f: any) => course.dbId && f.courseDbId === course.dbId);
+        const totalFileCount = manualFiles.length + syncedFiles.length;
         const color = COLOR_PALETTE[courses.indexOf(course) % COLOR_PALETTE.length];
         const open  = expanded === cid;
         const rubric = rubrics[cid];
@@ -287,7 +292,7 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
                   <span style={{ fontSize: "10px", color, fontWeight: "600", letterSpacing: "0.5px" }}>{course.courseCode ?? course.name}</span>
-                  <span style={{ fontSize: "10px", color: "var(--text-dim)" }}>{files.length} file{files.length !== 1 ? "s" : ""}</span>
+                  <span style={{ fontSize: "10px", color: "var(--text-dim)" }}>{totalFileCount} file{totalFileCount !== 1 ? "s" : ""}</span>
                   {dates.length > 0 && <span style={{ fontSize: "10px", color: "rgba(255,200,100,0.6)" }}>{dates.length} date{dates.length !== 1 ? "s" : ""}</span>}
                 </div>
                 <p style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</p>
@@ -306,13 +311,27 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
             {open && (
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", padding: "14px 18px 18px" }}>
 
-                {/* Files */}
+                {/* Synced files (Canvas / extension — read-only, managed by sync) */}
+                {syncedFiles.length > 0 && (
+                  <>
+                    <p style={{ fontSize: "10px", color: "var(--text-dim)", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "10px" }}>Synced from LMS</p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "16px" }}>
+                      {syncedFiles.map((f: any) => (
+                        <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(100,180,255,0.04)", borderRadius: "8px", padding: "10px 12px" }}>
+                          <p style={{ color: "var(--text-primary)", fontSize: "13px", fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{f.name}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Manually uploaded notes */}
                 <p style={{ fontSize: "10px", color: "var(--text-dim)", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "10px" }}>Notes & Files</p>
-                {files.length === 0 ? (
+                {manualFiles.length === 0 ? (
                   <p style={{ color: "var(--text-dim)", fontSize: "12px", marginBottom: "16px" }}>No notes uploaded yet — tap Upload to add PDF, doc, or slides</p>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "16px" }}>
-                    {files.map((f, i) => (
+                    {manualFiles.map((f, i) => (
                       <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.03)", borderRadius: "8px", padding: "10px 12px" }}>
                         <div style={{ minWidth: 0 }}>
                           <p style={{ color: "var(--text-primary)", fontSize: "13px", fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</p>

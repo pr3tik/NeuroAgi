@@ -17,7 +17,7 @@ const API_BASE         = FSCHOOLAI_ORIGIN;
 const FULL_SYNC_TTL_MS = 6 * 60 * 60 * 1000;    // re-sync a given LMS host at most every 6h
 
 const INLINE_B64_LIMIT = 3_000_000;             // base64 chars (~2.2MB binary) — under Vercel's cap
-const MAX_FILE_BYTES   = 25 * 1024 * 1024;      // absolute cap, matches the course-files bucket's 25MB limit
+const MAX_FILE_BYTES   = 100 * 1024 * 1024;     // absolute cap, matches the course-files bucket's 100MB limit
 const CAPTURED_MAX     = 800;                    // LRU size of the "already imported" URL set
 const QUEUE_MAX        = 40;                     // max queued imports at once
 
@@ -332,7 +332,7 @@ async function bytesFromResponse(res, allowedHost) {
   if (allowedHost && res.url && !isAllowedSyncFileUrl(res.url, allowedHost)) throw new Error("Refusing a cross-origin redirect target");
   const mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "application/octet-stream";
   const buffer = await res.arrayBuffer();
-  if (buffer.byteLength > MAX_FILE_BYTES) throw new Error("File too large (max 25 MB)");
+  if (buffer.byteLength > MAX_FILE_BYTES) throw new Error("File too large (max 100 MB)");
   if (buffer.byteLength === 0) throw new Error("Empty response");
   const b64 = bufferToBase64(buffer);
   if (mimeType.includes("text/html") || base64LooksLikeHtml(b64)) {
@@ -921,10 +921,26 @@ async function enumD2LSW(origin, xsrf) {
       if (abs.startsWith(origin + "/")) addUrl(abs, ou);   // same-origin course resource only
     }
   };
+  // One pass per course: TOC + dropbox + quizzes + grades are all independent API
+  // calls, so they're fetched CONCURRENTLY (not one-after-another) and their results
+  // shared between file-discovery and assignment/grade extraction — the previous
+  // two-pass version fetched dropbox/quizzes twice per course and ran the second
+  // pass only after every course's first pass finished, which was needlessly slow.
   let tocFailures = 0;
+  const assignments = [];
   await Promise.all(courses.map(async (course) => {
     const ou = course.id;
-    let toc; try { toc = await dget(`/d2l/api/le/${leV}/${ou}/content/toc`); } catch { tocFailures++; return; }
+
+    const [toc, dropbox, quizzes, catList, items, finalGrade] = await Promise.all([
+      dget(`/d2l/api/le/${leV}/${ou}/content/toc`).catch(() => { tocFailures++; return null; }),
+      dget(`/d2l/api/le/${leV}/${ou}/dropbox/folders/`).catch(() => []),
+      dget(`/d2l/api/le/${leV}/${ou}/quizzes/`).catch(() => null),
+      dget(`/d2l/api/le/${leV}/${ou}/grades/categories/`).catch(() => []),
+      dget(`/d2l/api/le/${leV}/${ou}/grades/values/myGradeValues/`).catch(() => []),
+      dget(`/d2l/api/le/${leV}/${ou}/grades/final/values/myGradeValue/`).catch(() => null),
+    ]);
+    if (!toc) return;   // TOC failed — the tenant-version check below handles reporting this
+
     // Walk the TOC. File topics → the direct download. Content/HTML topics (and any
     // topic whose Url isn't an external Link) → fetch the page the user would see
     // and extract embedded files — so a PDF linked inside an HTML content topic
@@ -957,31 +973,22 @@ async function enumD2LSW(origin, xsrf) {
     // Assignment (Dropbox) + quiz instructions can embed course materials the same
     // way a Canvas assignment description can — scan them too, mirroring
     // enumCanvasSW's "Assignment descriptions" pass so D2L reaches the same coverage.
-    try {
-      for (const f of ((await dget(`/d2l/api/le/${leV}/${ou}/dropbox/folders/`)) || [])) {
-        const instr = f && f.CustomInstructions;
-        addFromHtml(instr && (instr.Html || instr.Text), ou);
-      }
-    } catch { /* dropbox tool off for this course */ }
-    try {
-      const qz = await dget(`/d2l/api/le/${leV}/${ou}/quizzes/`);
-      for (const q of ((qz && qz.Objects) || (Array.isArray(qz) ? qz : []))) {
-        const instr = q && q.Instructions;
-        addFromHtml(instr && (instr.Html || instr.Text), ou);
-      }
-    } catch { /* quizzes tool off for this course */ }
-  }));
+    for (const f of (dropbox || [])) {
+      const instr = f && f.CustomInstructions;
+      addFromHtml(instr && (instr.Html || instr.Text), ou);
+    }
+    for (const q of ((quizzes && quizzes.Objects) || (Array.isArray(quizzes) ? quizzes : []))) {
+      const instr = q && q.Instructions;
+      addFromHtml(instr && (instr.Html || instr.Text), ou);
+    }
 
-  // ── Assignments + grades (parity with Canvas's canvasSync.ts) ────────────
-  // Mirrors the D2L logic proven out in the old extension (extension/shared-sync.js),
-  // with one fix: per-item weight's denominator must EXCLUDE items the "best N of M"
-  // scheme dropped for this student (they show as 0/0 in myGradeValues), otherwise
-  // weight gets diluted across items that don't actually count toward the grade —
-  // e.g. "best 8 of 10 quizzes, 24% of grade, 3pts each" should give each counted
-  // quiz 24%×(3/24)=3%, not 24%×(3/30)=2.4% (using all 10 as the denominator).
-  const assignments = [];
-  await Promise.all(courses.map(async (course) => {
-    const ou = course.id;
+    // ── Assignments + grades (parity with Canvas's canvasSync.ts) ──────────
+    // Mirrors the D2L logic proven out in the old extension (extension/shared-sync.js),
+    // with one fix: per-item weight's denominator must EXCLUDE items the "best N of M"
+    // scheme dropped for this student (they show as 0/0 in myGradeValues), otherwise
+    // weight gets diluted across items that don't actually count toward the grade —
+    // e.g. "best 8 of 10 quizzes, 24% of grade, 3pts each" should give each counted
+    // quiz 24%×(3/24)=3%, not 24%×(3/30)=2.4% (using all 10 as the denominator).
     const norm = (s) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
     const byTitle = new Map();
     const titleId = (k) => {
@@ -999,22 +1006,10 @@ async function enumD2LSW(origin, xsrf) {
       byTitle.set(k, Object.assign(cur, patch));
     };
 
-    try {
-      for (const f of ((await dget(`/d2l/api/le/${leV}/${ou}/dropbox/folders/`)) || []))
-        upsertAssign(f.Name || "Assignment", { dueAt: f.DueDate || null });
-    } catch { /* dropbox tool off for this course */ }
+    for (const f of (dropbox || [])) upsertAssign(f.Name || "Assignment", { dueAt: f.DueDate || null });
+    for (const q of ((quizzes && quizzes.Objects) || (Array.isArray(quizzes) ? quizzes : [])))
+      upsertAssign(q.Name || "Quiz", { dueAt: q.DueDate || null });
 
-    try {
-      const qz = await dget(`/d2l/api/le/${leV}/${ou}/quizzes/`);
-      for (const q of ((qz && qz.Objects) || (Array.isArray(qz) ? qz : [])))
-        upsertAssign(q.Name || "Quiz", { dueAt: q.DueDate || null });
-    } catch { /* quizzes tool off for this course */ }
-
-    let catList = [];
-    try { catList = (await dget(`/d2l/api/le/${leV}/${ou}/grades/categories/`)) || []; } catch { /* categories tool off */ }
-
-    let items = [];
-    try { items = (await dget(`/d2l/api/le/${leV}/${ou}/grades/values/myGradeValues/`)) || []; } catch { /* grades tool off */ }
     const valById = {};
     for (const it of items) valById[String(it.GradeObjectIdentifier)] = it;
 
@@ -1075,10 +1070,8 @@ async function enumD2LSW(origin, xsrf) {
     }
     if (den > 0) course.currentScore = Math.round((num / den) * 1000) / 10;
 
-    try {
-      const gv = await dget(`/d2l/api/le/${leV}/${ou}/grades/final/values/myGradeValue/`);
-      if (gv && gv.PointsNumerator != null && gv.PointsDenominator) course.finalScore = Math.round((gv.PointsNumerator / gv.PointsDenominator) * 1000) / 10;
-    } catch { /* final grade not released */ }
+    if (finalGrade && finalGrade.PointsNumerator != null && finalGrade.PointsDenominator)
+      course.finalScore = Math.round((finalGrade.PointsNumerator / finalGrade.PointsDenominator) * 1000) / 10;
 
     assignments.push(...byTitle.values());
   }));
@@ -1328,7 +1321,10 @@ async function runFullSync(tabId, host, { force = false } = {}) {
 
     const files = Array.isArray(res.files) ? res.files : [];
     let imported = 0, skipped = 0, failed = 0, blocked = 0, lastError = null, firstFailUrl = null;
-    await runPool(files, 6, async (f) => {
+    // 12 concurrent downloads (was 6) — most files are either a near-instant size
+    // reject or a real extraction+embedding call, so doubling throughput here is
+    // the single biggest lever on total sync wall-clock time.
+    await runPool(files, 12, async (f) => {
       if (!f || !f.url) return;
       // isPrivateTarget blocks internal hosts; isAllowedSyncFileUrl blocks
       // third-party URLs (credentialed-fetch SSRF / RAG poison).

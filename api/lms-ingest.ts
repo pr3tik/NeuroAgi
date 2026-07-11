@@ -37,7 +37,7 @@ import { ingest, embedBatch } from "./rag.js";
 export const config = { maxDuration: 300 };
 
 const DEFAULT_BUCKET   = "course-files";
-const MAX_FILE_BYTES   = 25 * 1024 * 1024;  // absolute cap, matches the course-files bucket's 25MB limit
+const MAX_FILE_BYTES   = 100 * 1024 * 1024;  // absolute cap, matches the course-files bucket's 100MB limit
 const INLINE_B64_LIMIT = 3_500_000;          // base64 chars ≈ 2.6MB binary; Vercel body cap is ~4.5MB
 const OCR_MAX_BYTES    = 10 * 1024 * 1024;  // Claude document-block practical cap (base64 inflation)
 const EMBED_MAX_LOOPS  = 12;                 // 12 × 64 chunks ≈ multi-hundred-page doc; rest → backfill
@@ -266,7 +266,7 @@ export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = n
   if (file.bytes) {
     buf = Buffer.isBuffer(file.bytes) ? file.bytes : Buffer.from(String(file.bytes), "base64");
     if (!buf.length) return { status: 400, json: { error: "Empty file" } };
-    if (buf.length > MAX_FILE_BYTES) return { status: 413, json: { error: "File too large (max 25 MB)" } };
+    if (buf.length > MAX_FILE_BYTES) return { status: 413, json: { error: "File too large (max 100 MB)" } };
     if (!storagePath) {
       storagePath = `${userId}/lms/${Date.now()}-${djb2(canonical)}-${safeName(file.name)}`;
       const { error: upErr } = await supabase.storage.from(bucket)
