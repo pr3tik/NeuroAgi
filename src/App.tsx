@@ -15,7 +15,7 @@ import UniBrainTester       from "./components/UniBrainTester";
 import SiteGuide            from "./components/SiteGuide";
 import BottomNav            from "./components/BottomNav";
 import Landing              from "./pages/Landing"; // eager — logged-out entry, shown on first paint
-import PreSignupDemo, { hasSeenPreSignupDemo } from "./pages/PreSignupDemo"; // S0-S2: shown once, before Landing, for brand-new visitors only
+import PreSignupDemo from "./pages/PreSignupDemo"; // S0-S2 pre-signup demo — now OPT-IN via a Landing CTA, never a forced interstitial
 import { useApp }           from "./context/AppContext";
 import { supabase }         from "./api/supabase";
 import { signIn, signUp, adoptIdentity, completeOAuthLogin } from "./api/auth";
@@ -146,11 +146,12 @@ export default function App() {
     if ((import.meta as any)?.env?.DEV) return true;
     try { return localStorage.getItem("fschool_devtools") === "1"; } catch { return false; }
   };
-  // Shown at most once per browser, and only if not already logged in — a
-  // returning visitor (or one who already saw/skipped it) goes straight to Landing.
-  const [showPreSignupDemo, setShowPreSignupDemo] = useState(
-    () => !isLoggedIn && !hasSeenPreSignupDemo()
-  );
+  // The pre-signup demo is OPT-IN: fschoolai.com always shows Landing first for a
+  // logged-out visitor, and the demo opens only when they click its CTA on Landing.
+  // (It used to auto-gate Landing whenever `fschool_demo_seen` was unset, so anyone who
+  // left mid-demo — or arrived in a fresh/incognito browser — got the demo "instead of
+  // the landing page" on the next visit. That forced interstitial is removed.)
+  const [showPreSignupDemo, setShowPreSignupDemo] = useState(false);
   const [showOnboarding,      setShowOnboarding]     = useState(false);
   const [onboardingEmail,     setOnboardingEmail]    = useState("");
   const [onboardingInitName,  setOnboardingInitName] = useState("");
@@ -787,7 +788,7 @@ export default function App() {
   }
 
   if (!isLoggedIn) {
-    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} /><SiteGuide /></>);
+    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} onTryDemo={() => setShowPreSignupDemo(true)} /><SiteGuide /></>);
   }
 
   // ── Email verification gate ───────────────────────────────────────────────
