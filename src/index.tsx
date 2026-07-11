@@ -11,10 +11,8 @@ import ReactDOM    from "react-dom/client";
 import "./index.css";
 
 if (window.location.pathname === "/card") {
-  // Lazy import so Supabase/AppContext never initializes for the card page
-  import("./pages/Card").then(({ default: Card }) => {
-    ReactDOM.createRoot(document.getElementById("root")).render(<Card />);
-  });
+  // /card is retired — no public access. Bounce to the landing page.
+  window.location.replace("/");
 } else {
   Promise.all([
     import("./App"),
