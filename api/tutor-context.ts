@@ -286,7 +286,7 @@ Examples:
   const brainWindow = brainRows?.[0] ?? null;
   if (brainWindow) {
     const parts = [];
-    if (brainWindow.stress_level != null)  parts.push(`stress level: ${(brainWindow.stress_level * 10).toFixed(0)}/10`);
+    if (brainWindow.stress_level != null)  parts.push(`stress level: ${Math.round(brainWindow.stress_level)}/10`);
     if (brainWindow.momentum_state)        parts.push(`momentum: ${brainWindow.momentum_state}`);
     if (brainWindow.active_deadline)       parts.push(`active deadline: ${brainWindow.active_deadline}`);
     if (brainWindow.recent_summary)        parts.push(`\nRecent student context: ${brainWindow.recent_summary}`);

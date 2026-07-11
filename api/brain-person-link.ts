@@ -92,16 +92,21 @@ export default async function handler(req, res) {
       const createRes = await fetch(`${brainUrl}/rest/v1/persons`, {
         method:  "POST",
         headers: { ...brainHeaders, "Prefer": "return=representation" },
+        // neuro.persons is the domain-AGNOSTIC brain identity table (PRD §19.9: the brain
+        // holds no education semantics). Education-specific fields (school, gpa) are NOT
+        // top-level person columns there — sending them 400'd the insert ("brain person
+        // create failed" in prod), so they live in metadata instead. Keep only the generic
+        // person columns at top level.
         body: JSON.stringify({
           name:         user.name ?? "Unknown",
           email:        user.email ?? null,
           source:       "fschoolai",
           source_id:    userId,
-          school:       user.school ?? null,
-          gpa:          user.gpa ?? null,
           created_at:   new Date().toISOString(),
           metadata: {
             fschoolai_user_id: userId,
+            school:            user.school ?? null,
+            gpa:               user.gpa ?? null,
             signup_date:       null,   // users table has no created_at to source this from
             linked_at:         new Date().toISOString(),
           },
