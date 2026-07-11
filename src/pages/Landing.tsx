@@ -2441,6 +2441,14 @@ function NeuralCoreSection({ t }: { t: typeof DARK }) {
 function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () => void }) {
   const [ref, inView] = useInView(0.12);
   const [btnHover, setBtnHover] = useState(false);
+  // Real waitlist size — only surfaced once it clears 1,000 (no fixed/vanity number).
+  const [wlTotal, setWlTotal] = useState<number | null>(null);
+  useEffect(() => {
+    fetch("/api/waitlist?action=stats")
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d && typeof d.total === "number") setWlTotal(d.total); })
+      .catch(() => {});
+  }, []);
 
   return (
     <section style={{
@@ -2552,15 +2560,17 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
           >Already on the list?</button>
         </div>
 
-        {/* Social proof */}
-        <p style={{
-          fontSize: 13, color: "rgba(0,40,80,0.45)", marginTop: 30,
-          fontFamily: FONT, letterSpacing: "0.01em",
-          opacity: inView ? 1 : 0,
-          transition: "opacity 0.72s ease 0.30s",
-        }}>
-          Joining 847 founding students, free for your first month
-        </p>
+        {/* Social proof — real waitlist count, shown only once it's at least 1,000 */}
+        {wlTotal != null && wlTotal >= 1000 && (
+          <p style={{
+            fontSize: 13, color: "rgba(0,40,80,0.45)", marginTop: 30,
+            fontFamily: FONT, letterSpacing: "0.01em",
+            opacity: inView ? 1 : 0,
+            transition: "opacity 0.72s ease 0.30s",
+          }}>
+            {wlTotal.toLocaleString()} students on the waitlist · free for your first month
+          </p>
+        )}
       </div>
 
       <style>{`
@@ -2911,14 +2921,6 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
                 ) : "Notify me when we launch"}
               </button>
 
-              {/* Login escape hatch for team */}
-              <p style={{ fontSize: 13, color: "rgba(0,0,0,0.36)", textAlign: "center", lineHeight: 1.6 }}>
-                Already have access?{" "}
-                <button onClick={onLogin} style={{
-                  background: "none", border: "none", color: "#0066cc", fontSize: 13,
-                  cursor: "pointer", fontFamily: FONT, padding: 0, textDecoration: "underline",
-                }}>Log in here</button>
-              </p>
             </>
           )}
         </div>
@@ -3190,16 +3192,16 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
             onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = "0.84"; }}
             onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = "1"; }}
           >Learn more</a>
-          <a href="/card#order" style={{
+          <button onClick={() => setWaitlistOpen(true)} style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
             padding: "7px 17px", fontSize: 13, fontWeight: 400,
-            color: "#0066cc", textDecoration: "none", background: "transparent",
+            color: "#0066cc", background: "transparent", cursor: "pointer", fontFamily: FONT,
             display: "inline-flex", alignItems: "center",
             transition: "background 0.15s, border-color 0.15s",
           }}
-            onMouseEnter={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
-            onMouseLeave={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
-          >Apply</a>
+            onMouseEnter={e => { const a = e.currentTarget; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
+            onMouseLeave={e => { const a = e.currentTarget; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
+          >Join the waitlist</button>
         </div>
       </div>
 
@@ -3225,13 +3227,14 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
             Lifetime Pro&nbsp;· guaranteed founding number&nbsp;· express delivery
           </span>
           {" · "}
-          <a href="/card#order" style={{
-            color: "#0066cc", textDecoration: "none",
+          <button onClick={() => setWaitlistOpen(true)} style={{
+            color: "#0066cc", background: "none", border: "none", cursor: "pointer",
+            fontFamily: FONT, fontSize: "inherit", padding: 0,
             transition: "color 0.12s",
           }}
-            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = "#004499"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = "#0066cc"; }}
-          >Apply now →</a>
+            onMouseEnter={e => { e.currentTarget.style.color = "#004499"; }}
+            onMouseLeave={e => { e.currentTarget.style.color = "#0066cc"; }}
+          >Join the waitlist →</button>
         </p>
       </div>
 
@@ -3277,12 +3280,14 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
           {/* Compact nav countdown — hidden on tiny screens */}
           <div className="nav-countdown"><NavCountdown /></div>
+          {/* Invisible login — text is transparent so only people who know it's here
+              click it. Still fully clickable; never reveals on hover. This is the ONLY
+              path to the login screen (aside from an injected ?/link). */}
           <button onClick={() => setAuthMode("login")}
+            aria-label="Log in"
             style={{ background: "none", border: "none", padding: "5px 10px", fontSize: 13,
-              fontWeight: 400, color: "#737373", cursor: "pointer", fontFamily: FONT,
-              transition: "color 0.15s", whiteSpace: "nowrap" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "#000")}
-            onMouseLeave={e => (e.currentTarget.style.color = "#737373")}
+              fontWeight: 400, color: "transparent", cursor: "pointer", fontFamily: FONT,
+              whiteSpace: "nowrap" }}
           >Log in</button>
         </div>
       </nav>
@@ -3329,19 +3334,6 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
                 <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Join the waitlist</span>
                 <HeroBtnCountdown />
               </button>
-              {onTryDemo && (
-                <button
-                  onClick={onTryDemo}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer", padding: 0,
-                    color: "#0066cc", fontSize: 17, fontWeight: 400,
-                    display: "inline-flex", alignItems: "center", gap: 3,
-                    fontFamily: FONT, transition: "color 0.15s",
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.color = "#004499")}
-                  onMouseLeave={e => (e.currentTarget.style.color = "#0066cc")}
-                >Try it, no signup <span style={{ fontSize: 15 }}>›</span></button>
-              )}
               <a href="/card" style={{
                 color: "#0066cc", fontSize: 17, fontWeight: 400,
                 textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,

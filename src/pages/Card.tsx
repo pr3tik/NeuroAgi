@@ -109,9 +109,6 @@ export default function Card() {
   const [engravingChoice, setEngravingChoice] = useState(null);
   const [isFounder, setFounder]               = useState(false);
   const [scrolled, setScrolled]               = useState(false);
-  const [formData, setFormData]               = useState({ name: "", university: "", email: "" });
-  const [submitted, setSubmitted]             = useState(false);
-  const [submitting, setSub]                  = useState(false);
   const countdown = useCountdown("2026-06-30T23:59:59");
   const applyRef = useRef(null);
 
@@ -121,13 +118,12 @@ export default function Card() {
     return () => window.removeEventListener("scroll", fn);
   }, []);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!formData.name || !formData.email) return;
-    setSub(true);
-    await new Promise(r => setTimeout(r, 1400));
-    setSubmitted(true); setSub(false);
-  }
+  // The founding-card ORDER flow is not open. Any attempt to deep-link into it
+  // (/card#order or /card#apply) bounces to the waitlist — nobody lands on the order page.
+  useEffect(() => {
+    const h = (window.location.hash || "").toLowerCase();
+    if (h === "#order" || h === "#apply") window.location.replace("/?waitlist=1");
+  }, []);
 
   const cw = COLORWAYS[selected];
 
@@ -162,7 +158,7 @@ export default function Card() {
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 18, minWidth: 90, justifyContent: "flex-end" }}>
           <a href="#features" style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", textDecoration: "none" }}>Explore</a>
-          <a href="#apply" onClick={e => { e.preventDefault(); applyRef.current?.scrollIntoView({ behavior: "smooth" }); }} style={{ fontSize: 13, fontWeight: 600, color: "#000", background: "#f5f5f7", borderRadius: 980, padding: "6px 16px", textDecoration: "none" }}>Apply</a>
+          <a href="/?waitlist=1" style={{ fontSize: 13, fontWeight: 600, color: "#000", background: "#f5f5f7", borderRadius: 980, padding: "6px 16px", textDecoration: "none" }}>Join the waitlist</a>
         </div>
       </header>
 
@@ -174,8 +170,8 @@ export default function Card() {
           <p style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 14 }}>Founding Edition · Only 500</p>
           <h1 style={{ fontSize: "clamp(44px, 11vw, 88px)", fontWeight: 700, lineHeight: 1.02, letterSpacing: "-0.035em", margin: "0 0 16px", color: "#f5f5f7" }}>FschoolAI<br />Founding Card</h1>
           <p style={{ fontSize: 17, color: "rgba(255,255,255,0.55)", marginBottom: 36, fontWeight: 400, letterSpacing: "-0.01em" }}>Free for founding members. Ships Q4 2026.</p>
-          <button onClick={() => applyRef.current?.scrollIntoView({ behavior: "smooth" })} style={{ background: "#fff", color: "#1d1d1f", border: "none", borderRadius: 980, padding: "16px 36px", fontSize: 17, fontWeight: 600, cursor: "pointer", letterSpacing: "-0.01em" }}>
-            Apply for your card
+          <button onClick={() => { window.location.href = "/?waitlist=1"; }} style={{ background: "#fff", color: "#1d1d1f", border: "none", borderRadius: 980, padding: "16px 36px", fontSize: 17, fontWeight: 600, cursor: "pointer", letterSpacing: "-0.01em" }}>
+            Join the waitlist
           </button>
         </div>
         <div style={{ position: "absolute", bottom: 28, left: "50%", transform: "translateX(-50%)", animation: "bounce 2s ease-in-out infinite" }}>
@@ -323,8 +319,8 @@ export default function Card() {
               </li>
             ))}
           </ul>
-          <button onClick={() => { setFounder(true); applyRef.current?.scrollIntoView({ behavior: "smooth" }); }} style={{ background: "#fff", color: "#1d1d1f", border: "none", borderRadius: 980, padding: "14px 32px", fontSize: 15, fontWeight: 600, cursor: "pointer", letterSpacing: "-0.01em" }}>
-            Apply for Founder Delivery
+          <button onClick={() => { window.location.href = "/?waitlist=1"; }} style={{ background: "#fff", color: "#1d1d1f", border: "none", borderRadius: 980, padding: "14px 32px", fontSize: 15, fontWeight: 600, cursor: "pointer", letterSpacing: "-0.01em" }}>
+            Join the waitlist
           </button>
         </div>
       </section>
@@ -462,23 +458,11 @@ export default function Card() {
             <p style={{ fontSize: 13, color: "#6e6e73", marginBottom: 4 }}>FschoolAI Founding Card</p>
             <p style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-0.03em", color: "#1d1d1f", marginBottom: 4 }}>{isFounder ? "$3,000" : "Free"}</p>
             <p style={{ fontSize: 15, color: "#6e6e73", marginBottom: 28 }}>{isFounder ? "One-time · Founder Delivery · Titanium Black" : "No credit card required · Ships Q4 2026"}</p>
-            {!submitted ? (
-              <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <input type="text" placeholder="Full name" required value={formData.name} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} style={{ width: "100%", border: "1.5px solid #d2d2d7", borderRadius: 10, padding: "14px 16px", fontSize: 15, color: "#1d1d1f", background: "#fafafa", outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} onFocus={(e) => e.target.style.borderColor = "#0071e3"} onBlur={(e) => e.target.style.borderColor = "#d2d2d7"} />
-                <input type="text" placeholder="University or school" value={formData.university} onChange={(e) => setFormData(p => ({ ...p, university: e.target.value }))} style={{ width: "100%", border: "1.5px solid #d2d2d7", borderRadius: 10, padding: "14px 16px", fontSize: 15, color: "#1d1d1f", background: "#fafafa", outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} onFocus={(e) => e.target.style.borderColor = "#0071e3"} onBlur={(e) => e.target.style.borderColor = "#d2d2d7"} />
-                <input type="email" placeholder="Email address" required value={formData.email} onChange={(e) => setFormData(p => ({ ...p, email: e.target.value }))} style={{ width: "100%", border: "1.5px solid #d2d2d7", borderRadius: 10, padding: "14px 16px", fontSize: 15, color: "#1d1d1f", background: "#fafafa", outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} onFocus={(e) => e.target.style.borderColor = "#0071e3"} onBlur={(e) => e.target.style.borderColor = "#d2d2d7"} />
-                <button type="submit" disabled={submitting || !formData.name || !formData.email} style={{ width: "100%", background: (!formData.name || !formData.email) ? "#b0c8e8" : "#0071e3", color: "#fff", border: "none", borderRadius: 12, padding: "16px", fontSize: 17, fontWeight: 600, cursor: (!formData.name || !formData.email) ? "not-allowed" : "pointer", letterSpacing: "-0.01em", marginTop: 4, transition: "background 0.2s", fontFamily: "inherit" }}>
-                  {submitting ? "Submitting…" : isFounder ? "Apply for Founder Delivery →" : "Apply for my card →"}
-                </button>
-                <p style={{ fontSize: 12, color: "#6e6e73", textAlign: "center", marginTop: 4 }}>{isFounder ? "$3,000 · Titanium Black · Only 5 exist." : "Free. No credit card required. Ships Q4 2026."}</p>
-              </form>
-            ) : (
-              <div style={{ textAlign: "center", padding: "32px 0" }}>
-                <div style={{ marginBottom: 16, display: "flex", justifyContent: "center" }}><PartyPopper size={48} color="#C49A3C" /></div>
-                <h3 style={{ fontSize: 22, fontWeight: 700, color: "#1d1d1f", marginBottom: 8 }}>You're on the list.</h3>
-                <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.6 }}>We'll email you when your founding card is ready to ship. Welcome to the founding {isFounder ? "5" : "500"}.</p>
-              </div>
-            )}
+            {/* Ordering is not open — the order flow funnels to the launch waitlist. */}
+            <a href="/?waitlist=1" style={{ display: "block", width: "100%", background: "#0071e3", color: "#fff", border: "none", borderRadius: 12, padding: "16px", fontSize: 17, fontWeight: 600, cursor: "pointer", letterSpacing: "-0.01em", textAlign: "center", textDecoration: "none", boxSizing: "border-box" }}>
+              Join the waitlist →
+            </a>
+            <p style={{ fontSize: 12, color: "#6e6e73", textAlign: "center", marginTop: 12 }}>Founding-card ordering opens after launch. Join the waitlist for early access.</p>
           </div>
         </div>
 
