@@ -111,21 +111,20 @@ export default async function handler(req: any, res: any) {
       const row = ((await ins.json()) as any[])[0];
       const { position, total } = await positionOf(row.created_at);
 
+      // Emails are FIRE-AND-FORGET — never await them before responding. A slow/hung
+      // Resend call was blocking the join response, so the button spun forever. The join
+      // is already persisted at this point; email is best-effort.
       const resend = mailer();
-      let emailSent = false;
       if (resend) {
-        try {
-          await resend.emails.send({
-            from: "FSchoolAI <noreply@fschoolai.com>",
-            to: email,
-            subject: `You're #${position} on the FschoolAI waitlist`,
-            html: confirmationHtml(name, position),
-          });
-          emailSent = true;
-        } catch (e: any) { console.error("[waitlist] confirmation email failed:", e?.message); }
+        // Joiner confirmation.
+        resend.emails.send({
+          from: "FSchoolAI <noreply@fschoolai.com>",
+          to: email,
+          subject: `You're #${position} on the FschoolAI waitlist`,
+          html: confirmationHtml(name, position),
+        }).catch((e: any) => console.error("[waitlist] confirmation email failed:", e?.message));
 
         // Internal: notify Vincent on every NEW signup with the running waitlist count.
-        // Fire-and-forget — never blocks or fails the join.
         resend.emails.send({
           from: "FSchoolAI <noreply@fschoolai.com>",
           to: "vincent@fschoolai.com",
@@ -134,7 +133,7 @@ export default async function handler(req: any, res: any) {
               + `<p>The waitlist now has <b>${total}</b> ${total === 1 ? "person" : "people"}.</p>`,
         }).catch((e: any) => console.error("[waitlist] signup notify failed:", e?.message));
       }
-      return res.status(200).json({ ok: true, success: true, already: false, alreadyJoined: false, position, total, emailSent });
+      return res.status(200).json({ ok: true, success: true, already: false, alreadyJoined: false, position, total, emailSent: !!resend });
     }
 
     // ── admin: batch invite (Bearer CRON_SECRET — same fail-closed pattern as crons) ──
