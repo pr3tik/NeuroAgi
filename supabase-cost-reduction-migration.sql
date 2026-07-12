@@ -41,10 +41,18 @@ $$;
 
 NOTIFY pgrst, 'reload schema';
 
--- ── 2. One-time space reclaim after the duplicate-RAG purge ────────────────────
--- The duplicate rag_documents (same user_id+title, ~39% of the table) are deleted via
--- the app/REST path; their sections/chunks cascade. Postgres marks that space reusable
--- but the BILLED database size only shrinks after a full vacuum of the big tables.
+-- ── 2. One-time duplicate purge + space reclaim ────────────────────────────────
+-- Deletes every rag_documents duplicate (same user_id+title), keeping the newest —
+-- the REST-side purge handles most, but oversized docs whose cascade exceeds the API
+-- statement timeout need this server-side pass:
+DELETE FROM public.rag_documents d
+USING public.rag_documents newer
+WHERE d.user_id = newer.user_id
+  AND d.title   = newer.title
+  AND d.created_at < newer.created_at;
+
+-- Postgres marks the space reusable, but the BILLED database size only shrinks after
+-- a full vacuum of the big tables.
 -- Run during a quiet window (VACUUM FULL takes an exclusive lock):
 --   VACUUM FULL VERBOSE public.rag_chunks;
 --   VACUUM FULL VERBOSE public.rag_sections;
