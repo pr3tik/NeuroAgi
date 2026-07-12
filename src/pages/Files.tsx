@@ -685,10 +685,15 @@ export default function Files() {
   const [viewingFile, setViewingFile] = useState<any>(null);
   const [savedDocs,   setSavedDocs]   = useState<any[]>([]);
 
+  // List metadata only — content_text is never rendered in the list, and DocReader
+  // lazy-fetches it by id when a doc is actually opened. Selecting it here shipped the
+  // user's entire library text (up to 100 full documents) on every Files visit.
+  const SAVED_DOC_COLS = "id,course_id,lms_file_id,name,file_type,size_bytes,source_url,folder,status,storage_path,summary,highlights,processed_at";
+
   useEffect(() => {
     if (!userId) return;
     supabase.from("files")
-      .select("id,course_id,lms_file_id,name,file_type,size_bytes,source_url,folder,status,storage_path,summary,highlights,processed_at,content_text")
+      .select(SAVED_DOC_COLS)
       .eq("user_id", userId)
       .not("processed_at","is",null)
       .order("processed_at", { ascending:false })
@@ -699,7 +704,7 @@ export default function Files() {
   const refreshSavedDocs = useCallback(() => {
     if (!userId) return;
     supabase.from("files")
-      .select("id,course_id,lms_file_id,name,file_type,size_bytes,source_url,folder,status,storage_path,summary,highlights,processed_at,content_text")
+      .select(SAVED_DOC_COLS)
       .eq("user_id", userId)
       .not("processed_at","is",null)
       .order("processed_at", { ascending:false })

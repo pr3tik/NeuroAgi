@@ -331,9 +331,16 @@ export function AppProvider({ children }) {
 
   // When the tab regains focus, re-pull the user. This makes a verification
   // completed on a phone surface on the laptop without a manual reload.
+  // Debounced: visibilitychange AND focus both fire on a normal tab switch, which
+  // used to issue two identical users reads per switch — coalesce within 2s.
   useEffect(() => {
+    let last = 0;
     function onVisible() {
-      if (document.visibilityState === "visible") refreshUser();
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - last < 2000) return;
+      last = now;
+      refreshUser();
     }
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);

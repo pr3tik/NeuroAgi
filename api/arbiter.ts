@@ -258,18 +258,28 @@ export default async function handler(req: any, res: any) {
   const out = { delivered: 0, deferred: 0, rejected: 0, expired: 0, reclaimed: 0, errors: 0 };
 
   try {
-    // 0a. Reclaim stale claims (a prior run died between claim and finalize).
-    out.reclaimed = await reclaimStale();
-
-    // 0b. Sweep expired candidates (event/run missed them — §3.5.2 safety sweep).
-    const nowIso = new Date().toISOString();
-    const { data: exp } = await db
-      .from("proactive_signals").update({ status: "expired" })
-      .eq("status", "pending").lt("expires_at", nowIso).select("id");
-    out.expired = exp?.length ?? 0;
-
-    // 1. Load pending candidates and group by user.
+    // 1. Load pending candidates FIRST — the common idle run (nothing pending, e.g. all
+    // night) used to still pay a stale-reclaim scan + an expiry-sweep UPDATE every
+    // 5 minutes. Now an idle run costs exactly one query.
     const all = await pendingCandidates();
+
+    // 0. Housekeeping — stale-claim reclaim + expiry sweep. Runs whenever there is real
+    // work, plus on the first run of each quarter-hour so orphans from a died run still
+    // get cleaned during quiet stretches (RECLAIM_AFTER_MS and the 14h candidate expiry
+    // are both far coarser than 15 minutes, so nothing is ever missed for long).
+    const sweepDue = new Date().getMinutes() % 15 < 5;
+    if (all.length || sweepDue) {
+      // 0a. Reclaim stale claims (a prior run died between claim and finalize).
+      out.reclaimed = await reclaimStale();
+
+      // 0b. Sweep expired candidates (event/run missed them — §3.5.2 safety sweep).
+      const nowIso = new Date().toISOString();
+      const { data: exp } = await db
+        .from("proactive_signals").update({ status: "expired" })
+        .eq("status", "pending").lt("expires_at", nowIso).select("id");
+      out.expired = exp?.length ?? 0;
+    }
+
     const byUser = new Map<string, Candidate[]>();
     for (const c of all) (byUser.get(c.user_id) ?? byUser.set(c.user_id, []).get(c.user_id)!).push(c);
 

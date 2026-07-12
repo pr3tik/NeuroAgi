@@ -340,11 +340,14 @@ function AddDocSheet({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // List metadata only — content_text is never rendered here, and selecting it
+    // downloaded the user's entire library text every time this sheet opened.
     supabase.from("files")
-      .select("id,name,file_type,summary,highlights,content_text,processed_at")
+      .select("id,name,file_type,summary,highlights,processed_at")
       .eq("user_id", userId)
       .not("processed_at", "is", null)
       .order("processed_at", { ascending: false })
+      .limit(100)
       .then(({ data }) => {
         setFiles(((data ?? []) as DocFile[]).filter(f => !existingRefs.has(f.id)));
         setLoading(false);
@@ -718,11 +721,12 @@ function SpaceDetail({
       });
   }, [space.id, userId]);
 
-  // Load file objects for doc items
+  // Load file objects for doc items (metadata only — the chat context effect fetches
+  // its own bounded excerpt, and nothing here renders the full text).
   useEffect(() => {
     if (!docRefs.length) return;
     supabase.from("files")
-      .select("id,name,file_type,summary,highlights,content_text,processed_at")
+      .select("id,name,file_type,summary,highlights,processed_at")
       .in("id", docRefs)
       .then(({ data }) => {
         const m = new Map<string, DocFile>();

@@ -205,7 +205,11 @@ export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = n
     if (!buf.length) return { status: 400, json: { error: "Empty file" } };
     if (buf.length > MAX_FILE_BYTES) return { status: 413, json: { error: "File too large (max 50 MB)" } };
     if (!storagePath) {
-      storagePath = `${userId}/lms/${Date.now()}-${djb2(canonical)}-${safeName(file.name)}`;
+      // Path keyed on the canonical-URL hash — NO timestamp. The old Date.now() prefix
+      // made every retry of a failing ingest upload a brand-new object (upsert could
+      // never dedupe), so flaky syncs of a big PDF stacked N copies in the bucket.
+      // Same source → same path → retries overwrite in place.
+      storagePath = `${userId}/lms/${djb2(canonical)}-${safeName(file.name)}`;
       const { error: upErr } = await supabase.storage.from(bucket)
         .upload(storagePath, buf, { contentType: mimeType, upsert: true });
       if (upErr) {

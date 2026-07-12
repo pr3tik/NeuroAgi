@@ -529,11 +529,36 @@ export async function loadCanvasData(userId) {
     return res;
   };
 
+  // Assignments: explicit columns, WITHOUT description — it holds the full Canvas HTML
+  // brief (1-10KB/row) and only the Assignment detail view needs it (lazy-fetched there).
+  // Falls back to * if the live schema is missing one of these columns (same pattern as
+  // loadFiles' storage_path fallback).
+  const ASSIGNMENT_COLS = 'id, canvas_assignment_id, course_id, title, due_at, points_possible, '
+    + 'score, submitted_at, submission_type, late, missing, source, weight, weight_achieved, manual_done_at';
+  const loadAssignments = async () => {
+    const res = await supabase.from('assignments')
+      .select(`${ASSIGNMENT_COLS}, courses(id, canvas_course_id, course_code, name)`).eq('user_id', userId);
+    if (res.error) {
+      return supabase.from('assignments').select('*, courses(id, canvas_course_id, course_code, name)').eq('user_id', userId);
+    }
+    return res;
+  };
+
+  // Blob types the boot path actually consumes. The unlisted rows are the expensive dead
+  // weight: the raw `assignments` Canvas dump (~480KB/user — the structured assignments
+  // TABLE is what boot reads) and Study's per-course `study_guide_<id>` blobs (Study
+  // loads its own guide by exact key). Excluding them cuts most of the boot download.
+  const BOOT_BLOB_TYPES = [
+    'announcements', 'modules', 'assignment_groups', 'discussion_topics', 'syllabus',
+    'course_files', 'course_pages', 'quizzes', 'past_courses',
+    'ext_courses', 'ext_assignments', 'ext_grades',
+  ];
+
   const [cResult, aResult, blobResult, fcResult, fileResult] = await Promise.all([
     supabase.from('courses').select('*').eq('user_id', userId),
-    supabase.from('assignments').select('*, courses(id, canvas_course_id, course_code, name)').eq('user_id', userId),
+    loadAssignments(),
     // Single query for all blob types — avoids 5 separate requests and 400s on missing rows
-    supabase.from('canvas_data').select('data_type, payload').eq('user_id', userId),
+    supabase.from('canvas_data').select('data_type, payload').eq('user_id', userId).in('data_type', BOOT_BLOB_TYPES),
     supabase.from('flashcards_v2').select('course_id, id, question, answer, created_at').eq('user_id', userId).order('created_at', { ascending: false }),
     loadFiles(),
   ]);

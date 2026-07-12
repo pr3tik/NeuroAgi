@@ -39,32 +39,37 @@ export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
-    // Get all students who have a brain_person_id
-    const { data: students, error: studentsErr } = await fschool
-      .from("users")
-      .select("id, brain_person_id")
-      .not("brain_person_id", "is", null)
-      .limit(200);
+    // Watermark: only students with a NEW brain signal in the last cadence window get
+    // processed. The old version looped EVERY linked user (1 + 3N queries per 5-min run
+    // ≈ 112k queries/day at 130 users) even for students idle for weeks. One signals
+    // query now finds the active set; a quiet run costs exactly 1 query.
+    const since = new Date(Date.now() - 6 * 60 * 1000).toISOString(); // 5-min cadence + slack
+    const { data: recent, error: sigErr } = await brain
+      .from("signals")
+      .select("person_id")
+      .gte("created_at", since)
+      .limit(1000);
+    if (sigErr) throw sigErr;
 
-    if (studentsErr) throw studentsErr;
-    if (!students || students.length === 0) {
-      return res.status(200).json({ message: "No students with brain links", processed: 0 });
+    const activePersonIds = [...new Set((recent ?? []).map(r => r.person_id).filter(Boolean))];
+    if (!activePersonIds.length) {
+      return res.status(200).json({ message: "No active students this window", processed: 0 });
     }
 
     let updated = 0;
     const errors = [];
 
-    for (const student of students) {
+    for (const personId of activePersonIds) {
       try {
-        await updateStudentFastSignals(student.id, student.brain_person_id);
+        await updateStudentFastSignals(null, personId);
         updated++;
       } catch (e) {
-        errors.push({ userId: student.id, error: e.message });
+        errors.push({ personId, error: e.message });
       }
     }
 
     const elapsed = Date.now() - startTime;
-    console.log(`[brain-scheduler-fast] Updated ${updated}/${students.length} students in ${elapsed}ms`);
+    console.log(`[brain-scheduler-fast] Updated ${updated}/${activePersonIds.length} active students in ${elapsed}ms`);
 
     return res.status(200).json({
       tier: 1,
@@ -124,6 +129,9 @@ async function updateStudentFastSignals(userId, brainPersonId) {
   const meta = { ...(existing?.metadata || {}), fast_stress: stress, fast_updated_at: new Date().toISOString() };
 
   if (existing) {
+    // Skip the write when it wouldn't change the acted-on value — the unconditional
+    // UPDATE used to rewrite every student's row 288×/day for nothing.
+    if (nextStress === (existing.stress_level ?? 0)) return;
     await brain.from("context_window").update({ stress_level: nextStress, metadata: meta }).eq("id", existing.id);
   } else {
     // No context_window yet — create a minimal valid one (recent_summary is the real
