@@ -9,6 +9,8 @@ import FriendsSection                from "../components/FriendsSection";
 import WritingTracker                from "../components/WritingTracker";
 import { LogIn, RefreshCw, Layers, CircleDot, Sparkles, Check, Hexagon, ArrowUp, Star, ChevronUp, ChevronDown, ArrowUpRight } from "lucide-react";
 import { coursesToGpa } from "../lib/gpa";
+import { ACHIEVEMENTS } from "../lib/achievements";
+import { TECHNIQUE_TYPES_BY_KIND } from "../lib/techniqueTypes";
 
 // Deterministic fallback grade (72–97) derived from the course code string.
 function fallbackGrade(seed) {
@@ -123,6 +125,12 @@ export default function Identity() {
     { label: "Streak",      value: streak },
     { label: "Study Time",  value: studyTime },
   ];
+
+  // Technique-type achievements land in the same user_achievements table as the
+  // regular badge shelf — filter for the "type_*" key convention (see
+  // api/_achievements.ts's awardTechniqueTypeIfEligible) rather than a new endpoint.
+  const typeUnlock = (tokenSummary?.unlockedAchievements ?? []).find(u => u.achievement_key?.startsWith("type_"));
+  const yourType   = typeUnlock ? TECHNIQUE_TYPES_BY_KIND[typeUnlock.meta?.strategyKind] : null;
 
   // Course performance from Canvas data only — hidden when Canvas isn't connected.
   // pct is null when no grade exists for a real course; the bar shows "—" in that case.
@@ -334,6 +342,58 @@ export default function Identity() {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Your type — technique-type achievement, separate from the general badge shelf */}
+      {yourType && (
+        <div style={{ marginBottom: "32px" }}>
+          <p style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "12px" }}>
+            Your Type
+          </p>
+          <div style={{
+            display: "flex", alignItems: "center", gap: "14px",
+            padding: "16px 18px",
+            background: "rgba(196,154,60,0.08)",
+            border: "1px solid rgba(196,154,60,0.25)",
+            borderRadius: "var(--radius-card)",
+          }}>
+            <span style={{ fontSize: "28px", lineHeight: 1 }}>{yourType.emoji}</span>
+            <div>
+              <p style={{ color: "var(--text-primary)", fontSize: "15px", fontWeight: "600" }}>{yourType.nickname}</p>
+              <p style={{ color: "var(--text-secondary)", fontSize: "12px", marginTop: "2px" }}>{yourType.blurb}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Achievements */}
+      {tokenSummary && (
+        <div style={{ marginBottom: "32px" }}>
+          <p style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "12px" }}>
+            Achievements
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: "10px" }}>
+            {ACHIEVEMENTS.map(a => {
+              const unlocked = (tokenSummary.unlockedAchievements ?? []).some(u => u.achievement_key === a.key);
+              const Ic = a.icon;
+              return (
+                <div key={a.key} title={a.description} style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
+                  padding: "12px 8px",
+                  background: unlocked ? "rgba(196,154,60,0.08)" : "var(--color-surface)",
+                  border: `1px solid ${unlocked ? "rgba(196,154,60,0.25)" : "var(--color-border)"}`,
+                  borderRadius: "var(--radius-card)",
+                  opacity: unlocked ? 1 : 0.35,
+                }}>
+                  <Ic size={20} color={unlocked ? "#C49A3C" : "var(--text-dim)"} />
+                  <span style={{ fontSize: "10px", color: unlocked ? "var(--text-primary)" : "var(--text-dim)", textAlign: "center", lineHeight: 1.3 }}>
+                    {a.name}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

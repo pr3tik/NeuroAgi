@@ -71,6 +71,11 @@ function stubFetch() {
     if (u.includes("canvas.test/api/v1/conversations/")) return R({ subject: "Extension", messages: [{ author_id: 1, body: "Sure, Friday works", created_at: "2026-06-01" }] });
     if (u.includes("canvas.test/api/v1/conversations")) return R([{ id: 5, subject: "Extension", last_message: "Sure, Friday works", last_message_at: "2026-06-01", workflow_state: "read" }]);
     if (u.includes("canvas.test/api/v1/courses/111/files")) return R([{ id: 3, display_name: "slides.pdf", size: 1000, "content-type": "application/pdf", updated_at: "2026-06-01" }]);
+    if (u.includes("canvas.test/api/v1/courses/111/assignment_groups")) return R([{ name: "Exams", group_weight: 60 }, { name: "Labs", group_weight: 40 }]);
+    if (u.includes("canvas.test/api/v1/courses/111")) return R({ id: 111, name: "Bio", course_code: "BIO", syllabus_body: "<p>" + "Grading: exams 60%, labs 40%. Late work loses 10% per day. Office hours Tue 2-4pm. ".repeat(3) + "</p>", teachers: [{ display_name: "Dr. Ada Marsh" }] });
+    if (u.includes("/rest/v1/course_content?content_hash=")) return R([]);   // no dedup hit -> insert path
+    if (u.includes("/rest/v1/course_content?canvas_course_id=")) return R([{ content_type: "syllabus", professor_name: "Dr. Ada Marsh", summary: "Exams 60%, labs 40%; late -10%/day.", concepts: ["Exams 60% / Labs 40%", "Late penalty 10%/day"], seen_by_count: 3, last_seen_at: "2026-07-01" }]);
+    if (u.includes("/rest/v1/course_content")) return R([{ id: "cc-new" }]);  // insert (Prefer: representation)
     if (u.includes("canvas.test/api/v1/courses")) return R([{ id: 222, name: "Old Course", course_code: "OLD101", enrollments: [{ computed_final_score: 88, computed_final_grade: "A-" }] }]);
     if (u.includes("/rest/v1/rpc/list_friends")) return R([{ friend_id: "friend-1", friends_since: "2026-06-01" }]);
     // writing-tracker self-calls (via originHeaders default host)
@@ -118,6 +123,8 @@ const CASES: Record<string, { args: any; check: (r: any) => void }> = {
   writing_analyze: { args: { text: "The cell divides. It is a process. The process has stages and each stage matters for the outcome of division." }, check: (r) => { expect(r.metrics).toBeDefined(); expect(typeof r.assessment).toBe("string"); } },
   delete_flashcards: { args: { cardId: "f1" }, check: (r) => { expect(r.ok).toBe(true); } },
   library_search: { args: { query: "what is the late policy in the syllabus" }, check: (r) => { expect(r.found).toBe(true); expect(r.snippets.join(" ")).toContain("Late work"); } },
+  university_brain_profile: { args: { course: "111" }, check: (r) => { expect(r.found).toBe(true); expect(r.professors).toContain("Dr. Ada Marsh"); expect(r.facts.length).toBeGreaterThan(0); } },
+  contribute_course_intel: { args: { course: "111" }, check: (r) => { expect(r.ok).toBe(true); expect(r.contributed.length).toBeGreaterThan(0); expect(r.professor).toBe("Dr. Ada Marsh"); } },
   list_friends: { args: {}, check: (r) => { expect(r.friends[0]).toMatchObject({ id: "friend-1", name: "Alex Kim" }); } },
   nudge_friend: { args: { friend: "Alex" }, check: (r) => { expect(r.sent).toBe(true); } },
 };

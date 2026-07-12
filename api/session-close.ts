@@ -29,6 +29,7 @@
 // Loaded into every NeuralRing session via buildChatSystem() as LIVING MIND section.
 
 import { embed } from "./rag.js";
+import { awardTechniqueTypeIfEligible } from "./_achievements.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -229,14 +230,17 @@ RULES:
         method: "POST", headers: brainHeaders, body: JSON.stringify(brainSignal),
       }).catch(err => console.error("[session-close] brain signal write failed:", err.message));
 
-      // Update brain.context_window with latest mind summary
+      // Update brain.context_window with the latest mind summary ONLY.
+      // Do NOT write stress_level / momentum_state here: those are owned by the brain
+      // schedulers on a 0–10 scale, and this used to overwrite them with a constant 0.5
+      // (a 0–1-scale value) + "neutral" every session close, which pinned stress below the
+      // intervention threshold (>=7) forever. Omitting them preserves the scheduler's values
+      // (merge-duplicates only updates the fields we send).
       const contextUpdate = {
         person_id:      userProfile.brain_person_id,
         written_at:     new Date().toISOString(),
         expires_at:     new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
         recent_summary: mindDoc.slice(0, 300).replace(/\n/g, " ").trim(),
-        momentum_state: "neutral",
-        stress_level:   0.5,
       };
       fetch(`${brainUrl}/rest/v1/context_window`, {
         method: "POST",
@@ -352,11 +356,24 @@ Input: "${parsed.strategy_summary}"`,
 
                   // This resolution also strengthens this student's own personal
                   // track record for this technique — never compared to anyone else's.
-                  fetch(`${supabaseUrl}/rest/v1/rpc/bump_student_strategy_affinity`, {
-                    method:  "POST",
-                    headers: sbHeaders,
-                    body: JSON.stringify({ p_user_id: userId, p_strategy_kind: parsed.strategy_kind, p_success: true }),
-                  }).catch(() => {});
+                  // Awaited (unlike the failure-path bump above) because we need the
+                  // returned success/attempt counts to check the technique-type
+                  // achievement threshold — safe to await, this whole block already
+                  // runs inside a fire-and-forget IIFE relative to the HTTP response.
+                  try {
+                    const bumpRes = await fetch(`${supabaseUrl}/rest/v1/rpc/bump_student_strategy_affinity`, {
+                      method:  "POST",
+                      headers: sbHeaders,
+                      body: JSON.stringify({ p_user_id: userId, p_strategy_kind: parsed.strategy_kind, p_success: true }),
+                    });
+                    const bumpRows = bumpRes.ok ? await bumpRes.json() : null;
+                    const bumpRow  = Array.isArray(bumpRows) ? bumpRows[0] : null;
+                    if (bumpRow) {
+                      await awardTechniqueTypeIfEligible(
+                        userId, parsed.strategy_kind, bumpRow.success_count, bumpRow.attempt_count
+                      );
+                    }
+                  } catch { /* best-effort — never let achievement wiring break the harvest */ }
                 }
               } catch (err) {
                 console.error("[session-close] pattern-recognition harvest failed:", err.message);

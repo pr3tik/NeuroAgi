@@ -120,8 +120,10 @@ async function upcoming(
   if (!r.ok) return res.status(r.status).json({ error: `Supabase ${r.status}` });
   const rows = await r.json();
 
-  // Overdue means not done yet → always drop submitted; other modes honor includeSubmitted.
-  const dropSubmitted = mode === "overdue" || !includeSubmitted;
+  // Overdue = not done yet → always drop submitted. Upcoming honors includeSubmitted.
+  // "all" means EVERYTHING (bugfix: the old `|| !includeSubmitted` silently dropped every
+  // submitted assignment on the all path, contradicting the contract).
+  const dropSubmitted = mode === "overdue" || (mode === "upcoming" && !includeSubmitted);
   const assignments = (rows || [])
     .map((a: any) => ({
       id: a.id,

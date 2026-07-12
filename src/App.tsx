@@ -11,10 +11,11 @@ import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
 import NeuralRing           from "./components/NeuralRing";
 import ReggieTester         from "./components/ReggieTester";
+import UniBrainTester       from "./components/UniBrainTester";
 import SiteGuide            from "./components/SiteGuide";
 import BottomNav            from "./components/BottomNav";
 import Landing              from "./pages/Landing"; // eager — logged-out entry, shown on first paint
-import PreSignupDemo, { hasSeenPreSignupDemo } from "./pages/PreSignupDemo"; // S0-S2: shown once, before Landing, for brand-new visitors only
+import PreSignupDemo from "./pages/PreSignupDemo"; // S0-S2 pre-signup demo — now OPT-IN via a Landing CTA, never a forced interstitial
 import { useApp }           from "./context/AppContext";
 import { supabase }         from "./api/supabase";
 import { signIn, signUp, adoptIdentity, completeOAuthLogin } from "./api/auth";
@@ -27,7 +28,6 @@ import { fetchUnreadCount, AppNotification } from "./api/notifications";
 // Pages are code-split: each loads as its own chunk only when first navigated to, so
 // the initial bundle stays small and a page's JS isn't downloaded until it's used.
 // (Only one page is mounted at a time — PAGES[currentPage] — so nothing offscreen renders.)
-const Card        = lazy(() => import("./pages/Card"));
 const Work        = lazy(() => import("./pages/Work"));
 const Canvas      = lazy(() => import("./pages/Canvas"));
 const Assignment  = lazy(() => import("./pages/Assignment"));
@@ -127,20 +127,26 @@ function PageLoader() {
 }
 
 export default function App() {
-  // ── /card route — standalone page, no auth required ─────────────────────
-  if (window.location.pathname === "/card") {
-    return <Suspense fallback={<PageLoader />}><Card /></Suspense>;
-  }
   const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary, navMode } = useApp();
 
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
   );
-  // Shown at most once per browser, and only if not already logged in — a
-  // returning visitor (or one who already saw/skipped it) goes straight to Landing.
-  const [showPreSignupDemo, setShowPreSignupDemo] = useState(
-    () => !isLoggedIn && !hasSeenPreSignupDemo()
-  );
+  // ReggieTester / UniBrainTester are dev-only diagnostic sandboxes (see their own
+  // console.log("...look bottom-left...") debug messages) — genuinely useful for
+  // exercising the new Reggie backend directly, but they shouldn't render for every
+  // real session. Always on under `npm run dev`; on prod, opt in via:
+  // localStorage.setItem("fschool_devtools", "1") + refresh.
+  const showDevTools = () => {
+    if ((import.meta as any)?.env?.DEV) return true;
+    try { return localStorage.getItem("fschool_devtools") === "1"; } catch { return false; }
+  };
+  // The pre-signup demo is OPT-IN: fschoolai.com always shows Landing first for a
+  // logged-out visitor, and the demo opens only when they click its CTA on Landing.
+  // (It used to auto-gate Landing whenever `fschool_demo_seen` was unset, so anyone who
+  // left mid-demo — or arrived in a fresh/incognito browser — got the demo "instead of
+  // the landing page" on the next visit. That forced interstitial is removed.)
+  const [showPreSignupDemo, setShowPreSignupDemo] = useState(false);
   const [showOnboarding,      setShowOnboarding]     = useState(false);
   const [onboardingEmail,     setOnboardingEmail]    = useState("");
   const [onboardingInitName,  setOnboardingInitName] = useState("");
@@ -278,8 +284,18 @@ export default function App() {
   const needsEmailVerify = !!userData && userData.email_verified === false;
   useEffect(() => {
     if (!needsEmailVerify) return;
-    const t = setInterval(() => { refreshUser(); }, 5000);
-    return () => clearInterval(t);
+    // Poll gently: skip hidden tabs (an abandoned tab used to fire ~17k queries/day) and
+    // back off 5s → 30s after the first minute. The focus/visibility listener in
+    // AppContext already re-checks immediately when the user comes back.
+    let ticks = 0;
+    let timer: any;
+    const tick = () => {
+      ticks++;
+      if (document.visibilityState === "visible") refreshUser();
+      timer = setTimeout(tick, ticks < 12 ? 5000 : 30000);
+    };
+    timer = setTimeout(tick, 5000);
+    return () => clearTimeout(timer);
   }, [needsEmailVerify, refreshUser]);
 
   async function checkVerified() {
@@ -777,7 +793,7 @@ export default function App() {
   }
 
   if (!isLoggedIn) {
-    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} /><SiteGuide /></>);
+    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} onTryDemo={() => setShowPreSignupDemo(true)} /><SiteGuide /></>);
   }
 
   // ── Email verification gate ───────────────────────────────────────────────
@@ -963,8 +979,9 @@ export default function App() {
         </main>
       </div>
 
-      <NeuralRing />
-      <ReggieTester />
+      <NeuralRing currentPage={currentPage} />
+      {showDevTools() && <ReggieTester />}
+      {showDevTools() && <UniBrainTester />}
       {navMode === "tabs" && (
         <BottomNav
           currentPage={currentPage}

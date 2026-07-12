@@ -314,6 +314,11 @@ async function start(body) {
       updated_at: new Date().toISOString(),
     }).eq("id", jobId);
 
+    // Digest + transcript are persisted — delete the raw recording from Storage (it was
+    // never removed before, so lecture media accreted forever). Best-effort; the
+    // lecture_digests row keeps storage_path for any later orphan sweep.
+    await supabase.storage.from(BUCKET).remove([storagePath]).catch(() => {});
+
     return { status: 200, json: { jobId, status: "done", digest: { ...digest, emphasis, documentId } } };
   } catch (err) {
     const msg = String(err?.message || err).slice(0, 300);

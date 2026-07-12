@@ -47,6 +47,14 @@ async function sbFetch(path, params = {}) {
 const sendSMS = deliverSMS;
 
 export default async function handler(req, res) {
+  // Fail-closed — matches api/brain-intervention.ts / api/arbiter.ts. Previously this
+  // endpoint had no CRON_SECRET check at all, relying only on the x-vercel-cron header
+  // below, which is NOT a secret (any caller can set arbitrary headers).
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) return res.status(500).json({ error: "CRON_SECRET not configured" });
+  const auth = req.headers?.authorization ?? req.headers?.["x-cron-secret"];
+  if (auth !== `Bearer ${cronSecret}` && auth !== cronSecret) return res.status(401).json({ error: "Unauthorized" });
+
   // Vercel cron sends GET; reject other methods in prod
   if (req.method !== "GET" && req.headers["x-vercel-cron"] !== "1") {
     return res.status(405).json({ error: "Method not allowed" });

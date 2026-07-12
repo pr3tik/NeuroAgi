@@ -7,6 +7,7 @@
  * Blob storage (canvas_data): announcements, modules, assignment_groups, discussion_topics
  */
 
+import { replaceFlashcardDeck } from "../lib/flashcardsSave";
 import {
   fetchCourses,
   fetchAssignments,
@@ -100,12 +101,9 @@ async function generateAndSaveFlashcards(userId, courseDbId, courseName, assignm
 
     if (!cards.length) return null;
 
-    await supabase
-      .from('flashcards')
-      .upsert(
-        { user_id: userId, course_id: courseDbId, cards, generated_at: new Date().toISOString() },
-        { onConflict: 'user_id,course_id' }
-      );
+    // flashcards_v2 (per-row) is the table the app READS; the old single-row
+    // `flashcards` table is retired + unread. Replace this course's deck.
+    await replaceFlashcardDeck(supabase, userId, courseDbId, cards);
 
     return cards;
   } catch (err) {
@@ -375,6 +373,32 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
     }
   }
 
+  // ── 4b. Upsert quizzes to structured table (real dates, queryable by the reminder
+  // cron) — was previously only saved to the canvas_data blob below, which a cron
+  // scanning across all users can't query efficiently.
+  const flatQuizzes = allQuizzes.flatMap(group =>
+    group.quizzes.map(q => ({ ...q, courseId: group.courseId }))
+  );
+  if (flatQuizzes.length) {
+    const quizRows = flatQuizzes
+      .filter(q => courseIdMap[String(q.courseId)] != null)
+      .map(q => ({
+        user_id:          userId,
+        course_id:        String(courseIdMap[String(q.courseId)]),
+        external_quiz_id: String(q.id),
+        title:            q.title,
+        due_at:           q.dueAt || null,
+        quiz_type:        q.quizType || null,
+        points_possible:  q.pointsPossible ?? null,
+      }));
+    if (quizRows.length) {
+      const { error: quizError } = await supabase
+        .from('canvas_quizzes')
+        .upsert(quizRows, { onConflict: 'user_id,external_quiz_id' });
+      if (quizError) console.error('canvas_quizzes save failed:', quizError.message);
+    }
+  }
+
   // ── 5. Save blob data to canvas_data ────────────────────────────
   const syllabus = buildSyllabus(courses, allModules, allAssignments, allAssignmentGroups);
 
@@ -451,6 +475,25 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
       .filter(c => !canvasIds.has(String(c.id))); // Canvas (live) rows win on overlap
   } catch { /* non-fatal — return Canvas courses alone */ }
 
+  // Preserve in-app "Mark as done" across this Canvas re-sync. Canvas returns
+  // submitted_at=null for work the student finished only inside FschoolAI, which would
+  // resurface the task. manual_done_at is our app-only completion flag (Canvas never
+  // writes it) — OR it into submittedAt so a mid-session force-sync doesn't undo it.
+  try {
+    const { data: doneRows } = await supabase
+      .from('assignments')
+      .select('canvas_assignment_id, manual_done_at')
+      .eq('user_id', userId)
+      .not('manual_done_at', 'is', null);
+    if (doneRows?.length) {
+      const doneMap = new Map(doneRows.map(r => [String(r.canvas_assignment_id), r.manual_done_at]));
+      for (const a of allAssignments) {
+        const dm = doneMap.get(String(a.id));
+        if (dm && !a.submission?.submittedAt) a.submission = { ...(a.submission || {}), submittedAt: dm };
+      }
+    }
+  } catch { /* manual_done_at column may not exist yet — non-fatal */ }
+
   return {
     courses:          [...courses, ...extraCourses],
     assignments:      allAssignments,
@@ -486,11 +529,36 @@ export async function loadCanvasData(userId) {
     return res;
   };
 
+  // Assignments: explicit columns, WITHOUT description — it holds the full Canvas HTML
+  // brief (1-10KB/row) and only the Assignment detail view needs it (lazy-fetched there).
+  // Falls back to * if the live schema is missing one of these columns (same pattern as
+  // loadFiles' storage_path fallback).
+  const ASSIGNMENT_COLS = 'id, canvas_assignment_id, course_id, title, due_at, points_possible, '
+    + 'score, submitted_at, submission_type, late, missing, source, weight, weight_achieved, manual_done_at';
+  const loadAssignments = async () => {
+    const res = await supabase.from('assignments')
+      .select(`${ASSIGNMENT_COLS}, courses(id, canvas_course_id, course_code, name)`).eq('user_id', userId);
+    if (res.error) {
+      return supabase.from('assignments').select('*, courses(id, canvas_course_id, course_code, name)').eq('user_id', userId);
+    }
+    return res;
+  };
+
+  // Blob types the boot path actually consumes. The unlisted rows are the expensive dead
+  // weight: the raw `assignments` Canvas dump (~480KB/user — the structured assignments
+  // TABLE is what boot reads) and Study's per-course `study_guide_<id>` blobs (Study
+  // loads its own guide by exact key). Excluding them cuts most of the boot download.
+  const BOOT_BLOB_TYPES = [
+    'announcements', 'modules', 'assignment_groups', 'discussion_topics', 'syllabus',
+    'course_files', 'course_pages', 'quizzes', 'past_courses',
+    'ext_courses', 'ext_assignments', 'ext_grades',
+  ];
+
   const [cResult, aResult, blobResult, fcResult, fileResult] = await Promise.all([
     supabase.from('courses').select('*').eq('user_id', userId),
-    supabase.from('assignments').select('*, courses(id, canvas_course_id, course_code, name)').eq('user_id', userId),
+    loadAssignments(),
     // Single query for all blob types — avoids 5 separate requests and 400s on missing rows
-    supabase.from('canvas_data').select('data_type, payload').eq('user_id', userId),
+    supabase.from('canvas_data').select('data_type, payload').eq('user_id', userId).in('data_type', BOOT_BLOB_TYPES),
     supabase.from('flashcards_v2').select('course_id, id, question, answer, created_at').eq('user_id', userId).order('created_at', { ascending: false }),
     loadFiles(),
   ]);
@@ -536,6 +604,11 @@ export async function loadCanvasData(userId) {
 
     return {
       id:             a.canvas_assignment_id ?? a.id,
+      // Kept separately so writes (markAssignmentDone) can key on the right column:
+      // canvas_assignment_id when it exists (Canvas rows AND syllabus-extracted rows,
+      // whose ids are the deterministic `syl:…` strings), else the DB row id. Matching
+      // a `syl:…` string against the bigint id column would 400 the whole update.
+      canvasAssignmentId: a.canvas_assignment_id ?? null,
       name:           a.title ?? a.name,
       description:    a.description,
       dueAt:          a.due_at,
@@ -552,7 +625,10 @@ export async function loadCanvasData(userId) {
       isManual,
       submission: {
         score:          a.score,
-        submittedAt:    a.submitted_at,
+        // manual_done_at = the student marked this done inside FschoolAI (Canvas doesn't
+        // know). OR it in so every "done" check (which keys off submittedAt) reflects it,
+        // and it survives a Canvas re-sync (sync writes submitted_at only, never this column).
+        submittedAt:    a.submitted_at ?? a.manual_done_at ?? null,
         submissionType: a.submission_type,
         late:           a.late    ?? false,
         missing:        a.missing ?? false,
@@ -737,11 +813,15 @@ async function syncToBrainDB(userId, courses, assignments, courseIdMap, now) {
       synced_at:        now,
     }));
 
-    await fetch(`${brainUrl}/rest/v1/fschool_assignments`, {
+    // Courses go to fschool_COURSES (was wrongly POSTing to fschool_assignments — the
+    // assignments table lacks name/course_code/*_score, so PostgREST 400'd and, since
+    // fetch doesn't reject on 4xx, the .catch never fired and courses silently never synced).
+    const cr = await fetch(`${brainUrl}/rest/v1/fschool_courses`, {
       method:  'POST',
       headers: brainHeaders,
       body:    JSON.stringify(courseRows),
-    }).catch(err => console.error('[syncToBrainDB] courses write failed:', err.message));
+    }).catch(err => { console.error('[syncToBrainDB] courses write failed:', err.message); return null; });
+    if (cr && !cr.ok) console.error('[syncToBrainDB] courses write HTTP', cr.status, (await cr.text().catch(() => '')).slice(0, 200));
   }
 
   // Upsert assignments to fschool.assignments (cap at 100 most recent)

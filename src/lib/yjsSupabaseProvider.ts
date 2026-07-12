@@ -24,12 +24,19 @@ const REMOTE = 'supabase-broadcast';
 
 // ── provider ─────────────────────────────────────────────────────────────────
 
+// Persist cadence: the full encoded doc is REWRITTEN to study_rooms.yjs_doc on every
+// flush — at the old 2s debounce, active drawing meant up to 30 full-doc UPDATEs per
+// minute of write churn (WAL/TOAST/dead tuples). 20s keeps late-joiners fresh enough
+// (they also sync live from peers) at ~1/10th the write volume; destroy() flushes.
+const PERSIST_DEBOUNCE_MS = 20_000;
+
 export class SupabaseBroadcastProvider {
   private doc: Y.Doc;
   private channel: RealtimeChannel;
   private roomId: string;
   private updateHandler: (update: Uint8Array, origin: unknown) => void;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingSyncReplies = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(doc: Y.Doc, channel: RealtimeChannel, roomId: string) {
     this.doc = doc;
@@ -46,7 +53,7 @@ export class SupabaseBroadcastProvider {
       }).catch(() => {});
 
       if (this.persistTimer) clearTimeout(this.persistTimer);
-      this.persistTimer = setTimeout(() => this.persistState(), 2000);
+      this.persistTimer = setTimeout(() => this.persistState(), PERSIST_DEBOUNCE_MS);
     };
     doc.on('update', this.updateHandler);
 
@@ -56,18 +63,34 @@ export class SupabaseBroadcastProvider {
       Y.applyUpdate(doc, fromBase64(payload.u), REMOTE);
     });
 
-    // 3. When a new peer joins and requests the full state, respond with it.
-    channel.on('broadcast', { event: 'yjs_sync_req' }, () => {
-      const state = Y.encodeStateAsUpdate(doc);
-      channel.send({
-        type: 'broadcast',
-        event: 'yjs_sync_res',
-        payload: { u: toBase64(state) },
-      }).catch(() => {});
+    // 3. When a new peer joins and requests the full state, respond with it — but
+    // suppress the thundering herd: every connected peer used to broadcast the FULL
+    // doc to everyone (N peers × N deliveries of a potentially-hundreds-of-KB payload
+    // per join). Each responder now waits a random beat and skips its reply if another
+    // peer's response for the same request lands first.
+    channel.on('broadcast', { event: 'yjs_sync_req' }, ({ payload }) => {
+      const nonce = String(payload?.n ?? 'legacy');
+      if (this.pendingSyncReplies.has(nonce)) return;
+      const t = setTimeout(() => {
+        this.pendingSyncReplies.delete(nonce);
+        const state = Y.encodeStateAsUpdate(this.doc);
+        this.channel.send({
+          type: 'broadcast',
+          event: 'yjs_sync_res',
+          payload: { u: toBase64(state), n: nonce },
+        }).catch(() => {});
+      }, 40 + Math.random() * 260);
+      this.pendingSyncReplies.set(nonce, t);
     });
 
-    // 4. Apply a full-state snapshot sent by an existing peer on join.
+    // 4. Apply a full-state snapshot sent by an existing peer on join — and cancel our
+    // own queued reply for that request (someone else already answered).
     channel.on('broadcast', { event: 'yjs_sync_res' }, ({ payload }) => {
+      const nonce = payload?.n != null ? String(payload.n) : null;
+      if (nonce && this.pendingSyncReplies.has(nonce)) {
+        clearTimeout(this.pendingSyncReplies.get(nonce)!);
+        this.pendingSyncReplies.delete(nonce);
+      }
       if (!payload?.u) return;
       Y.applyUpdate(doc, fromBase64(payload.u), REMOTE);
     });
@@ -101,7 +124,8 @@ export class SupabaseBroadcastProvider {
     this.channel.send({
       type: 'broadcast',
       event: 'yjs_sync_req',
-      payload: {},
+      // Nonce lets responders coordinate a single reply (older clients ignore it).
+      payload: { n: Math.random().toString(36).slice(2) },
     }).catch(() => {});
   }
 
@@ -125,9 +149,14 @@ export class SupabaseBroadcastProvider {
   /** Tear down listeners. Call when leaving the room. */
   destroy(): void {
     this.doc.off('update', this.updateHandler);
+    for (const t of this.pendingSyncReplies.values()) clearTimeout(t);
+    this.pendingSyncReplies.clear();
     if (this.persistTimer) {
+      // A flush was pending — persist NOW so the longer debounce can't drop the last
+      // strokes drawn before leaving (best-effort, fire-and-forget).
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
+      this.persistState().catch(() => {});
     }
   }
 }

@@ -109,6 +109,28 @@ function injectGatewayEnv(provider) {
   set("GROQ_KEY"); set("GROQ_MODEL");  // gateway fallbacks can cross providers
 }
 
+// STT proxy plugin — /api/stt (Groq Whisper). CUSTOM proxy on purpose: the handler
+// reads the RAW request stream (for await (req)) for binary/base64 audio, so the
+// generic handlerProxy (which pre-consumes the body into req.body) would starve it.
+// We only inject the key and add the status/json helpers — the stream passes through.
+const sttProxyPlugin = {
+  name: "stt-proxy",
+  configureServer(server) {
+    server.middlewares.use("/api/stt", async (req, res) => {
+      injectEnv("GROQ_KEY");
+      res.status = (code) => { res.statusCode = code; return res; };
+      res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
+      try {
+        const { default: handler } = await import("./api/stt.js");
+        await handler(req, res);
+      } catch (err) {
+        res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+  },
+};
+
 const groqProxyPlugin = {
   name: "groq-proxy",
   configureServer(server) {
@@ -193,7 +215,7 @@ const ttsProxyPlugin = {
               headers: { "xi-api-key": ELEVEN_KEY, "Content-Type": "application/json" },
               body: JSON.stringify({
                 text: text.substring(0, 500),
-                model_id: "eleven_turbo_v2_5",
+                model_id: loadEnvKey("ELEVENLABS_TTS_MODEL") || "eleven_flash_v2_5",
                 voice_settings: { stability: 0.42, similarity_boost: 0.82, style: 0.18, use_speaker_boost: true },
               }),
             }
@@ -622,7 +644,7 @@ const LMS_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY",
   "EXTENSION_AUTH_SECRET"];
 
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
+  plugins: [react(), canvasProxyPlugin, sttProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
     handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
     // OPENAI_API_KEY: session-close.ts now imports rag.js's embed() for the
     // pattern-recognition harvest — without this, embed() throws locally.
@@ -632,12 +654,14 @@ export default defineConfig({
     handlerProxy("/api/content-connector",() => import("./api/content-connector.js")),
     handlerProxy("/api/writing-tracker",  () => import("./api/writing-tracker.js")),
     handlerProxy("/api/lms-ingest",       () => import("./api/lms-ingest.js"),    [...HANDLER_ENV, "ANTHROPIC_MODEL_OCR"]),
+    handlerProxy("/api/extension-sync",   () => import("./api/extension-sync.js")),
     handlerProxy("/api/drive-auth",       () => import("./api/drive-auth.js"),    LMS_ENV),
     handlerProxy("/api/lms-microsoft",    () => import("./api/lms-microsoft.js"), LMS_ENV),
     handlerProxy("/api/lms-proxy",        () => import("./api/lms-proxy.js"),     [...HANDLER_ENV, "EXTENSION_AUTH_SECRET"]),
     handlerProxy("/api/digest-lecture",   () => import("./api/digest-lecture.js"), [...HANDLER_ENV, "OPENAI_API_KEY", "ELEVENLABS_API_KEY"]),
     handlerProxy("/api/office-hours",     () => import("./api/office-hours.js"),  HANDLER_ENV),
     handlerProxy("/api/exam",             () => import("./api/exam.js")),
+    handlerProxy("/api/deck-profile",     () => import("./api/deck-profile.js")),
     handlerProxy("/api/canvas-reads",     () => import("./api/canvas-reads.js")),
     handlerProxy("/api/grade-weights",    () => import("./api/grade-weights.js")),
     handlerProxy("/api/route-intent",     () => import("./api/route-intent.js")),
@@ -646,6 +670,8 @@ export default defineConfig({
     // OpenAI for rag embeddings and Groq for the gateway's cheap fallback).
     handlerProxy("/api/agent-manager",    () => import("./api/agent-manager.js"), [...HANDLER_ENV, "OPENAI_API_KEY", "GROQ_KEY"]),
     handlerProxy("/api/library-agent",    () => import("./api/library-agent.js")),
+    handlerProxy("/api/university-brain", () => import("./api/university-brain.js"), [...HANDLER_ENV, "GROQ_KEY"]),
+    handlerProxy("/api/waitlist",         () => import("./api/waitlist.js"),        [...HANDLER_ENV, "RESEND_API_KEY", "CRON_SECRET"]),
     handlerProxy("/api/nudge",            () => import("./api/nudge.js"),         [...HANDLER_ENV, "RESEND_API_KEY"]),
     handlerProxy("/api/guest-demo",       () => import("./api/guest-demo.js"),    HANDLER_ENV)],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },

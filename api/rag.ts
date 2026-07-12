@@ -184,19 +184,26 @@ export function chunkText(text) {
   return chunks;
 }
 
+// rag course_id columns are uuid, but callers pass all sorts of native ids (LMS course
+// numbers, the live courses.id BIGINT). Anything non-UUID must be coerced to null BEFORE
+// it reaches Postgres: in an insert it throws 22P02; in the rag_hybrid_search RPC it
+// 400s → query() returned 500 → callers saw "no passages" → Study.tsx re-ingested the
+// whole course (the duplicate-ingest loop that produced ~39% duplicate rag docs).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function coerceUuid(v) {
+  return (v != null && UUID_RE.test(String(v))) ? String(v) : null;
+}
+
 // ── Ingest ────────────────────────────────────────────────────────────────────
 // Exported so server-side callers (e.g. api/transcribe.ts) can ingest text directly.
+// REPLACE semantics: re-ingesting a document the user already has (same title) deletes
+// the old rag_documents row first (sections/chunks cascade), so no caller can ever
+// duplicate the index — re-uploads and retries update in place.
 export async function ingest(body) {
   const { userId, courseId = null, title = "Untitled", kind = "text", sourceUrl = null, text, pages } = body ?? {};
   if (!userId) return { status: 400, json: { error: "userId required" } };
 
-  // course_id columns are uuid. Callers sometimes pass a non-UUID native id (e.g.
-  // an LMS course number "4552"), which throws "invalid input syntax for type
-  // uuid". Coerce anything that isn't a real UUID to null (document still indexes,
-  // just not course-linked). One chokepoint covers every ingest caller + all three
-  // inserts below (documents / sections / chunks).
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const cid = (courseId && UUID_RE.test(String(courseId))) ? String(courseId) : null;
+  const cid = coerceUuid(courseId);
 
   // Prefer structured per-page input (real page-number citations); fall back to
   // a flat text string for callers that don't have page structure.
@@ -237,6 +244,13 @@ export async function ingest(body) {
   // quality on genuine course material is unaffected.
   const CHUNKS_MAX = 2500;
   if (chunkRows.length > CHUNKS_MAX) chunkRows.length = CHUNKS_MAX;
+
+  // Replace, never duplicate: drop any prior copies of this document (same user+title).
+  // FK cascade removes their sections/chunks (and embeddings). Best-effort — a failed
+  // delete must not block indexing the new copy.
+  const { error: delErr } = await supabase
+    .from("rag_documents").delete().eq("user_id", userId).eq("title", title);
+  if (delErr) console.warn("[rag] dedup delete failed (continuing):", delErr.message);
 
   // Persist rows WITHOUT embeddings first — fast and never times out. Embeddings get
   // filled in afterward in bounded batches via action=embed, so a 300-page textbook
@@ -348,13 +362,20 @@ async function query(body) {
   if (!userId) return { status: 400, json: { error: "userId required" } };
   if (!q || !String(q).trim()) return { status: 400, json: { error: "query required" } };
 
-  const [queryEmbedding] = await embed([String(q)]);
+  // Cap the query for retrieval — the embedding + full-text search don't benefit from
+  // more than the gist, and an unbounded query (e.g. a whole pasted essay) is slow to
+  // embed and search. Clients should pre-trim (src/lib/ragQuery), this is the backstop.
+  const qStr = String(q).slice(0, 2000);
+  const [queryEmbedding] = await embed([qStr]);
 
   const { data: hits, error } = await supabase.rpc("rag_hybrid_search", {
     p_user_id:         userId,
     p_query_embedding: queryEmbedding,
-    p_query_text:      String(q),
-    p_course_id:       courseId,
+    p_query_text:      qStr,
+    // Non-UUID course ids (live courses.id is BIGINT) used to reach the uuid RPC param
+    // raw → 22P02 → 500 → callers treated it as "no passages" and re-ingested. Coerce:
+    // an unlinkable id degrades to an all-courses search instead of an error.
+    p_course_id:       coerceUuid(courseId),
     p_match_count:     12,
   });
   if (error) return { status: 500, json: { error: `search: ${error.message}` } };
@@ -444,10 +465,14 @@ async function backfill(body) {
   const { userId, limit = 3 } = body ?? {};
   if (!userId) return { status: 400, json: { error: "userId required" } };
 
-  // Files the user has uploaded/synced that carry extracted text.
+  // Metadata-only pass first — this endpoint runs on EVERY tutor mount, and the common
+  // case is "everything already indexed". Selecting content_text here used to ship the
+  // user's ENTIRE library text out of Postgres (megabytes of billed egress) just to
+  // decide there was nothing to do. Text is fetched below, only for the files that
+  // actually need indexing (≤ limit rows).
   const { data: files, error: fErr } = await supabase
     .from("files")
-    .select("id, name, course_id, content_text, source_url")
+    .select("id, name, course_id, source_url")
     .eq("user_id", userId)
     .not("content_text", "is", null)
     .limit(500);
@@ -459,14 +484,19 @@ async function backfill(body) {
     .from("rag_documents").select("title").eq("user_id", userId);
   const have = new Set((existing ?? []).map(d => d.title));
 
-  const pendingFiles = files.filter(f => String(f.content_text ?? "").trim() && !have.has(f.name));
+  const pendingFiles = files.filter(f => !have.has(f.name));
 
   // ── Phase 1: index files that have text but aren't in the index yet ──
-  let indexed = 0;
+  let indexed = 0, skipped = 0;
   for (const f of pendingFiles.slice(0, limit)) {
+    // Fetch this one file's text now (single-row egress, only for real work).
+    const { data: fullRows } = await supabase
+      .from("files").select("content_text").eq("id", f.id).limit(1);
+    const contentText = String(fullRows?.[0]?.content_text ?? "");
+    if (!contentText.trim()) { skipped++; continue; }  // blank text — nothing to index
     const result = await ingest({
       userId, courseId: f.course_id ?? null, title: f.name, kind: "document",
-      text: f.content_text, sourceUrl: f.source_url ?? null,
+      text: contentText, sourceUrl: f.source_url ?? null,
     });
     if (result.status === 200 && result.json?.documentId) {
       for (let i = 0; i < 3; i++) {
@@ -474,9 +504,11 @@ async function backfill(body) {
         if (eb.json?.done) break;
       }
       indexed++;
+    } else {
+      skipped++;  // unindexable (e.g. whitespace-only) — don't count it as still-pending
     }
   }
-  if (pendingFiles.length > indexed) {
+  if (pendingFiles.length > indexed + skipped) {
     // More files to index — keep looping (progressed iff we indexed at least one).
     return { status: 200, json: { phase: "index", indexed, progressed: indexed > 0, done: false } };
   }

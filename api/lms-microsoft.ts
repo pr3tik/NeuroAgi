@@ -351,13 +351,17 @@ export default async function handler(req: any, res: any) {
       // 1. Upsert the class as a course (ms_ prefix keeps Graph ids from colliding).
       let courseId: string | null = null;
       try {
-        const { data: cRow } = await sb().from("courses").upsert({
+        // supabase-js returns errors instead of throwing — check explicitly, or a
+        // failed upsert silently reports success (same bug that hid the
+        // courses_source_check violation on the Classroom sync).
+        const { data: cRow, error: cErr } = await sb().from("courses").upsert({
           user_id:          userId,
           canvas_course_id: `ms_${cls.id}`,
           name:             cls.displayName ?? "Untitled class",
           course_code:      cls.classCode ?? cls.displayName ?? null,
           source:           "microsoft_teams",
         }, { onConflict: "user_id,canvas_course_id" }).select("id").maybeSingle();
+        if (cErr) throw new Error(cErr.message);
         courseId = cRow?.id ?? null;
         summary.courses++;
       } catch (e: any) { summary.errors.push(`class ${cls.displayName}: ${e.message}`); }
@@ -372,7 +376,7 @@ export default async function handler(req: any, res: any) {
         const { value: assignments = [] } = await asgRes.json();
         for (const asg of assignments) {
           try {
-            await sb().from("assignments").upsert({
+            const { error: aErr } = await sb().from("assignments").upsert({
               user_id:              userId,
               course_id:            courseId,
               canvas_assignment_id: `ms_${asg.id}`,
@@ -382,6 +386,7 @@ export default async function handler(req: any, res: any) {
               points_possible:      asg.grading?.maxPoints ?? null,
               source:               "microsoft_teams",
             }, { onConflict: "user_id,canvas_assignment_id" });
+            if (aErr) throw new Error(aErr.message);
             summary.assignments++;
           } catch (e: any) { summary.errors.push(`assignment ${asg.displayName}: ${e.message}`); }
 

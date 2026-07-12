@@ -38,8 +38,21 @@ const brainHeaders = {
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 async function fetchPersons() {
+  // Watermark: only persons with a NEW signal since the last hourly run (65min slack).
+  // The old version pulled ALL persons and re-synthesized anyone with any signal in the
+  // trailing 24h — so a single chat message bought 24 hourly Claude syntheses and 24
+  // context_window rows. Now: no new activity → no reads, no LLM call, no write.
+  const since = new Date(Date.now() - 65 * 60 * 1000).toISOString();
+  const sigRes = await fetch(
+    `${BRAIN_URL}/rest/v1/signals?created_at=gte.${since}&select=person_id&limit=2000`,
+    { headers: brainHeaders }
+  );
+  if (!sigRes.ok) throw new Error(`fetchActiveSignals ${sigRes.status}`);
+  const ids = [...new Set(((await sigRes.json()) ?? []).map(s => s.person_id).filter(Boolean))];
+  if (!ids.length) return [];
+
   const res = await fetch(
-    `${BRAIN_URL}/rest/v1/persons?select=id,name,email,source&limit=200`,
+    `${BRAIN_URL}/rest/v1/persons?id=in.(${ids.join(",")})&select=id,name,email,source&limit=200`,
     { headers: neuroHeaders }
   );
   if (!res.ok) throw new Error(`fetchPersons ${res.status}`);

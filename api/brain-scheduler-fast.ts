@@ -2,8 +2,9 @@
  * brain-scheduler-fast.js — Tier 1 Brain Scheduler (every 5 minutes)
  *
  * Lightweight signal aggregator — no Claude call, pure math.
- * Reads the last 3 signals per student and updates stress_score + momentum
- * in brain.context_window for near-real-time intervention detection.
+ * Reads the last few signals per student and fast-ESCALATES the 0–10 stress_level
+ * in brain.context_window for near-real-time intervention detection (Tier 2 owns the
+ * full recompute + de-escalation).
  *
  * Vercel Cron: runs every 5 minutes (see vercel.json)
  * Protected by CRON_SECRET header.
@@ -38,32 +39,37 @@ export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
-    // Get all students who have a brain_person_id
-    const { data: students, error: studentsErr } = await fschool
-      .from("users")
-      .select("id, brain_person_id")
-      .not("brain_person_id", "is", null)
-      .limit(200);
+    // Watermark: only students with a NEW brain signal in the last cadence window get
+    // processed. The old version looped EVERY linked user (1 + 3N queries per 5-min run
+    // ≈ 112k queries/day at 130 users) even for students idle for weeks. One signals
+    // query now finds the active set; a quiet run costs exactly 1 query.
+    const since = new Date(Date.now() - 6 * 60 * 1000).toISOString(); // 5-min cadence + slack
+    const { data: recent, error: sigErr } = await brain
+      .from("signals")
+      .select("person_id")
+      .gte("created_at", since)
+      .limit(1000);
+    if (sigErr) throw sigErr;
 
-    if (studentsErr) throw studentsErr;
-    if (!students || students.length === 0) {
-      return res.status(200).json({ message: "No students with brain links", processed: 0 });
+    const activePersonIds = [...new Set((recent ?? []).map(r => r.person_id).filter(Boolean))];
+    if (!activePersonIds.length) {
+      return res.status(200).json({ message: "No active students this window", processed: 0 });
     }
 
     let updated = 0;
     const errors = [];
 
-    for (const student of students) {
+    for (const personId of activePersonIds) {
       try {
-        await updateStudentFastSignals(student.id, student.brain_person_id);
+        await updateStudentFastSignals(null, personId);
         updated++;
       } catch (e) {
-        errors.push({ userId: student.id, error: e.message });
+        errors.push({ personId, error: e.message });
       }
     }
 
     const elapsed = Date.now() - startTime;
-    console.log(`[brain-scheduler-fast] Updated ${updated}/${students.length} students in ${elapsed}ms`);
+    console.log(`[brain-scheduler-fast] Updated ${updated}/${activePersonIds.length} active students in ${elapsed}ms`);
 
     return res.status(200).json({
       tier: 1,
@@ -78,96 +84,64 @@ export default async function handler(req, res) {
 }
 
 /**
- * Update a single student's stress_score and momentum from their last 3 signals.
+ * Update a single student's 0–10 stress_level from their recent signals (escalate-only).
  * Pure math — no LLM call.
  */
 async function updateStudentFastSignals(userId, brainPersonId) {
-  // Get the last 3 signals from Brain DB
+  // Last few signals from the Brain DB.
   const { data: signals, error } = await brain
     .from("signals")
     .select("signal_type, payload, created_at")
     .eq("person_id", brainPersonId)
     .order("created_at", { ascending: false })
-    .limit(3);
+    .limit(8);
 
   if (error || !signals || signals.length === 0) return;
 
-  // ── Stress score: 0–100 ───────────────────────────────────────────────────
-  // Based on: overdue assignments, late-night sessions, negative emotional tone
-  let stressScore = 50; // baseline
-
+  // ── Stress: 0–10 (matches brain-scheduler + brain-intervention's >=7 threshold) ──
+  // Read the signals producers ACTUALLY emit: NeuralRing writes signal_type 'behavioral'
+  // with payload.emotional_tone; session-close writes 'academic' with payload.score/event.
+  // (The old code keyed on 'chat_message'/'session_end' — which nothing produces — and wrote
+  // metadata.stress_score on a 0–100 scale no reader consumes, so this whole tier was dead.)
+  let stress = 0;
   for (const sig of signals) {
     const p = sig.payload || {};
-
-    if (sig.signal_type === "chat_message") {
-      // Emotional tone from message analysis
-      if (p.stress_level === "high")   stressScore = Math.min(100, stressScore + 15);
-      if (p.stress_level === "low")    stressScore = Math.max(0,   stressScore - 10);
-      // Late night sessions increase stress
-      const hour = new Date(sig.created_at).getHours();
-      if (hour >= 23 || hour <= 4)     stressScore = Math.min(100, stressScore + 10);
-    }
-
-    if (sig.signal_type === "session_end") {
-      // Low score on recent work increases stress
-      if (p.score !== undefined && p.score < 60) stressScore = Math.min(100, stressScore + 20);
-      if (p.score !== undefined && p.score > 80) stressScore = Math.max(0,   stressScore - 15);
-    }
+    if (p.emotional_tone === "stressed")  stress += 3;
+    if (p.emotional_tone === "confident") stress -= 1;
+    const hour = p.hour_of_day ?? new Date(sig.created_at).getHours();
+    if (hour >= 23 || hour <= 4)          stress += 1;                // late-night work
+    if (typeof p.score === "number" && p.score < 60) stress += 3;     // recent low score
   }
+  stress = Math.max(0, Math.min(10, stress));
 
-  // ── Momentum: -1 to 1 ────────────────────────────────────────────────────
-  // Positive = student is on track, negative = falling behind
-  let momentum = 0;
-  const recentSignalCount = signals.length;
-  const latestSignal = signals[0];
-  const latestAge = (Date.now() - new Date(latestSignal.created_at).getTime()) / (1000 * 60); // minutes
-
-  // If student was active in last 30 minutes, positive momentum
-  if (latestAge < 30) momentum += 0.3;
-  // Multiple signals in last 3 = engaged
-  if (recentSignalCount >= 3) momentum += 0.2;
-  // Stress drags momentum
-  if (stressScore > 75) momentum -= 0.4;
-  if (stressScore < 30) momentum += 0.2;
-
-  momentum = Math.max(-1, Math.min(1, momentum));
-
-  // ── Update context_window with fast metrics ───────────────────────────────
-  // Only update the numeric fields — don't overwrite the full Claude summary
+  // Latest context_window row for this person.
   const { data: existing } = await brain
     .from("context_window")
-    .select("id, metadata")
+    .select("id, stress_level, metadata")
     .eq("person_id", brainPersonId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (existing) {
-    // Update existing record with fresh fast metrics
-    const updatedMetadata = {
-      ...(existing.metadata || {}),
-      stress_score:    Math.round(stressScore),
-      momentum:        parseFloat(momentum.toFixed(2)),
-      fast_updated_at: new Date().toISOString(),
-    };
+  // Fast path only ESCALATES stress between the hourly Tier-2 syntheses — it never drags the
+  // richer Tier-2 value down (Tier-2 owns the full recompute, de-escalation, and momentum).
+  const nextStress = Math.max(existing?.stress_level ?? 0, stress);
+  const meta = { ...(existing?.metadata || {}), fast_stress: stress, fast_updated_at: new Date().toISOString() };
 
-    await brain
-      .from("context_window")
-      .update({ metadata: updatedMetadata })
-      .eq("id", existing.id);
+  if (existing) {
+    // Skip the write when it wouldn't change the acted-on value — the unconditional
+    // UPDATE used to rewrite every student's row 288×/day for nothing.
+    if (nextStress === (existing.stress_level ?? 0)) return;
+    await brain.from("context_window").update({ stress_level: nextStress, metadata: meta }).eq("id", existing.id);
   } else {
-    // No context_window yet — create a minimal one
-    await brain
-      .from("context_window")
-      .insert({
-        person_id: brainPersonId,
-        metadata: {
-          stress_score:    Math.round(stressScore),
-          momentum:        parseFloat(momentum.toFixed(2)),
-          fast_updated_at: new Date().toISOString(),
-        },
-        summary: "Initializing...",
-        created_at: new Date().toISOString(),
-      });
+    // No context_window yet — create a minimal valid one (recent_summary is the real
+    // column; the old insert wrote a non-existent `summary`).
+    await brain.from("context_window").insert({
+      person_id:      brainPersonId,
+      stress_level:   stress,
+      recent_summary: "Initializing…",
+      metadata:       meta,
+      created_at:     new Date().toISOString(),
+    });
   }
 }

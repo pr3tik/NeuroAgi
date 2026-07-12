@@ -37,6 +37,14 @@ const ESCALATION_COUNT  = 3;                      // # of recent very-high inter
 const ESCALATION_PAUSE_MS = 48 * 60 * 60 * 1000;  // suppress stress nudges this long after escalating
 const THREE_DAYS_MS     = 3 * 24 * 60 * 60 * 1000;
 
+// Engagement-tier strategy (Phase D): a brand-new account's first two weeks should
+// stay pure delight, not stress-triggered nudges — they haven't built up enough usage
+// for a Brain DB stress/momentum signal to mean much yet. Separately, "established"
+// (>14d) accounts that have gone quiet get a gentle, distinctly-toned re-engagement
+// nudge instead — see the pass after the main stress loop below.
+const WEEK1_MS          = 14 * 24 * 60 * 60 * 1000;
+const RE_ENGAGE_IDLE_MS = 5  * 24 * 60 * 60 * 1000;
+
 // ── Brain DB helpers ──────────────────────────────────────────────────────────
 const brainHeaders = {
   apikey:          BRAIN_KEY,
@@ -112,6 +120,17 @@ function composeWellbeing(person: any): string {
   ].join("\n");
 }
 
+// Gentle re-engagement message — deliberately distinct tone from composeMessage/
+// composeWellbeing: no stress/momentum language, framed as an invitation, not a nudge.
+function composeReEngagement(user: any): string {
+  const name = user.name ?? "there";
+  return [
+    `Hey ${name} 👋 — it's been a few days since we've seen you.`,
+    `No pressure at all — whenever you're ready, I'll pick up right where we left off.`,
+    `_— Reggie_`,
+  ].join("\n");
+}
+
 // ── Eligibility + scoring ──────────────────────────────────────────────────────
 function needsIntervention(ctx: any, stressThreshold = 7): { reason: string; stress: number; urgency: number; value: number } | null {
   const stress   = ctx.stress_level ?? 0;
@@ -144,17 +163,37 @@ export default async function handler(req: any, res: any) {
   if (!FS_URL || !FS_KEY)       return res.status(200).json({ ok: false, reason: "fschool db not configured" });
 
   const started = Date.now();
-  const results = { proposed: 0, skipped: 0, escalated: 0, errors: 0, persons: [] as any[] };
+  const results = { proposed: 0, skipped: 0, escalated: 0, errors: 0, reEngaged: 0, persons: [] as any[] };
 
   try {
-    const contexts = await brainGet("context_window?select=*,persons(id,name,fschool_user_id)&order=stress_level.desc");
-    console.log(`[brain-intervention] ${contexts.length} context windows loaded`);
+    // Prefilter in SQL to only rows that can possibly trigger: every needsIntervention()
+    // branch requires stress_level >= 5 (STRESS_MIN caps tuned thresholds at 5) or a
+    // stalled/declining momentum. The old unfiltered select=* (no limit!) downloaded the
+    // ENTIRE table every 30 minutes — and context_window is append-mostly, so the same
+    // person was processed once per HISTORICAL row. Dedupe to each person's newest row.
+    const rows = await brainGet(
+      "context_window?select=*,persons(id,name,source_id,metadata)"
+      + "&or=(stress_level.gte.5,momentum_state.eq.stalled,momentum_state.eq.declining)"
+      + "&order=created_at.desc&limit=500",
+    );
+    const seenPersons = new Set();
+    const contexts = rows.filter((r: any) => {
+      const pid = r.persons?.id ?? r.person_id;
+      if (!pid || seenPersons.has(pid)) return false;
+      seenPersons.add(pid);
+      return true;
+    });
+    console.log(`[brain-intervention] ${contexts.length} candidate persons (from ${rows.length} rows)`);
 
     for (const ctx of contexts) {
       const person = ctx.persons;
       if (!person) { results.skipped++; continue; }
 
-      const userId = person.fschool_user_id;
+      // brain-person-link stores the FschoolAI user id in persons.source_id (and mirrors
+      // it in metadata.fschoolai_user_id). It never wrote a `fschool_user_id` column, so
+      // the old read here was always null → every candidate was skipped_no_user and no
+      // intervention ever fired. Read the field the linker actually sets.
+      const userId = person.source_id ?? person.metadata?.fschoolai_user_id ?? null;
 
       // Effectiveness feedback (§3.5.4): read this student's tuned stress threshold (default 7).
       let tuning: Tuning = { stressThreshold: 7, channelPref: null, labelCount: 0 };
@@ -169,6 +208,18 @@ export default async function handler(req: any, res: any) {
 
       const trigger = needsIntervention(ctx, tuning.stressThreshold);
       if (!trigger) { results.skipped++; continue; }
+
+      // Week-1 accounts stay pure delight — skip stress-triggered nudges specifically
+      // (other trigger reasons, e.g. a genuinely stale context, still pass through).
+      if (userId && trigger.reason === "high_stress") {
+        // users has NO created_at column (live schema) → the old select 42703'd → catch →
+        // createdAt=0 → this Week-1 guard NEVER fired, so brand-new accounts got the stress
+        // nudges it was meant to suppress. email_verify_sent_at is set at signup and is real.
+        const uRows = await fsGet(`users?id=eq.${encodeURIComponent(userId)}&select=email_verify_sent_at`).catch(() => []);
+        const createdAt = uRows[0]?.email_verify_sent_at ? new Date(uRows[0].email_verify_sent_at).getTime() : 0;
+        if (createdAt && (Date.now() - createdAt) <= WEEK1_MS) { results.skipped++; continue; }
+      }
+
       if (!userId) {
         results.skipped++;
         await brainPost("interventions", {
@@ -274,6 +325,35 @@ export default async function handler(req: any, res: any) {
           metadata: { error: (err as Error).message, stress_level: trigger?.stress },
         }).catch(() => {});
       }
+    }
+
+    // ── Re-engagement pass: established (>14d) accounts gone quiet (5+ days) ──────
+    // Separate from the stress loop above — targets users who may generate NO Brain
+    // DB signal at all because they simply aren't engaging, which the loop above (keyed
+    // off context_window, itself populated by usage) can never reach.
+    try {
+      const cutoffCreated = new Date(started - WEEK1_MS).toISOString();
+      const idleCutoff     = new Date(started - RE_ENGAGE_IDLE_MS).toISOString();
+      const quiet = await fsGet(
+        `users?select=id,name,email_verify_sent_at,last_active_date` +
+        `&email_verify_sent_at=lte.${encodeURIComponent(cutoffCreated)}` +
+        `&or=(last_active_date.is.null,last_active_date.lt.${encodeURIComponent(idleCutoff.slice(0, 10))})`
+      ).catch(() => []);
+
+      for (const u of quiet) {
+        const outcome = await proposeProactive(u.id, {
+          agentSource: "cohort", type: "re_engagement",
+          urgencyScore: 0.15, valueScore: 0.4,           // low urgency — respects quiet hours, not time-sensitive
+          title: "We miss you",
+          body: composeReEngagement(u),
+          channelHint: "in_app",
+          dedupKey: "re_engagement",
+          expiresInHours: 24,
+        });
+        if (outcome === "created") results.reEngaged++;
+      }
+    } catch (err) {
+      console.error("[brain-intervention] re-engagement pass failed:", (err as Error).message);
     }
 
     const elapsed = Date.now() - started;

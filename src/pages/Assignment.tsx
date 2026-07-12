@@ -10,6 +10,7 @@ import { Target, Check, ChevronUp, ChevronDown } from "lucide-react";
 import { buildStudentContext } from "../data/mockData";
 import { useApp }        from "../context/AppContext";
 import { awardTokens }   from "../api/tokens";
+import { supabase }      from "../api/supabase";
 import OfficeHoursPanel  from "../components/OfficeHoursPanel";
 
 // ── Monitor agent — fires once per assignment, returns targeted nudge ─────────
@@ -88,7 +89,7 @@ function formatDue(dueAt) {
 }
 
 export default function Assignment() {
-  const { assignments: liveAssignments, canvasToken, userId, userData } = useApp();
+  const { assignments: liveAssignments, canvasToken, userId, userData, setTutorSeed, markAssignmentDone } = useApp();
 
   // Real assignments only — sorted by due date, unsubmitted.
   // NOTE: don't gate on canvasToken — assignments can be synced by the browser
@@ -132,6 +133,34 @@ export default function Assignment() {
     ? (selected.courseCode || selected.course || "")
     : "";
   const selectedTitle = selected?.name || selected?.title || "";
+
+  // Reset the done-toggle when switching assignments (and reflect an already-done one) —
+  // markedDone is component-scoped, so without this it would leak across selections.
+  useEffect(() => { setMarkedDone(!!selected?.submission?.submittedAt); }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Boot no longer downloads every assignment's Canvas HTML description (1-10KB each of
+  // egress nothing rendered) — fetch this one's brief when it's opened. Keyed like
+  // markAssignmentDone: canvas_assignment_id when present, else the DB row id.
+  const withDescription = useCallback(async (a: any) => {
+    if (!a || a.description != null) return a;
+    try {
+      let q = supabase.from("assignments").select("description").eq("user_id", userId).limit(1);
+      q = a.canvasAssignmentId != null
+        ? q.eq("canvas_assignment_id", String(a.canvasAssignmentId))
+        : q.eq("id", a.id);
+      const { data } = await q;
+      return { ...a, description: data?.[0]?.description ?? "" };
+    } catch { return a; }
+  }, [userId]);
+
+  // Persist "done" (survives refresh + Canvas re-sync) and drop the task from every list.
+  const handleMarkDone = useCallback(() => {
+    if (markedDone || !selected) return;
+    setMarkedDone(true);
+    const aId = selected?.id ?? selected?.canvas_assignment_id;
+    if (aId) awardTokens("assignment_submitted", { assignmentId: String(aId) }).catch(() => {});
+    markAssignmentDone(selected);
+  }, [markedDone, selected, markAssignmentDone]);
 
   const generateDraftFor = useCallback(async (assignment) => {
     if (generating) return;
@@ -343,6 +372,34 @@ export default function Assignment() {
           />
         </div>
 
+        {/* Core-loop actions — always visible (not gated on a generated draft):
+            take the task into the AI tutor, or mark it done (which flows back to the dashboard). */}
+        <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+          <button
+            onClick={() => {
+              const aId = selected?.id ?? selected?.canvas_assignment_id;
+              setTutorSeed({
+                assignmentId: aId != null ? String(aId) : null,
+                courseId:     selected?.courseId ?? null,
+                title:        selectedTitle,
+                course:       selectedCourse,
+              });
+            }}
+            style={{ flex: 1, background: "var(--color-accent)", color: "#111", border: "none", borderRadius: "var(--radius-btn)", padding: "12px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+          >
+            Study this with Reggie
+          </button>
+          <button
+            onClick={handleMarkDone}
+            disabled={markedDone}
+            style={{ flex: 1, background: markedDone ? "rgba(52,199,89,0.1)" : "var(--color-surface-hover)", border: `1px solid ${markedDone ? "rgba(52,199,89,0.3)" : "var(--color-border)"}`, borderRadius: "var(--radius-btn)", padding: "12px", color: markedDone ? "rgba(100,220,130,0.9)" : "var(--text-primary)", fontSize: "14px", cursor: markedDone ? "default" : "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
+          >
+            {markedDone
+              ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Check size={14} />Marked as done</span>
+              : "Mark as done"}
+          </button>
+        </div>
+
         {!draft && (
           generating
             ? <p style={{ color: "var(--text-dim)", fontSize: "13px", letterSpacing: "0.3px" }}>Generating draft…</p>
@@ -403,18 +460,6 @@ export default function Assignment() {
               <button onClick={() => navigator.clipboard.writeText(draft)} style={{ flex: 1, background: "var(--color-surface-hover)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-btn)", padding: "12px", color: "var(--text-primary)", fontSize: "14px", cursor: "pointer", fontFamily: "inherit", transition: "background var(--dur-base) var(--ease-apple)" }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.12)")} onMouseLeave={e => (e.currentTarget.style.background = "var(--color-surface-hover)")}>Copy</button>
               <button onClick={generateDraft} disabled={generating} style={{ flex: 1, background: "var(--color-surface-hover)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-btn)", padding: "12px", color: "var(--text-primary)", fontSize: "14px", cursor: generating ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: generating ? 0.5 : 1 }} onMouseEnter={e => { if (!generating) e.currentTarget.style.background = "rgba(255,255,255,0.12)"; }} onMouseLeave={e => (e.currentTarget.style.background = "var(--color-surface-hover)")}>{generating ? "Regenerating…" : "Regenerate"}</button>
             </div>
-            <button
-              onClick={() => {
-                if (markedDone) return;
-                setMarkedDone(true);
-                const aId = selected?.id ?? selected?.canvas_assignment_id;
-                if (aId) awardTokens("assignment_submitted", { assignmentId: String(aId) }).catch(() => {});
-              }}
-              disabled={markedDone}
-              style={{ width: "100%", marginTop: "10px", background: markedDone ? "rgba(52,199,89,0.1)" : "transparent", border: `1px solid ${markedDone ? "rgba(52,199,89,0.3)" : "rgba(255,255,255,0.1)"}`, borderRadius: "var(--radius-btn)", padding: "11px", color: markedDone ? "rgba(100,220,130,0.85)" : "rgba(255,255,255,0.35)", fontSize: "13px", cursor: markedDone ? "default" : "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
-            >
-              {markedDone ? <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><Check size={14} />Marked as done</span> : "Mark as done"}
-            </button>
           </>
         )}
       </div>
@@ -443,7 +488,12 @@ export default function Assignment() {
             return (
               <button
                 key={a.id}
-                onClick={() => { setSelected(a); setDraft(""); generateDraftFor(a); }}
+                onClick={async () => {
+                  setSelected(a); setDraft("");                     // open the view instantly
+                  const full = await withDescription(a);            // then hydrate the brief
+                  setSelected(full);
+                  generateDraftFor(full);
+                }}
                 style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", boxShadow: "var(--depth-line)", padding: "18px", cursor: "pointer", textAlign: "left", width: "100%", fontFamily: "inherit", transition: "background var(--dur-base) var(--ease-apple)" }}
                 onMouseEnter={e => (e.currentTarget.style.background = "var(--color-surface-hover)")}
                 onMouseLeave={e => (e.currentTarget.style.background = "var(--color-surface)")}

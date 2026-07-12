@@ -3,7 +3,7 @@
 // BUG FIX: accept/decline persists via data.actioned field in DB (survives reopen).
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { UserPlus, Check, MessageCircle, DoorOpen, ClipboardList, Trophy, TrendingUp, Brain, Bell } from "lucide-react";
+import { UserPlus, Check, MessageCircle, DoorOpen, ClipboardList, Trophy, TrendingUp, Brain, Bell, Sparkles, GraduationCap } from "lucide-react";
 import {
   AppNotification,
   fetchNotifications,
@@ -50,6 +50,8 @@ const TYPE_CFG: Record<string, { icon: any; defaultTitle: string; useAvatar: boo
   milestone:        { icon: Trophy,         defaultTitle: "Milestone reached",   useAvatar: false },
   ranking:          { icon: TrendingUp,     defaultTitle: "Leaderboard update",  useAvatar: false },
   intervention:     { icon: Brain,          defaultTitle: "A nudge from Reggie",  useAvatar: false },
+  re_engagement:    { icon: Sparkles,       defaultTitle: "We miss you",          useAvatar: false },
+  exam_mastery:     { icon: GraduationCap,  defaultTitle: "Exam coming up",       useAvatar: false },
 };
 
 // ── Friends API adapter ───────────────────────────────────────────────────────

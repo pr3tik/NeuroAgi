@@ -42,12 +42,18 @@ export default async function handler(req, res) {
   const ip = clientIp(req);
   const since = new Date(Date.now() - WINDOW_HOURS * 3600 * 1000).toISOString();
 
-  const [{ count: guestCount }, { count: ipCount }] = await Promise.all([
+  const [gRes, ipRes] = await Promise.all([
     supabase.from("guest_demo_usage").select("id", { count: "exact", head: true })
       .eq("guest_uid", guestUid).gte("created_at", since),
     supabase.from("guest_demo_usage").select("id", { count: "exact", head: true })
       .eq("ip", ip).gte("created_at", since),
   ]);
+  // Fail CLOSED on a count error: previously { count } was destructured and .error
+  // ignored, so a DB error → count=null → limit read as 0 → unlimited free previews.
+  if (gRes.error || ipRes.error) {
+    return res.status(503).json({ blocked: true, reason: "rate_check_failed", message: "Please try again in a moment." });
+  }
+  const guestCount = gRes.count, ipCount = ipRes.count;
 
   if ((guestCount ?? 0) >= GUEST_LIMIT) {
     return res.status(429).json({ blocked: true, reason: "guest_limit", message: "You've used your free preview — sign up to keep going." });

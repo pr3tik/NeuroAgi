@@ -19,11 +19,14 @@ import { useApp }      from "../context/AppContext";
 import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
+import { buildRetrievalQuery } from "../lib/ragQuery";
+import { replaceFlashcardDeck } from "../lib/flashcardsSave";
 import { ensureTutorReply } from "../lib/tutorReply";
 import { parseVoiceTags, stripAgentJSON } from "../lib/voiceTags";
 import { createSentenceChunker } from "../lib/ttsChunker";
 import { streamReggie } from "../lib/reggieStream";
-import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play } from "lucide-react";
+import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play, Mic } from "lucide-react";
+import { createDictation } from "../lib/dictation";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -404,16 +407,21 @@ function buildFirstSessionGreeting(assignments, courses, userData) {
 
   const walkthrough = WALKTHROUGH_STYLE[userData?.learning_style] || "a walkthrough";
 
+  // First-person self-introduction — this is the ONE moment Reggie names itself,
+  // matching the onboarding doc's "Meet Reggie" beat (Step 2: introduces itself,
+  // already knows the student's courses/deadlines, doesn't ask them to explain).
+  const intro = "I'm Reggie.";
+
   if (nextDue) {
     const course = courses?.find(c => c.id === nextDue.courseId || c.dbId === nextDue.courseId);
     const courseLabel = course?.courseCode || course?.name;
     const subject = courseLabel ? `${courseLabel} — ${nextDue.name}` : nextDue.name;
-    return `${name}, your ${subject} is due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}. Want ${walkthrough}, or a 2-minute readiness check?`;
+    return `${intro} ${name}, your ${subject} is due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}. Want ${walkthrough}, or a 2-minute readiness check?`;
   }
 
   // No synced deadline yet (e.g. skipped Canvas connect) — still personalize with
   // the intake answer instead of falling back to something generic.
-  return `Hey ${name} — want to start with ${walkthrough} on something you're working on, or a quick 2-minute check-in on where you're at?`;
+  return `${intro} Hey ${name} — want to start with ${walkthrough} on something you're working on, or a quick 2-minute check-in on where you're at?`;
 }
 
 // ── Situation-aware opening greeting ─────────────────────────────────────────
@@ -588,15 +596,7 @@ function InlineQuiz({ cards, userId, courseId }) {
   async function saveCards() {
     setSaving(true);
     try {
-      await supabase.from("flashcards").upsert(
-        {
-          user_id:      userId,
-          course_id:    courseId ?? null,
-          cards:        cards.map(c => ({ question: c.q, answer: c.a })),
-          generated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,course_id" }
-      );
+      await replaceFlashcardDeck(supabase, userId, courseId ?? null, cards);   // flashcards_v2 (the read table)
       setSaved(true);
     } catch { /* non-fatal */ }
     setSaving(false);
@@ -801,8 +801,8 @@ function buildNotificationAskCopy(studyWindow) {
   return byWindow[studyWindow] || "Want me to remind you before deadlines and study sessions?";
 }
 
-export default function NeuralRing() {
-  const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, userId, flashcardMap, syllabus, forceSync, canvasToken } = useApp();
+export default function NeuralRing({ currentPage }: { currentPage?: string } = {}) {
+  const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, tutorSeed, setTutorSeed, userId, flashcardMap, syllabus, forceSync, canvasToken } = useApp();
 
   const courseOptions = courses.length
     ? courses.map(c => `${c.courseCode} — ${c.name}`)
@@ -811,6 +811,7 @@ export default function NeuralRing() {
   // ── Tutor impressions + living mind — loaded once on mount ─────────────────
   const [impressions,      setImpressions]      = useState([]);
   const abortCtrlRef       = useRef(null);   // cancel in-flight fetch
+  const activeAssignmentRef = useRef(null);  // { assignmentId, courseId, title } when studying a task
   const audioSourceRef     = useRef(null);   // cancel in-flight audio
   const [lastSession,      setLastSession]      = useState(null);
   const [livingMind,       setLivingMind]       = useState(null);
@@ -895,6 +896,11 @@ export default function NeuralRing() {
   const inputRef                = useRef(null);
   const attachInputRef          = useRef(null);
   const [attachStatus, setAttachStatus] = useState<string | null>(null);
+  // Mic dictation for the text input (tap to talk -> words land in the box, user edits
+  // then sends). Separate from full voice mode; works in classic AND Reggie mode.
+  const [dictState, setDictState] = useState<"idle" | "listening" | "processing">("idle");
+  const [dictInterim, setDictInterim] = useState("");
+  const dictationRef = useRef<any>(null);
 
   // Voice intelligence state
   const [activeVoiceId,      setActiveVoiceId]      = useState(null); // drives instant chip highlight
@@ -1764,14 +1770,23 @@ export default function NeuralRing() {
         // The next startAutoListen() will stop this stream before opening a fresh one.
         const bargeinData = new Float32Array(analyser.fftSize);
         const BARGE_THRESH = 0.012 * 2.5;
+        const BARGE_FRAMES = 10;   // ~150-200ms of SUSTAINED input before we treat it as a
+                                   // real interruption — so the tutor's own audio leaking
+                                   // into the mic (echo on speakers) or a one-frame blip
+                                   // can't cut its answer off mid-sentence.
+        let bargeCount = 0;
         function bargeinTick() {
           if (!analyserRef.current) return; // stream was closed
           analyser.getFloatTimeDomainData(bargeinData);
           const rms = Math.sqrt(bargeinData.reduce((s, v) => s + v * v, 0) / bargeinData.length);
           voiceRmsRef.current = Math.min(rms * 14, 1);
           if (speakingRef.current && rms > BARGE_THRESH) {
-            stopResponse(); // kills TTS chain + aborts stream
-            return;         // let sendMessage's finally-path call startAutoListen
+            if (++bargeCount >= BARGE_FRAMES) {
+              stopResponse(); // kills TTS chain + aborts stream
+              return;         // let sendMessage's finally-path call startAutoListen
+            }
+          } else {
+            bargeCount = 0;   // reset on any quiet frame — only sustained speech interrupts
           }
           silenceRafRef.current = requestAnimationFrame(bargeinTick);
         }
@@ -1789,9 +1804,11 @@ export default function NeuralRing() {
       // Silence + barge-in detection loop
       const data = new Float32Array(analyser.fftSize);
       const SPEECH_THRESH  = 0.012;
-      const SILENCE_MS     = 600;   // time of silence before auto-stop
+      const SILENCE_MS     = 1400;  // trailing silence before auto-stop — long enough that a
+                                    // natural mid-sentence pause doesn't cut the speaker off
       const MIN_SPEECH_MS  = 400;   // min speech duration before silence timer arms
       let   speechStartTime = null; // when speech first crossed threshold this utterance
+      let   bargeFrames     = 0;    // consecutive loud frames while tutor speaks (debounce)
 
       function silenceTick() {
         if (!analyserRef.current) return;
@@ -1799,9 +1816,12 @@ export default function NeuralRing() {
         const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length);
         voiceRmsRef.current = Math.min(rms * 14, 1);
 
-        // Barge-in: user speaks while tutor is speaking → interrupt
+        // Barge-in: user speaks while tutor is speaking → interrupt. Require SUSTAINED
+        // input (not a single spike) so the tutor's own audio / a blip can't cut it off.
         if (speakingRef.current && rms > SPEECH_THRESH * 2.5) {
-          stopResponse();
+          if (++bargeFrames >= 10) stopResponse();
+        } else {
+          bargeFrames = 0;
         }
 
         if (rms > SPEECH_THRESH) {
@@ -1931,13 +1951,20 @@ export default function NeuralRing() {
       });
       if (!sttRes.ok) throw new Error(`STT ${sttRes.status}`);
       const { text } = await sttRes.json();
-      if (!text?.trim()) {
-        // Empty transcript — re-listen silently rather than leaving dead air
+      // Whisper HALLUCINATES on silence: ".", "...", "Thank you.", "you" are its classic
+      // quiet-room artifacts. Treating them as real speech created the "keeps saying
+      // dots" loop: silence -> "." sent as a message -> reply -> re-listen -> repeat.
+      const t = (text ?? "").trim();
+      const silenceArtifact =
+        /^[.,!?;:…\s]*$/.test(t) ||
+        /^(you|thank you|thanks for watching)[.!]?$/i.test(t);
+      if (!t || silenceArtifact) {
+        // Empty/hallucinated transcript — re-listen silently rather than leaving dead air
         sphereStateRef.current = "idle";
         if (voiceModeRef.current && !micDenied) await startAutoListen();
         return;
       }
-      const trimmed = text.trim();
+      const trimmed = t;
 
       // ── Stop-word detection — halt without sending to Claude ─────────────
       if (VOICE_STOP_WORDS.test(trimmed)) {
@@ -2106,12 +2133,7 @@ export default function NeuralRing() {
         })
         .filter(c => c.question && c.answer);
       if (cards.length > 0) {
-        await supabase.from("flashcards").upsert({
-          user_id:      userId,
-          course_id:    null,
-          cards:        cards.map(c => ({ question: c.question, answer: c.answer })),
-          generated_at: new Date().toISOString(),
-        }, { onConflict: "user_id,course_id" });
+        await replaceFlashcardDeck(supabase, userId, null, cards);   // flashcards_v2 (the read table)
         awardTokens("flashcards_generated", {}).catch(() => {});
         const msg = `${cards.length} flashcards ready for ${course}. Head to Study to review them.`;
         setMessages(m => [...m, { role: "assistant", content: msg }]);
@@ -2154,13 +2176,19 @@ export default function NeuralRing() {
       // this turn — streamingMsg is suppressed in voice mode, so it can't serve that role.
       spokenSoFar += (spokenSoFar ? " " : "") + clean;
       lastSpokenTextRef.current = spokenSoFar;
+      // PIPELINE: start synthesizing THIS sentence immediately, in parallel with whatever
+      // is currently playing — the chain serializes PLAYBACK order only. Without this,
+      // sentence N+1's synthesis waited for sentence N to finish playing, inserting a
+      // full TTS round-trip of silence between every spoken sentence.
+      const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
+      const audioP = fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+      audioP.catch(() => {});   // consumed in the chain — pre-empt unhandled-rejection noise
       ttsChain = ttsChain.then(async () => {
         if (abortCtrlRef.current?.signal?.aborted || voiceTTSAbortRef.current || myGen !== reggieTtsGen) return;
         setSpeaking(true); speakingRef.current = true;
         sphereStateRef.current = "speaking";
-        const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
         try {
-          const { play } = await fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+          const { play } = await audioP;
           await play(src => { audioSourceRef.current = src; });
         } catch (e) { console.warn("[reggie voice chunk]", e?.message); }
       });
@@ -2169,7 +2197,13 @@ export default function NeuralRing() {
 
     try {
       await streamReggie(
-        { userId, message: text, history, voiceMode: voice },
+        {
+          userId, message: text, history, voiceMode: voice,
+          // When the student launched from an assignment, ground the tutor in it — the
+          // agent-manager forwards these into ctx for the assignment-aware tools.
+          courseId:     activeAssignmentRef.current?.courseId ?? null,
+          assignmentId: activeAssignmentRef.current?.assignmentId ?? null,
+        },
         {
           onToken:      (d) => { streamed += d; toolNote = ""; paint(); if (speakLive) chunker.feed(d); },
           onReset:      ()  => { streamed = ""; paint(); chunker.reset(); },
@@ -2253,6 +2287,43 @@ export default function NeuralRing() {
     // Auto-restart listening after the reply ends, if still in voice mode.
     if (voice && voiceModeRef.current && !micDenied) await startAutoListen();
   };
+
+  // ── Assignment → Reggie handoff ────────────────────────────────────────────
+  // A page (the Assignment detail's "Study this with Reggie" button) sets tutorSeed.
+  // Open the tutor in Reggie mode with that assignment in scope so it can ground the
+  // conversation in the specific task, then clear the seed so it fires once.
+  useEffect(() => {
+    if (!tutorSeed) return;
+    const { assignmentId = null, courseId = null, title = "", course = "" } = tutorSeed;
+    activeAssignmentRef.current = { assignmentId, courseId, title };
+    // Reggie is the only assignment-aware path (agent-manager + assignment tools), so
+    // force it on for this turn (persisted + immediate via the ref).
+    reggieModeRef.current = true;
+    setReggieMode(true);
+    setChatOpen(true);
+    const seed = `I'm working on my assignment "${title}"${course ? ` for ${course}` : ""}. Help me get started. Where should I begin, and what should I focus on?`;
+    sendMessage(seed);
+    setTutorSeed(null);
+  }, [tutorSeed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggleDictation() {
+    if (dictState === "listening") {
+      const usingServer = dictationRef.current?.engine === "server";
+      setDictState(usingServer ? "processing" : "idle");   // server engine transcribes after stop
+      dictationRef.current?.stop();
+      return;
+    }
+    if (dictState === "processing") return;
+    const d = createDictation({
+      onInterim: (t) => setDictInterim(t),
+      onFinal:   (t) => { setDictInterim(""); setInput(prev => (prev ? prev.replace(/\s+$/, "") + " " : "") + t); },
+      onError:   (m) => { setAttachStatus(m); setTimeout(() => setAttachStatus(null), 5000); },
+      onEnd:     ()  => { setDictState("idle"); setDictInterim(""); },
+    });
+    dictationRef.current = d;
+    setDictState("listening");
+    d.start();
+  }
 
   const sendMessage = async (overrideText?) => {
     const text = overrideText ?? input.trim();
@@ -2368,12 +2439,15 @@ export default function NeuralRing() {
       // RAG source material is query-specific, so it's fetched per message here.
       let ragContext = null;
       abortCtrlRef.current = new AbortController();
-      // In Reggie mode the agent does its own retrieval (rag_search tool), so skip this
-      // separate fetch + context injection entirely.
-      const ragFetch = reggieModeRef.current ? Promise.resolve() : fetch("/api/rag?action=query", {
+      // In Reggie mode the agent does its own retrieval (rag_search tool). Otherwise:
+      // a big pasted prompt is self-contained context → skip retrieval (skipRag); a
+      // medium one is capped to its gist → both keep the "thinking" delay small on
+      // large prompts (embedding/searching the whole message was the slow part).
+      const { skip: skipRag, query: ragQuery } = buildRetrievalQuery(userMsg.content);
+      const ragFetch = (reggieModeRef.current || skipRag) ? Promise.resolve() : fetch("/api/rag?action=query", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, query: userMsg.content, rerank: false }),
+        body: JSON.stringify({ userId, query: ragQuery, rerank: false }),
       })
         .then(r => r.ok ? r.json() : null)
         .then(d => {
@@ -2392,7 +2466,7 @@ export default function NeuralRing() {
       // keeping it generous costs nothing in the normal (fast) case but stops a
       // slightly-slow query from dropping the file's grounding (the "no SOURCE MATERIAL"
       // bug). Lower caps trade reliable grounding for a worst-case bound that rarely helps.
-      if (!voiceModeRef.current && !reggieModeRef.current) {
+      if (!voiceModeRef.current && !reggieModeRef.current && !skipRag) {
         await Promise.race([ragFetch, new Promise(r => setTimeout(r, 4000))]);
       }
 
@@ -2445,7 +2519,7 @@ export default function NeuralRing() {
           const streamRes = await fetch("/api/claude", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages: apiMessages, system: finalSystem, max_tokens: 400, stream: true }),
+            body: JSON.stringify({ messages: apiMessages, system: finalSystem, max_tokens: 400, stream: true, task: "voice" }),
             signal: abortCtrlRef.current?.signal,
           });
           if (!streamRes.ok) throw new Error(`Stream ${streamRes.status}`);
@@ -2459,14 +2533,18 @@ export default function NeuralRing() {
           const enqueueTTS = (text) => {
             const clean = sanitizeForTTS(text.trim());
             if (!clean) return;
+            // PIPELINE (same as the Reggie path): synthesize now, serialize playback only —
+            // otherwise each sentence's synthesis waits for the previous one to finish playing.
+            const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
+            const audioP = fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+            audioP.catch(() => {});
             ttsChain = ttsChain.then(async () => {
               if (abortCtrlRef.current?.signal?.aborted || voiceTTSAbortRef.current) return;
               setSpeaking(true); speakingRef.current = true;
               sphereStateRef.current = "speaking";
-              const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
               console.log("[voice] speaking chunk | voiceId:", voiceIdRef.current ?? "(default)");
               try {
-                const { play } = await fetchAndDecodeAudio(clean, voiceIdRef.current, speedRef.current, tone);
+                const { play } = await audioP;
                 await play(src => { audioSourceRef.current = src; });
               } catch (e) { console.warn("[voice chunk]", e.message); }
             });
@@ -2640,6 +2718,11 @@ export default function NeuralRing() {
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
+  // On the dedicated Reggie page itself, the launcher/sidebar has nothing to add —
+  // the student is already in the full Reggie experience. Guard placed after all
+  // hooks above (never before) to keep hook-call order stable across renders.
+  if (currentPage === "studyAssistant") return null;
+
   return createPortal(
     <>
       {/* Floating ring */}
@@ -2760,11 +2843,14 @@ export default function NeuralRing() {
               {!maximized && <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.18)" }} />}
             </div>
 
-            {/* Header */}
+            {/* Header — flexWrap so an overflowing button row wraps onto a second line
+                instead of being clipped by this panel's overflow:"hidden" (was the actual
+                cause of Close looking "missing" at narrow/non-maximized widths — it wasn't
+                missing, it was clipped off-canvas). */}
             <div style={{ padding: "10px 20px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", rowGap: "8px" }}>
                 <div style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.18), rgba(255,255,255,0.04))", border: "1px solid rgba(255,255,255,0.12)" }} />
-                <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ minWidth: 0, flex: "1 1 100px", overflow: "hidden" }}>
                   {editingName ? (
                     <input
                       ref={ringNameInputRef}
@@ -2776,39 +2862,30 @@ export default function NeuralRing() {
                         background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.18)",
                         borderRadius: "6px", padding: "3px 9px", color: "var(--text-primary)",
                         fontSize: "17px", fontWeight: "600", letterSpacing: "-0.2px",
-                        outline: "none", fontFamily: "inherit", width: "160px",
+                        outline: "none", fontFamily: "inherit", width: "160px", maxWidth: "100%",
                       }}
                     />
                   ) : (
                     <p
                       onClick={() => { setRingNameInput(ringName); setEditingName(true); setTimeout(() => ringNameInputRef.current?.focus(), 0); }}
-                      style={{ color: "var(--text-primary)", fontSize: "17px", fontWeight: "600", letterSpacing: "-0.2px", cursor: "text" }}
+                      style={{
+                        color: "var(--text-primary)", fontSize: "17px", fontWeight: "600", letterSpacing: "-0.2px", cursor: "text",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
                       title="Tap to rename"
                     >
-                      {ringName || "Name your agent"}
+                      {ringName || "Reggie"}
                     </p>
                   )}
-                  <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "1px", letterSpacing: "0.4px" }}>
-                    Academic AI · Always on{speaking ? " · Speaking…" : ""}
+                  <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "1px", letterSpacing: "0.4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    Always on{speaking ? " · Speaking…" : ""}
                   </p>
                 </div>
 
-                {/* New chat */}
-                <button
-                  onClick={startNewChat}
-                  title="New chat"
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    width: 32, height: 32, flexShrink: 0, borderRadius: "50%",
-                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-                    cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
-
+                {/* Action buttons — grouped so they wrap together as a unit, pushed right.
+                    "New chat" lives in the history panel's own header (below), not here —
+                    was a redundant duplicate control taking up header space. */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto" }}>
                 {/* History */}
                 <button
                   onClick={() => setHistoryOpen(true)}
@@ -2864,6 +2941,25 @@ export default function NeuralRing() {
                   </svg>
                 </button>
 
+                {/* Open the dedicated full Reggie page — distinct from the in-place
+                    Maximize button above (which just resizes this same floating panel).
+                    This one navigates to the full-screen Reggie experience. */}
+                <button
+                  onClick={() => { setPendingNav({ page: "studyAssistant" }); setChatOpen(false); }}
+                  title="Open full Reggie page"
+                  aria-label="Open full Reggie page"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 32, height: 32, flexShrink: 0, borderRadius: "50%",
+                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+                    cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" />
+                  </svg>
+                </button>
+
                 {/* Close — the window is non-modal (no backdrop), so this is the
                     primary way to dismiss it on desktop. */}
                 <button
@@ -2881,6 +2977,7 @@ export default function NeuralRing() {
                     <path d="M18 6 6 18M6 6l12 12" />
                   </svg>
                 </button>
+                </div>
               </div>
             </div>
 
@@ -3192,12 +3289,31 @@ export default function NeuralRing() {
                     <rect x="13.5" y="5" width="2.5" height="4" rx="1.25"/>
                   </svg>
                 </button>
+                {/* Mic dictation — tap to talk, words land in the input (better STT path:
+                    browser speech engine when available, /api/stt fallback elsewhere) */}
+                <button
+                  onClick={toggleDictation}
+                  title={dictState === "listening" ? "Stop dictating" : dictState === "processing" ? "Transcribing…" : "Dictate (speech-to-text into the box)"}
+                  aria-label="Dictate"
+                  style={{
+                    background: dictState === "listening" ? "rgba(255,80,80,0.16)" : "none",
+                    border: dictState === "listening" ? "1px solid rgba(255,80,80,0.35)" : "1px solid transparent",
+                    borderRadius: 8, padding: "6px 6px", cursor: "pointer", flexShrink: 0,
+                    color: dictState === "listening" ? "#ff6b5a" : dictState === "processing" ? "#C49A3C" : "rgba(255,255,255,0.28)",
+                    transition: "color 0.15s, background 0.15s", outline: "none",
+                    animation: dictState === "listening" ? "fsPulseRing 1.4s ease-out infinite" : "none",
+                  }}
+                  onMouseEnter={e => { if (dictState === "idle") e.currentTarget.style.color = "#C49A3C"; }}
+                  onMouseLeave={e => { if (dictState === "idle") e.currentTarget.style.color = "rgba(255,255,255,0.28)"; }}
+                >
+                  <Mic size={16} strokeWidth={2.2} />
+                </button>
                 <textarea
                   ref={inputRef}
-                  value={input}
+                  value={dictInterim ? (input ? input + " " : "") + dictInterim : input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); getAudioContext(); sendMessage(); } }}
-                  placeholder="Ask a question, or where to go…"
+                  placeholder={dictState === "listening" ? "Listening… tap the mic to stop" : dictState === "processing" ? "Transcribing…" : "Ask a question, or where to go…"}
                   rows={1}
                   style={{
                     flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",

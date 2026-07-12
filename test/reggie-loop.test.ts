@@ -193,3 +193,21 @@ describe("reggie tool-use loop", () => {
     expect(events.some((e) => e.type === "token" && e.text.includes("blocking fallback"))).toBe(true);
   });
 });
+
+// Voice-mode turns must route to the latency-first "voice" gateway task (Haiku),
+// while text turns keep the specialist's task (Sonnet-backed "tutor").
+import { resolveRoute } from "../api/_gateway";
+describe("voice task routing", () => {
+  it("gateway resolves task 'voice' to the cheap/fast model with a Sonnet fallback", () => {
+    const r = resolveRoute({ task: "voice", messages: [] } as any);
+    expect(r.model).toMatch(/haiku/);
+    expect(r.fallback?.model).toMatch(/sonnet/);
+  });
+  it("ANTHROPIC_MODEL_VOICE overrides the voice model without code changes", () => {
+    process.env.ANTHROPIC_MODEL_VOICE = "claude-sonnet-4-6";
+    const r = resolveRoute({ task: "voice", messages: [] } as any);
+    expect(r.model).toBe("claude-sonnet-4-6");
+    delete process.env.ANTHROPIC_MODEL_VOICE;
+  });
+});
+
