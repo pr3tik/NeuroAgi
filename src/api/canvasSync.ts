@@ -579,6 +579,11 @@ export async function loadCanvasData(userId) {
 
     return {
       id:             a.canvas_assignment_id ?? a.id,
+      // Kept separately so writes (markAssignmentDone) can key on the right column:
+      // canvas_assignment_id when it exists (Canvas rows AND syllabus-extracted rows,
+      // whose ids are the deterministic `syl:…` strings), else the DB row id. Matching
+      // a `syl:…` string against the bigint id column would 400 the whole update.
+      canvasAssignmentId: a.canvas_assignment_id ?? null,
       name:           a.title ?? a.name,
       description:    a.description,
       dueAt:          a.due_at,

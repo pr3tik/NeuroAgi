@@ -434,7 +434,7 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { base64, storagePath, bucket = "media-uploads", keepFile = false, file_type, name, youtubeUrl, userId, courseId } = req.body ?? {};
+  const { base64, storagePath, bucket = "media-uploads", keepFile = false, file_type, name, youtubeUrl, userId, courseId, detectStructure = false } = req.body ?? {};
 
   // YouTube — URL-based, no file bytes.
   if (youtubeUrl) {
@@ -533,7 +533,36 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({ text: combined, pages, chars: combined.length, pageCount: pages.length, truncated });
+    // ── Syllabus → structured deadlines (MVP loop link ②) ─────────────────────
+    // When the uploader tags a course and asks for structure detection, run the
+    // syllabus parser over the extracted text and upsert any graded deliverables into
+    // the assignments table (deterministic ids → re-upload updates, never duplicates).
+    // Best-effort: a parse/save failure must NEVER fail the upload itself.
+    let structure: any = null;
+    if (detectStructure && userId && courseId && combined.trim()) {
+      try {
+        const { parseSyllabusStructure, syllabusRows } = await import("./_syllabus.js");
+        const parsed = await parseSyllabusStructure(combined, name);
+        if (parsed?.isSyllabus && parsed.assignments.length) {
+          const rows = syllabusRows(userId, courseId, parsed.assignments);
+          const sb = getSupabase();
+          const { error } = await sb.from("assignments").upsert(rows, { onConflict: "user_id,canvas_assignment_id" });
+          if (error) {
+            console.error("[extract] syllabus assignments save failed:", error.message);
+            structure = { isSyllabus: true, found: parsed.assignments.length, saved: 0, error: error.message };
+          } else {
+            structure = { isSyllabus: true, courseName: parsed.courseName, courseCode: parsed.courseCode,
+                          found: parsed.assignments.length, saved: rows.length };
+          }
+        } else if (parsed) {
+          structure = { isSyllabus: !!parsed.isSyllabus, found: 0, saved: 0 };
+        }
+      } catch (e: any) {
+        console.error("[extract] syllabus parse error:", e?.message ?? e);
+      }
+    }
+
+    return res.status(200).json({ text: combined, pages, chars: combined.length, pageCount: pages.length, truncated, structure });
   } catch (err) {
     console.error("[extract] failed:", err.message);
     return res.status(200).json({ text: "", pages: [], error: err.message }); // soft-fail: caller stores no content
