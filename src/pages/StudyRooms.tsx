@@ -384,12 +384,16 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
 
   function subscribeToLobby() {
     const ch = supabase.channel("lobby-watch-" + userId);
+    let roomsRefetchTimer: any = null;
     ch.on("postgres_changes", {
       event: "INSERT", schema: "public", table: "study_rooms",
     }, () => {
       // A new room appeared — refetch through the access RPC so we never show a
       // room this user isn't eligible for (can't tell from the raw row alone).
-      fetchRooms();
+      // Debounced: every lobby visitor holds this subscription, so a burst of room
+      // creations used to stampede (lobby users × full RPC) — coalesce within 3s.
+      if (roomsRefetchTimer) return;
+      roomsRefetchTimer = setTimeout(() => { roomsRefetchTimer = null; fetchRooms(); }, 3000);
     });
     ch.on("postgres_changes", {
       event: "UPDATE", schema: "public", table: "room_members",
@@ -1017,6 +1021,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [peerCursors,        setPeerCursors]        = useState<Record<string, { x: number; y: number; name: string; color: string }>>({});
   const [laserPositions,     setLaserPositions]     = useState<Record<string, { x: number; y: number; active: boolean }>>({});
   const lastCursorSentRef = useRef(0);
+  const lastLaserSentRef  = useRef(0);
   // Undo/redo — track strokes drawn by the local user only.
   const wbUndoStack = useRef<Stroke[]>([]);
   const wbRedoStack = useRef<Stroke[]>([]);
@@ -1638,8 +1643,17 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     // Yjs meta observer on peers fires → setWbBg(). Provider broadcasts the delta.
   }
 
+  // Realtime bills every message SENT and every DELIVERY — broadcasting cursor/laser/
+  // live-stroke traffic with nobody else in the room is pure billed waste. Presence
+  // keys are per-member, so >1 means someone else can actually see the broadcast.
+  function othersPresent(): boolean {
+    try { return Object.keys(channelRef.current?.presenceState() ?? {}).length > 1; }
+    catch { return false; }
+  }
+
   function handleLiveStroke(draft: { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] } | null) {
     if (!draft) return; // stroke finished — wb_stroke broadcast clears peers' live preview
+    if (!othersPresent()) return;
     const now = Date.now();
     if (now - lastLiveSentRef.current < 70) return; // ~14/s — under the 30/s realtime budget
     lastLiveSentRef.current = now;
@@ -1647,8 +1661,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   }
 
   function handleCursorMove(x: number | null, y: number | null) {
+    if (!othersPresent()) return;
     const now = Date.now();
-    if (now - lastCursorSentRef.current < 50) return; // ~20/s throttle
+    if (now - lastCursorSentRef.current < 100) return; // ~10/s — plenty for a cursor dot
     lastCursorSentRef.current = now;
     channelRef.current?.send({
       type: "broadcast", event: "wb_cursor",
@@ -1657,6 +1672,15 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   }
 
   function handleLaserMove(pos: { x: number; y: number } | null) {
+    if (!othersPresent()) return;
+    // Laser-off (pos === null) must always send so peers clear the dot; MOVES are
+    // throttled like live strokes — this used to fire completely unthrottled at
+    // pointer-event rate (60-120 msg/s), the single largest realtime message source.
+    if (pos !== null) {
+      const now = Date.now();
+      if (now - lastLaserSentRef.current < 70) return; // ~14/s
+      lastLaserSentRef.current = now;
+    }
     channelRef.current?.send({
       type: "broadcast", event: "wb_laser",
       payload: { userId, x: pos?.x ?? 0, y: pos?.y ?? 0, active: pos !== null },
@@ -2308,15 +2332,18 @@ function InviteModal({ room, userId, userData, onlineIds = [], onClose }) {
     }
 
     // Instant in-app ping for an online friend (also the local-dev path when the
-    // serverless endpoint isn't running — best-effort, never throws).
-    supabase.channel(`user:${friend.id}`).send({
+    // serverless endpoint isn't running — best-effort, never throws). The channel is
+    // removed after the send: it used to leak one live channel per invite for the
+    // rest of the session.
+    const pingCh = supabase.channel(`user:${friend.id}`);
+    pingCh.send({
       type: "broadcast", event: "nudge",
       payload: {
         kind: "invite", id: `${userId}-${friend.id}-${Date.now()}`,
         fromUserId: userId, fromName: userData?.name ?? "Someone",
         roomId: room.id, roomName: room.name,
       },
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => { try { supabase.removeChannel(pingCh); } catch {} });
     setInvited(i => ({ ...i, [friend.id]: "sent" }));
   }
 

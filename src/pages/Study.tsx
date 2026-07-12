@@ -848,19 +848,24 @@ export default function Study() {
         console.warn("[Study] course_content library query failed:", libErr.message);
       }
 
-      // 7. Actual lecture file text from files table (highest value — real course content)
+      // 7. Lecture-file grounding via stored SUMMARIES (this used to download the FULL
+      // content_text of 20 files — ~1MB of billed egress — to keep 400 chars of 4 of
+      // them; the summary column carries more signal per byte and is a few hundred
+      // bytes/row. Files without a summary are skipped: the RAG path above is the
+      // primary source for raw text.)
       try {
         if (dbId) {
           const { data: fileRows } = await supabase
             .from("files")
-            .select("name, content_text")
+            .select("name, summary")
             .eq("user_id", userId)
             .eq("course_id", dbId)
-            .not("content_text", "is", null)
+            .not("summary", "is", null)
             .limit(20);
 
           if (fileRows?.length) {
             const filtered = fileRows.filter(f =>
+              (f.summary || "").trim() &&
               !/course.?outline|zoom.?meeting|syllabus|course.?info|ai.?generated|tips.?for|appeals|feedback.?policy|academic.?integrity/i.test(f.name || "")
             );
             // Shuffle so repeated generations cover different files
@@ -869,18 +874,11 @@ export default function Study() {
               [filtered[i], filtered[j]] = [filtered[j], filtered[i]];
             }
             const fileContexts = filtered.slice(0, 4).map(f => {
-              let text = f.content_text || "";
-              text = text.split("\n").filter((l: string) => {
-                if (/copyright|©|\ball rights\b|registered in course|course material|unauthorized/i.test(l)) return false;
-                if (/^\s*(?:do you know|questions?)\s*\??$/i.test(l)) return false;
-                if (/^\s*(?:•|-|\d+\.)\s*(?:how|what|why|which|when|where|who|is|are|can|would|could)\b.+\?\s*$/.test(l)) return false;
-                return true;
-              }).join("\n");
-              text = text.replace(/\s+/g, " ").trim().slice(0, 400);
+              const text = String(f.summary || "").replace(/\s+/g, " ").trim().slice(0, 400);
               return text ? `[${f.name}]: ${text}` : null;
             }).filter(Boolean);
             if (fileContexts.length) {
-              parts.push(`LECTURE NOTES / SLIDES (actual course files):\n${fileContexts.join("\n\n")}`);
+              parts.push(`LECTURE NOTES / SLIDES (summaries of actual course files):\n${fileContexts.join("\n\n")}`);
             }
           }
         }
@@ -951,27 +949,24 @@ export default function Study() {
 
         let ragRes = await runRagQuery();
 
-        // No RAG content yet — backfill from files.content_text then retry once
+        // No RAG content yet — ask the SERVER to backfill (idempotent, dedup-by-title,
+        // reads files.content_text with the service key) then retry once. The old version
+        // downloaded up to 10 full documents to the browser and re-POSTed each to
+        // action=ingest — which had no dedup, so every "Generate" click duplicated the
+        // course's entire index (~39% of all rag docs were duplicates). Bounded loop:
+        // backfill indexes up to 3 files per call.
         if (!ragRes.passages?.length && dbId) {
-          const { data: fileRows } = await supabase
-            .from("files")
-            .select("name, content_text")
-            .eq("user_id", userId)
-            .eq("course_id", dbId)
-            .not("content_text", "is", null)
-            .limit(10);
-
-          if (fileRows?.length) {
-            // Ingest each file's existing text into RAG
-            for (const f of fileRows) {
-              await fetch("/api/rag?action=ingest", {
+          try {
+            for (let i = 0; i < 4; i++) {
+              const bf = await fetch("/api/rag?action=backfill", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userId, courseId: dbId, title: f.name, kind: "document", text: f.content_text }),
-              }).catch(() => {});
+                body: JSON.stringify({ userId, limit: 3 }),
+              }).then(r => r.json());
+              if (bf.done || !bf.progressed) break;
             }
             ragRes = await runRagQuery();
-          }
+          } catch { /* backfill is best-effort */ }
         }
 
         if (ragRes.passages?.length > 0) {

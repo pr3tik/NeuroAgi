@@ -76,6 +76,13 @@ async function start(body) {
     }
 
     await supabase.from("media_jobs").update({ status: "done", document_id: documentId }).eq("id", jobId);
+
+    // The transcript is now in RAG — delete the raw media from Storage. A 1-hour lecture
+    // is ~60MB (video far more); these objects were never removed, so the bucket only
+    // ever grew. Best-effort: a failed remove never fails the job (media_jobs keeps
+    // storage_path, so a later sweep can still find orphans).
+    await supabase.storage.from(BUCKET).remove([storagePath]).catch(() => {});
+
     return { status: 200, json: { jobId, status: "done", documentId } };
   } catch (err) {
     const msg = String(err?.message || err).slice(0, 300);

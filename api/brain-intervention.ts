@@ -166,8 +166,24 @@ export default async function handler(req: any, res: any) {
   const results = { proposed: 0, skipped: 0, escalated: 0, errors: 0, reEngaged: 0, persons: [] as any[] };
 
   try {
-    const contexts = await brainGet("context_window?select=*,persons(id,name,source_id,metadata)&order=stress_level.desc");
-    console.log(`[brain-intervention] ${contexts.length} context windows loaded`);
+    // Prefilter in SQL to only rows that can possibly trigger: every needsIntervention()
+    // branch requires stress_level >= 5 (STRESS_MIN caps tuned thresholds at 5) or a
+    // stalled/declining momentum. The old unfiltered select=* (no limit!) downloaded the
+    // ENTIRE table every 30 minutes — and context_window is append-mostly, so the same
+    // person was processed once per HISTORICAL row. Dedupe to each person's newest row.
+    const rows = await brainGet(
+      "context_window?select=*,persons(id,name,source_id,metadata)"
+      + "&or=(stress_level.gte.5,momentum_state.eq.stalled,momentum_state.eq.declining)"
+      + "&order=created_at.desc&limit=500",
+    );
+    const seenPersons = new Set();
+    const contexts = rows.filter((r: any) => {
+      const pid = r.persons?.id ?? r.person_id;
+      if (!pid || seenPersons.has(pid)) return false;
+      seenPersons.add(pid);
+      return true;
+    });
+    console.log(`[brain-intervention] ${contexts.length} candidate persons (from ${rows.length} rows)`);
 
     for (const ctx of contexts) {
       const person = ctx.persons;

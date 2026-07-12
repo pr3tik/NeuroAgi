@@ -284,8 +284,18 @@ export default function App() {
   const needsEmailVerify = !!userData && userData.email_verified === false;
   useEffect(() => {
     if (!needsEmailVerify) return;
-    const t = setInterval(() => { refreshUser(); }, 5000);
-    return () => clearInterval(t);
+    // Poll gently: skip hidden tabs (an abandoned tab used to fire ~17k queries/day) and
+    // back off 5s → 30s after the first minute. The focus/visibility listener in
+    // AppContext already re-checks immediately when the user comes back.
+    let ticks = 0;
+    let timer: any;
+    const tick = () => {
+      ticks++;
+      if (document.visibilityState === "visible") refreshUser();
+      timer = setTimeout(tick, ticks < 12 ? 5000 : 30000);
+    };
+    timer = setTimeout(tick, 5000);
+    return () => clearTimeout(timer);
   }, [needsEmailVerify, refreshUser]);
 
   async function checkVerified() {

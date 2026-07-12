@@ -10,6 +10,7 @@ import { Target, Check, ChevronUp, ChevronDown } from "lucide-react";
 import { buildStudentContext } from "../data/mockData";
 import { useApp }        from "../context/AppContext";
 import { awardTokens }   from "../api/tokens";
+import { supabase }      from "../api/supabase";
 import OfficeHoursPanel  from "../components/OfficeHoursPanel";
 
 // ── Monitor agent — fires once per assignment, returns targeted nudge ─────────
@@ -136,6 +137,21 @@ export default function Assignment() {
   // Reset the done-toggle when switching assignments (and reflect an already-done one) —
   // markedDone is component-scoped, so without this it would leak across selections.
   useEffect(() => { setMarkedDone(!!selected?.submission?.submittedAt); }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Boot no longer downloads every assignment's Canvas HTML description (1-10KB each of
+  // egress nothing rendered) — fetch this one's brief when it's opened. Keyed like
+  // markAssignmentDone: canvas_assignment_id when present, else the DB row id.
+  const withDescription = useCallback(async (a: any) => {
+    if (!a || a.description != null) return a;
+    try {
+      let q = supabase.from("assignments").select("description").eq("user_id", userId).limit(1);
+      q = a.canvasAssignmentId != null
+        ? q.eq("canvas_assignment_id", String(a.canvasAssignmentId))
+        : q.eq("id", a.id);
+      const { data } = await q;
+      return { ...a, description: data?.[0]?.description ?? "" };
+    } catch { return a; }
+  }, [userId]);
 
   // Persist "done" (survives refresh + Canvas re-sync) and drop the task from every list.
   const handleMarkDone = useCallback(() => {
@@ -472,7 +488,12 @@ export default function Assignment() {
             return (
               <button
                 key={a.id}
-                onClick={() => { setSelected(a); setDraft(""); generateDraftFor(a); }}
+                onClick={async () => {
+                  setSelected(a); setDraft("");                     // open the view instantly
+                  const full = await withDescription(a);            // then hydrate the brief
+                  setSelected(full);
+                  generateDraftFor(full);
+                }}
                 style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", boxShadow: "var(--depth-line)", padding: "18px", cursor: "pointer", textAlign: "left", width: "100%", fontFamily: "inherit", transition: "background var(--dur-base) var(--ease-apple)" }}
                 onMouseEnter={e => (e.currentTarget.style.background = "var(--color-surface-hover)")}
                 onMouseLeave={e => (e.currentTarget.style.background = "var(--color-surface)")}
