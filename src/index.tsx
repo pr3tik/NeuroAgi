@@ -10,9 +10,20 @@
 import ReactDOM    from "react-dom/client";
 import "./index.css";
 
+const isWaitlistDash =
+  window.location.hostname === "waitlist.fschoolai.com" ||
+  window.location.pathname.startsWith("/waitlist-dashboard");
+
 if (window.location.pathname === "/card") {
   // /card is retired — no public access. Bounce to the landing page.
   window.location.replace("/");
+} else if (isWaitlistDash) {
+  // Internal waitlist admin dashboard — served at the waitlist.* subdomain (routed here by
+  // hostname) and at /waitlist-dashboard for testing before DNS. No AppProvider/Supabase
+  // needed: it fetches its own admin-key-gated endpoint.
+  import("./pages/WaitlistDashboard").then(({ default: WaitlistDashboard }) => {
+    ReactDOM.createRoot(document.getElementById("root")).render(<WaitlistDashboard />);
+  });
 } else {
   Promise.all([
     import("./App"),

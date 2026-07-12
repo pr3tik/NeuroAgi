@@ -84,6 +84,50 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ total });
     }
 
+    // ── admin: full dashboard data (Bearer CRON_SECRET — exposes emails, so gated) ──
+    // Powers waitlist.fschoolai.com. Aggregates server-side with the service key so it
+    // works regardless of RLS on the table.
+    if (action === "admin") {
+      const secret = process.env.CRON_SECRET;
+      if (!secret) return res.status(500).json({ error: "CRON_SECRET not configured" });
+      const key = (req.headers?.authorization ?? "").replace(/^Bearer\s+/i, "") || req.query?.key;
+      if (key !== secret) return res.status(401).json({ error: "Unauthorized" });
+
+      const { url, headers } = sb();
+      // select=* so an absent optional column can't 400 the whole read; cap generously.
+      const r = await fetch(`${url}/rest/v1/waitlist?select=*&order=created_at.asc&limit=50000`, { headers });
+      if (!r.ok) return res.status(502).json({ error: `waitlist read failed (${r.status}) — is the DB up + migration run?` });
+      const rows = (await r.json()) as any[];
+
+      const total = rows.length;
+      const invited = rows.filter(x => x.invited_at).length;
+      const referred = rows.filter(x => x.referred_by).length;
+
+      const now = Date.now();
+      const within = (ms: number) => rows.filter(x => x.created_at && now - new Date(x.created_at).getTime() <= ms).length;
+
+      const bySourceMap: Record<string, number> = {};
+      for (const x of rows) { const s = (x.source || "unknown").toString(); bySourceMap[s] = (bySourceMap[s] || 0) + 1; }
+      const bySource = Object.entries(bySourceMap).map(([source, count]) => ({ source, count })).sort((a, b) => b.count - a.count);
+
+      // Per-day buckets (UTC date) → daily count + running cumulative.
+      const dayMap = new Map<string, number>();
+      for (const x of rows) { const d = (x.created_at || "").slice(0, 10); if (d) dayMap.set(d, (dayMap.get(d) || 0) + 1); }
+      let cum = 0;
+      const daily = [...dayMap.keys()].sort().map(date => { cum += dayMap.get(date)!; return { date, count: dayMap.get(date)!, cumulative: cum }; });
+
+      const recent = rows.slice(-30).reverse().map(x => ({
+        email: x.email, name: x.name ?? null, source: x.source ?? null,
+        referred_by: x.referred_by ?? null, created_at: x.created_at ?? null, invited: !!x.invited_at,
+      }));
+
+      return res.status(200).json({
+        total, invited, pending: total - invited, referred,
+        last24h: within(86_400_000), last7d: within(7 * 86_400_000), last30d: within(30 * 86_400_000),
+        bySource, daily, recent, generatedAt: new Date().toISOString(),
+      });
+    }
+
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
     // ── public: join ──────────────────────────────────────────────────────────
