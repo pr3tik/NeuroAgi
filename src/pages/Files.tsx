@@ -95,12 +95,15 @@ async function processUpload(
   onStatus("Extracting text…");
   const exRes = await fetch("/api/extract", {
     method:"POST", headers:{"Content-Type":"application/json"},
-    // bucket: where the file lives; keepFile: don't delete (permanent storage); userId: for RAG auto-ingest
-    body: JSON.stringify({ storagePath:path, bucket:"course-files", keepFile:true, file_type:file.type, name:file.name, userId, courseId }),
+    // bucket: where the file lives; keepFile: don't delete (permanent storage); userId: for RAG
+    // auto-ingest; detectStructure: if this is a syllabus tagged to a course, also extract its
+    // graded deliverables into the assignments table (MVP loop link ② — feeds Today's Focus).
+    body: JSON.stringify({ storagePath:path, bucket:"course-files", keepFile:true, file_type:file.type, name:file.name, userId, courseId, detectStructure: !!courseId }),
   });
   const exData = await exRes.json().catch(() => ({}));
   if (!exRes.ok || !exData.text) throw new Error(exData.error || "Couldn't extract text.");
   const contentText: string = exData.text;
+  const structure = exData.structure ?? null; // { isSyllabus, found, saved, ... } | null
 
   onStatus("Generating summary…");
   const sumRes  = await fetch("/api/summarize", {
@@ -122,7 +125,7 @@ async function processUpload(
   if (dbErr) throw new Error(`Couldn't save: ${dbErr.message}`);
 
   return { id:row.id, name:file.name, fileType:ext, storagePath:path,
-           summary, highlights, processedAt, sizeBytes:file.size, courseDbId:courseId };
+           summary, highlights, processedAt, sizeBytes:file.size, courseDbId:courseId, structure };
 }
 
 // ── processYouTube — URL → transcript → public.files ─────────────────────
@@ -189,12 +192,13 @@ type ProcessState = { phase:"idle" }
   | { phase:"error";   message:string };
 
 function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
-  const { userId, courses } = useApp() as any;
+  const { userId, courses, refreshFromSupabase } = useApp() as any;
   const fileRef  = useRef<HTMLInputElement>(null);
   const [state,    setState]  = useState<ProcessState>({ phase:"idle" });
   const [ytUrl,    setYtUrl]  = useState("");
   const [dragging, setDragging] = useState(false);
   const [courseId, setCourseId] = useState<string>(""); // "" = general library (no course)
+  const [notice,   setNotice]   = useState<string | null>(null); // e.g. "Found 8 deadlines…"
   const busy = state.phase === "working";
 
   // Only courses persisted to the DB can be linked (they have a dbId / UUID).
@@ -203,10 +207,18 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
   async function handleFile(file: File | undefined) {
     if (!file || !userId) return;
     setState({ phase:"working", message:"Starting…" });
+    setNotice(null);
     try {
       const result = await processUpload(file, userId, msg => setState({ phase:"working", message:msg }), courseId || null);
       setState({ phase:"idle" });
       onProcessed(result);
+      // Syllabus detected → deadlines were written to the assignments table. Tell the
+      // user and reload app state so Today's Focus / Assignments show them immediately.
+      if (result?.structure?.saved > 0) {
+        setNotice(`Found ${result.structure.saved} deadline${result.structure.saved === 1 ? "" : "s"} in this syllabus — added to your assignments.`);
+        refreshFromSupabase?.().catch(() => {});
+        setTimeout(() => setNotice(null), 10000);
+      }
     } catch (e: any) {
       setState({ phase:"error", message: e.message || "Something went wrong." });
     }
@@ -296,6 +308,15 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
           </p>
         )}
       </div>
+
+      {/* Syllabus-detected notice — deadlines extracted into Assignments */}
+      {notice && (
+        <p style={{ fontSize:12, color:"rgba(100,220,130,0.9)", background:"rgba(52,199,89,0.08)",
+                    border:"1px solid rgba(52,199,89,0.25)", borderRadius:"var(--radius-btn)",
+                    padding:"8px 12px", marginBottom:12 }}>
+          {notice}
+        </p>
+      )}
 
       <input
         ref={fileRef} type="file"

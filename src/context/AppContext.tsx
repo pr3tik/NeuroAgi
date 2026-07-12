@@ -541,11 +541,16 @@ export function AppProvider({ children }) {
         : a
     ));
     try {
-      // Canvas assignments key on canvas_assignment_id; manual ones (no Canvas id) on the DB id.
+      // Key on canvas_assignment_id whenever the row HAS one (Canvas rows and
+      // syllabus-extracted rows with deterministic `syl:…` ids); otherwise on the DB id
+      // (addManualCourse rows). Matching a non-numeric id against the bigint id column
+      // would 400 the whole update (PostgREST cast).
       const base = supabase.from('assignments').update({ manual_done_at: doneAt }).eq('user_id', userId);
-      const { error } = assignment.isManual
-        ? await base.eq('id', aid)
-        : await base.eq('canvas_assignment_id', String(aid));
+      const { error } = assignment.canvasAssignmentId != null
+        ? await base.eq('canvas_assignment_id', String(assignment.canvasAssignmentId))
+        : assignment.isManual
+          ? await base.eq('id', aid)
+          : await base.eq('canvas_assignment_id', String(aid));
       if (error) console.warn('[markAssignmentDone] persist failed (run supabase-assignment-done-migration.sql?):', error.message);
     } catch (e) {
       console.warn('[markAssignmentDone]', e?.message);
