@@ -11,7 +11,7 @@
 //   • Captures completed downloads from academic sites (pending list / opt-in auto)
 
 // Dev vs prod: change to "http://localhost:5173" for local testing
-const FSCHOOLAI_ORIGIN = "http://localhost:5173";
+const FSCHOOLAI_ORIGIN = "https://fschoolai.com";
 const API_BASE         = FSCHOOLAI_ORIGIN;
 
 const FULL_SYNC_TTL_MS = 6 * 60 * 60 * 1000;    // re-sync a given LMS host at most every 6h
