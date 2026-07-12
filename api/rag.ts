@@ -157,7 +157,20 @@ export function chunkText(text) {
       let sBuf = "";
       for (const s of sentences) {
         if ((sBuf + s).length > CHUNK_MAX) { if (sBuf.trim()) chunks.push(sBuf.trim()); sBuf = ""; }
-        sBuf += s;
+        // A "sentence" itself can exceed CHUNK_MAX when the source has no
+        // punctuation to split on (e.g. garbled/binary content misread as text,
+        // such as a video file served with the wrong content-type) — hard-slice
+        // it so no chunk is ever unbounded, regardless of input structure. An
+        // unbounded chunk here is what fed a multi-MB row into rag_chunks and
+        // blew the Postgres statement timeout on insert.
+        if (s.length > CHUNK_MAX) {
+          for (let i = 0; i < s.length; i += CHUNK_MAX) {
+            const piece = s.slice(i, i + CHUNK_MAX).trim();
+            if (piece) chunks.push(piece);
+          }
+        } else {
+          sBuf += s;
+        }
       }
       if (sBuf.trim()) chunks.push(sBuf.trim());
     } else if ((buf + "\n\n" + para).length > CHUNK_MAX) {
@@ -225,6 +238,13 @@ export async function ingest(body) {
 
   if (!chunkRows.length) return { status: 400, json: { error: "no content to index" } };
 
+  // Bound the damage a single pathological document can do (garbled binary
+  // misread as text, or a many-thousand-page dump): ~2500 chunks ≈ 600+ real
+  // pages, beyond which we index the front of the document and stop. Retrieval
+  // quality on genuine course material is unaffected.
+  const CHUNKS_MAX = 2500;
+  if (chunkRows.length > CHUNKS_MAX) chunkRows.length = CHUNKS_MAX;
+
   // Replace, never duplicate: drop any prior copies of this document (same user+title).
   // FK cascade removes their sections/chunks (and embeddings). Best-effort — a failed
   // delete must not block indexing the new copy.
@@ -244,9 +264,21 @@ export async function ingest(body) {
   const { error: sErr } = await supabase.from("rag_sections").insert(sectionRows);
   if (sErr) return { status: 500, json: { error: `sections insert: ${sErr.message}` } };
 
-  for (let i = 0; i < chunkRows.length; i += 200) {
-    const { error: cErr } = await supabase.from("rag_chunks").insert(chunkRows.slice(i, i + 200));
-    if (cErr) return { status: 500, json: { error: `chunks insert: ${cErr.message}` } };
+  // Each row computes a tsvector (GIN-indexed) on insert — big batches hit
+  // Postgres's statement_timeout on documents with enough chunks. ADAPTIVE:
+  // start at 40 rows/statement, and on a timeout halve the batch and retry the
+  // same slice (down to a floor of 5) instead of failing the whole document —
+  // a busy/slow DB now just ingests slower rather than erroring out.
+  let batch = 40;
+  for (let i = 0; i < chunkRows.length; ) {
+    const slice = chunkRows.slice(i, i + batch);
+    const { error: cErr } = await supabase.from("rag_chunks").insert(slice);
+    if (!cErr) { i += slice.length; continue; }
+    if (/statement timeout|canceling statement|57014/i.test(cErr.message) && batch > 5) {
+      batch = Math.max(5, Math.floor(batch / 2));
+      continue;   // retry the SAME slice at the smaller size
+    }
+    return { status: 500, json: { error: `chunks insert: ${cErr.message}` } };
   }
 
   return { status: 200, json: { ok: true, documentId, sections: sectionRows.length, chunks: chunkRows.length } };

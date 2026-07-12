@@ -17,9 +17,17 @@ const API_BASE         = FSCHOOLAI_ORIGIN;
 const FULL_SYNC_TTL_MS = 6 * 60 * 60 * 1000;    // re-sync a given LMS host at most every 6h
 
 const INLINE_B64_LIMIT = 3_000_000;             // base64 chars (~2.2MB binary) — under Vercel's cap
-const MAX_FILE_BYTES   = 50 * 1024 * 1024;      // absolute cap, matches the server
+const INLINE_RAW_LIMIT = Math.floor(INLINE_B64_LIMIT * 0.75);   // raw-byte equivalent (base64 inflates ~4/3)
+const MAX_FILE_BYTES   = 100 * 1024 * 1024;     // absolute cap, matches the course-files bucket's 100MB limit
 const CAPTURED_MAX     = 800;                    // LRU size of the "already imported" URL set
 const QUEUE_MAX        = 40;                     // max queued imports at once
+
+// No transcription pipeline is wired into this extension for either LMS — a
+// video/audio file uploads fine then always dead-ends at "no text extracted".
+// Skip by filename BEFORE even fetching, wherever the LMS gives us a title —
+// pure wasted bandwidth/storage otherwise, on exactly the largest files.
+const VIDEO_AUDIO_EXT_RE = /\.(mp4|mov|avi|wmv|flv|m4v|webm|mkv|mp3|wav|m4a|ogg|aac|flac)(\?|#|$)/i;
+const looksLikeVideoAudio = (name) => VIDEO_AUDIO_EXT_RE.test(String(name || ""));
 
 // ── Auth state ─────────────────────────────────────────────────────────────
 
@@ -333,16 +341,42 @@ async function bytesFromResponse(res, allowedHost) {
   // permits Canvas inst-fs / D2L CDN, so this doesn't break the API adapters.
   if (allowedHost && res.url && !isAllowedSyncFileUrl(res.url, allowedHost)) throw new Error("Refusing a cross-origin redirect target");
   const mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "application/octet-stream";
+  // Reject oversized files from the Content-Length header BEFORE downloading the
+  // body — a 500MB lecture video used to be fully downloaded just to be thrown
+  // away here, stalling the whole sync. Cancel the stream so the transfer stops.
+  const declaredLen = Number(res.headers.get("content-length") || 0);
+  if (declaredLen > MAX_FILE_BYTES) {
+    try { res.body?.cancel(); } catch { /* already consumed/locked */ }
+    throw new Error("File too large (max 100 MB)");
+  }
+  // D2L sometimes wraps a media download (e.g. a lecture video topic) in a ZIP
+  // container instead of serving the raw file — /api/extract has no text to pull
+  // from a zip, so this used to fully download (often huge, since it's video),
+  // upload to storage, and only THEN fail at the extract step. Reject upfront —
+  // this extension has no zip-extraction path, so nothing is lost by skipping fast.
+  if (mimeType === "application/zip" || mimeType === "application/x-zip-compressed") {
+    try { res.body?.cancel(); } catch { /* already consumed/locked */ }
+    throw new Error("Zip-wrapped file (likely a video) — no extractable text, skipped");
+  }
   const buffer = await res.arrayBuffer();
-  if (buffer.byteLength > MAX_FILE_BYTES) throw new Error("File too large (max 50 MB)");
+  if (buffer.byteLength > MAX_FILE_BYTES) throw new Error("File too large (max 100 MB)");
   if (buffer.byteLength === 0) throw new Error("Empty response");
-  const b64 = bufferToBase64(buffer);
-  if (mimeType.includes("text/html") || base64LooksLikeHtml(b64)) {
+  // HTML/login-wall sniffing only needs the FRONT of the file, not the whole thing
+  // base64-encoded — for a 90MB file that used to mean encoding 90MB just to peek
+  // at it. Sniff a small prefix instead; base64 the full buffer only when the
+  // caller actually needs it (small files bound for the inline-JSON path).
+  const sniffLen = Math.min(buffer.byteLength, 4096);
+  const prefixB64 = bufferToBase64(buffer.slice(0, sniffLen));
+  if (mimeType.includes("text/html") || base64LooksLikeHtml(prefixB64)) {
     if (looksLikeLoginUrl(res.url)) throw transientError("LMS session expired — log in to your LMS and retry");
     throw new Error("Got a login/HTML page instead of the file — are you signed in to the LMS?");
   }
   const filename = filenameFromDisposition(res.headers.get("content-disposition")) || filenameFromUrl(res.url);
-  return { bytes: b64, mimeType, filename, finalUrl: res.url };
+  // Big files (headed for the storage-upload path) keep the raw buffer and skip
+  // base64 entirely — uploadViaStorage can PUT it directly. Small files still get
+  // base64 now since they're bound for an inline JSON body either way.
+  const bytes = buffer.byteLength > INLINE_RAW_LIMIT ? null : bufferToBase64(buffer);
+  return { bytes, buffer, mimeType, filename, finalUrl: res.url };
 }
 
 async function fetchFileBytes(url, allowedHost) {
@@ -425,7 +459,10 @@ async function resolveViewerFile(url, hint, allowedHost) {
 
 // ── Signed-upload path for big files (Vercel body limit) ────────────────────
 
-async function uploadViaStorage(auth, filename, b64, mimeType) {
+// Accepts either a raw ArrayBuffer (preferred — no re-encode) or a base64 string
+// (defensive fallback for a caller that only ever had bytes, e.g. content.js's
+// direct-fetch path, which in practice never exceeds INLINE_RAW_LIMIT anyway).
+async function uploadViaStorage(auth, filename, bufferOrB64, mimeType) {
   const signRes = await fetch(`${API_BASE}/api/lms-ingest?action=sign`, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
@@ -434,23 +471,37 @@ async function uploadViaStorage(auth, filename, b64, mimeType) {
   const sign = await signRes.json().catch(() => ({}));
   if (!signRes.ok || !sign.signedUrl) throw new Error(sign.error ?? "could not get upload URL");
 
-  // Rebuild the binary from base64 for the PUT body.
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  let body;
+  if (bufferOrB64 instanceof ArrayBuffer) {
+    body = bufferOrB64;
+  } else {
+    const bin = atob(bufferOrB64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    body = arr;
+  }
 
   const putRes = await fetch(sign.signedUrl, {
     method:  "PUT",
     headers: { "Content-Type": mimeType || "application/octet-stream" },
-    body:    bytes,
+    body,
   });
-  if (!putRes.ok) throw new Error(`storage upload failed (${putRes.status})`);
+  if (!putRes.ok) {
+    // Surface the actual rejection reason (was previously discarded) — a bare
+    // status code isn't enough to diagnose a signed-upload failure.
+    const detail = await putRes.text().catch(() => "");
+    throw new Error(`storage upload failed (${putRes.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+  }
   return { storagePath: sign.path, bucket: sign.bucket };
 }
 
 // ── File import (single entry point; queue-serialized) ──────────────────────
 
-let importChain = Promise.resolve();
+const IMPORT_CONCURRENCY = 8;   // parallel imports — raised from 4 now that big files use a raw
+                                 // ArrayBuffer (not a duplicated base64 string), so memory pressure
+                                 // per concurrent import is lower than it used to be
+let activeImports = 0;
+const importWaiters = [];       // resolvers parked while the pool is full
 let queueDepth  = 0;
 const inFlight  = new Set();   // canonical URLs currently queued/downloading (cross-frame dedup)
 
@@ -524,12 +575,22 @@ function enqueueImport(task) {
   queueDepth++;
   keepaliveStart();
   writeLiveState(queueDepth === 1);       // 0→1: flush so the spinner turns on instantly
-  const run = importChain.then(task).finally(() => {
+  const run = (async () => {
+    // Bounded POOL, not a serial chain: the old `importChain.then(task)` pattern
+    // meant every import in the whole extension ran one-at-a-time — runFullSync's
+    // 12-wide download pool all funnelled into a single-file pipeline, which was
+    // the dominant cause of hour-long syncs. Concurrency is kept small because a
+    // task can hold a whole file (as base64) in SW memory while uploading.
+    while (activeImports >= IMPORT_CONCURRENCY) {
+      await new Promise((r) => importWaiters.push(r));
+    }
+    activeImports++;
+    try { return await task(); }
+    finally { activeImports--; importWaiters.shift()?.(); }
+  })().finally(() => {
     queueDepth--; keepaliveStop();
     writeLiveState(queueDepth === 0);     // →0: flush the idle edge before the worker can sleep
   });
-  // Keep the chain alive even when a task rejects.
-  importChain = run.catch(() => {});
   return run;
 }
 
@@ -575,7 +636,7 @@ async function importFileInner(payload) {
   return result;
 }
 
-async function importFileWork({ url, filename, pageUrl, courseId, bytes, mimeType, platform, fetchUrl, resolveHint, allowedHost }) {
+async function importFileWork({ url, filename, pageUrl, courseId, bytes, buffer, mimeType, platform, fetchUrl, resolveHint, allowedHost }) {
   const auth = await getAuth();
   // transient: signed-out is not a property of the file — must not burn backoff strikes.
   if (!auth) return { error: "Not signed in. Open the extension popup to sign in.", transient: true };
@@ -589,16 +650,19 @@ async function importFileWork({ url, filename, pageUrl, courseId, bytes, mimeTyp
     // Fetch here (SW bypasses CORS) when the content script couldn't, or for
     // pending-download imports where only the URL is known. Viewer links carry a
     // resolveHint and go through the platform resolver.
-    if (!bytes && fetchUrl) {
+    if (!bytes && !buffer && fetchUrl) {
       if (isPrivateTarget(fetchUrl)) return { error: "Refusing to fetch a private/internal address" };
       const fetched = await resolveViewerFile(fetchUrl, resolveHint, allowedHost);
-      bytes    = fetched.bytes;
+      bytes    = fetched.bytes;    // null for big files — buffer carries them instead
+      buffer   = fetched.buffer;
       mimeType = mimeType && mimeType !== "application/octet-stream" ? mimeType : fetched.mimeType;
       // Server-declared name (Content-Disposition / final URL) beats link-text guesses.
       if (fetched.filename) filename = fetched.filename;
     }
-    if (!bytes) return { error: "No file data" };
-    if (base64LooksLikeHtml(bytes)) {
+    if (!bytes && !buffer) return { error: "No file data" };
+    // bytesFromResponse already HTML-sniffs buffer-only (big) files internally —
+    // this second check only applies when we have a base64 string to look at.
+    if (bytes && base64LooksLikeHtml(bytes)) {
       return { error: "Got a login/HTML page instead of the file — are you signed in to the LMS?" };
     }
 
@@ -613,8 +677,11 @@ async function importFileWork({ url, filename, pageUrl, courseId, bytes, mimeTyp
     };
 
     // Big files can't ride an inline JSON body (Vercel ~4.5MB cap) → storage path.
-    if (bytes.length > INLINE_B64_LIMIT) {
-      const { storagePath, bucket } = await uploadViaStorage(auth, filename, bytes, filePayload.mimeType);
+    // Prefer the raw buffer when we have one — skips a base64 encode+decode
+    // round trip that used to double memory/CPU on exactly the biggest files.
+    const isBig = buffer ? buffer.byteLength > INLINE_RAW_LIMIT : bytes.length > INLINE_B64_LIMIT;
+    if (isBig) {
+      const { storagePath, bucket } = await uploadViaStorage(auth, filename, buffer || bytes, filePayload.mimeType);
       filePayload.storagePath = storagePath;
       filePayload.bucket      = bucket;
     } else {
@@ -1038,13 +1105,19 @@ async function enumCanvasSW(origin) {
       const mods = await pageAll(`/courses/${c.id}/modules?include[]=items&include[]=content_details`);
       const pageSlugs = new Set();
       for (const mod of mods) for (const it of (mod.items || [])) {
-        if (it.type === "File" && it.content_id) add(c.id, it.content_id, it.title || (it.content_details && it.content_details.display_name));
+        const displayName = it.title || (it.content_details && it.content_details.display_name);
+        if (it.type === "File" && it.content_id && !looksLikeVideoAudio(displayName)) add(c.id, it.content_id, displayName);
         else if (it.type === "Page" && it.page_url) pageSlugs.add(it.page_url);
       }
       await Promise.all([...pageSlugs].map((slug) => scanPage(c.id, slug)));
     } catch { /* modules off */ }
     // Files tab (best effort; often 403 for students).
-    try { for (const f of await pageAll(`/courses/${c.id}/files`)) add(c.id, f.id, f.display_name || f.filename); } catch { /* files tab off */ }
+    try {
+      for (const f of await pageAll(`/courses/${c.id}/files`)) {
+        const name = f.display_name || f.filename;
+        if (!looksLikeVideoAudio(name)) add(c.id, f.id, name);
+      }
+    } catch { /* files tab off */ }
     // Syllabus body.
     try { const { data } = await swGetJSON(`${origin}/api/v1/courses/${c.id}?include[]=syllabus_body`); addFromHtml(c.id, data && data.syllabus_body); } catch { /* no syllabus */ }
     // Pages index (catches pages not linked from any module), bounded.
@@ -1062,10 +1135,15 @@ async function enumD2LSW(origin, xsrf) {
   const dget = async (p) => (await swGetJSON(origin + p, { "X-Csrf-Token": xsrf || "" })).data;
   let lpV = "1.30", leV = "1.50";
   try { const vers = await dget("/d2l/api/versions/"); const pick = (c) => (vers.find((v) => v.ProductCode === c) || {}).LatestVersion; lpV = pick("lp") || lpV; leV = pick("le") || leV; } catch { /* defaults */ }
+  // Full course objects (not just ids) — needed so course names/codes/grades can be
+  // synced alongside files, matching what the app already does for Canvas.
   const courses = []; let bm = "";
   for (let i = 0; i < 25; i++) {
     const ps = await dget(`/d2l/api/lp/${lpV}/enrollments/myenrollments/?orgUnitTypeId=3&isActive=true${bm ? `&bookmark=${encodeURIComponent(bm)}` : ""}`);
-    for (const it of (ps.Items || [])) { const o = it.OrgUnit || {}; if (o.Id) courses.push(String(o.Id)); }
+    for (const it of (ps.Items || [])) {
+      const o = it.OrgUnit || {};
+      if (o.Id) courses.push({ id: String(o.Id), name: o.Name || "", code: o.Code || "", currentScore: null, finalScore: null });
+    }
     if (ps.PagingInfo && ps.PagingInfo.HasMoreItems) bm = ps.PagingInfo.Bookmark; else break;
   }
   const files = [];
@@ -1085,8 +1163,26 @@ async function enumD2LSW(origin, xsrf) {
       if (abs.startsWith(origin + "/")) addUrl(abs, ou);   // same-origin course resource only
     }
   };
-  await Promise.all(courses.map(async (ou) => {
-    let toc; try { toc = await dget(`/d2l/api/le/${leV}/${ou}/content/toc`); } catch { return; }
+  // One pass per course: TOC + dropbox + quizzes + grades are all independent API
+  // calls, so they're fetched CONCURRENTLY (not one-after-another) and their results
+  // shared between file-discovery and assignment/grade extraction — the previous
+  // two-pass version fetched dropbox/quizzes twice per course and ran the second
+  // pass only after every course's first pass finished, which was needlessly slow.
+  let tocFailures = 0;
+  const assignments = [];
+  await Promise.all(courses.map(async (course) => {
+    const ou = course.id;
+
+    const [toc, dropbox, quizzes, catList, items, finalGrade] = await Promise.all([
+      dget(`/d2l/api/le/${leV}/${ou}/content/toc`).catch(() => { tocFailures++; return null; }),
+      dget(`/d2l/api/le/${leV}/${ou}/dropbox/folders/`).catch(() => []),
+      dget(`/d2l/api/le/${leV}/${ou}/quizzes/`).catch(() => null),
+      dget(`/d2l/api/le/${leV}/${ou}/grades/categories/`).catch(() => []),
+      dget(`/d2l/api/le/${leV}/${ou}/grades/values/myGradeValues/`).catch(() => []),
+      dget(`/d2l/api/le/${leV}/${ou}/grades/final/values/myGradeValue/`).catch(() => null),
+    ]);
+    if (!toc) return;   // TOC failed — the tenant-version check below handles reporting this
+
     // Walk the TOC. File topics → the direct download. Content/HTML topics (and any
     // topic whose Url isn't an external Link) → fetch the page the user would see
     // and extract embedded files — so a PDF linked inside an HTML content topic
@@ -1094,7 +1190,7 @@ async function enumD2LSW(origin, xsrf) {
     const htmlUrls = new Set();
     const walk = (mod) => {
       for (const t of (mod.Topics || [])) {
-        if (t.TypeIdentifier === "File" && t.TopicId) {
+        if (t.TypeIdentifier === "File" && t.TopicId && !looksLikeVideoAudio(t.Title)) {
           addUrl(`${origin}/d2l/le/content/${ou}/topics/files/download/${t.TopicId}/DirectFileTopicDownload`, ou);
         }
         // Skip external links (Url/Link topics point off-site).
@@ -1116,8 +1212,124 @@ async function enumD2LSW(origin, xsrf) {
         if (r.ok && (r.headers.get("content-type") || "").includes("text/html")) addFromHtml(await r.text(), ou);
       } catch { /* page blocked */ }
     });
+    // Assignment (Dropbox) + quiz instructions can embed course materials the same
+    // way a Canvas assignment description can — scan them too, mirroring
+    // enumCanvasSW's "Assignment descriptions" pass so D2L reaches the same coverage.
+    for (const f of (dropbox || [])) {
+      const instr = f && f.CustomInstructions;
+      addFromHtml(instr && (instr.Html || instr.Text), ou);
+    }
+    for (const q of ((quizzes && quizzes.Objects) || (Array.isArray(quizzes) ? quizzes : []))) {
+      const instr = q && q.Instructions;
+      addFromHtml(instr && (instr.Html || instr.Text), ou);
+    }
+
+    // ── Assignments + grades (parity with Canvas's canvasSync.ts) ──────────
+    // Mirrors the D2L logic proven out in the old extension (extension/shared-sync.js),
+    // with one fix: per-item weight's denominator must EXCLUDE items the "best N of M"
+    // scheme dropped for this student (they show as 0/0 in myGradeValues), otherwise
+    // weight gets diluted across items that don't actually count toward the grade —
+    // e.g. "best 8 of 10 quizzes, 24% of grade, 3pts each" should give each counted
+    // quiz 24%×(3/24)=3%, not 24%×(3/30)=2.4% (using all 10 as the denominator).
+    const norm = (s) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const byTitle = new Map();
+    const titleId = (k) => {
+      let h = 0; for (let i = 0; i < k.length; i++) h = (Math.imul(h, 31) + k.charCodeAt(i)) | 0;
+      return "d2l_" + ou + "_" + (h >>> 0).toString(36) + "_" + k.slice(0, 32);
+    };
+    const upsertAssign = (title, patch) => {
+      const k = norm(title);
+      if (!k) return;
+      const cur = byTitle.get(k) || {
+        courseId: ou, id: titleId(k), title,
+        dueAt: null, pointsPossible: null, score: null,
+        weight: null, weightAchieved: null, submittedAt: null, missing: false,
+      };
+      byTitle.set(k, Object.assign(cur, patch));
+    };
+
+    for (const f of (dropbox || [])) upsertAssign(f.Name || "Assignment", { dueAt: f.DueDate || null });
+    for (const q of ((quizzes && quizzes.Objects) || (Array.isArray(quizzes) ? quizzes : [])))
+      upsertAssign(q.Name || "Quiz", { dueAt: q.DueDate || null });
+
+    const valById = {};
+    for (const it of items) valById[String(it.GradeObjectIdentifier)] = it;
+
+    // Per-category weight info — totalMax sums only children that actually count
+    // for THIS student (a real PointsDenominator in their own grade value), so a
+    // dropped item's max points don't dilute the others' weight.
+    const childIds = new Set();
+    const childWeight = {};
+    for (const cat of catList) {
+      const kids = cat.Grades || [];
+      const counted = kids.filter((g) => { const v = valById[String(g.Id)]; return v && v.PointsDenominator; });
+      const totalMax = counted.reduce((s, g) => s + (g.MaxPoints || 0), 0);
+      for (const g of kids) {
+        childIds.add(String(g.Id));
+        childWeight[String(g.Id)] = { catWeight: cat.Weight, totalMax, childMax: g.MaxPoints || 0 };
+      }
+    }
+
+    const r2 = (n) => (n == null ? null : Math.round(n * 100) / 100);
+    for (const it of items) {
+      if (it.GradeObjectTypeName === "Category") continue;
+      const id = String(it.GradeObjectIdentifier);
+      let weight = null, weightAch = null;
+      const ci = childWeight[id];
+      if (ci && ci.totalMax > 0) {
+        weight = ci.catWeight * (ci.childMax / ci.totalMax);
+        weightAch = it.PointsDenominator ? weight * (it.PointsNumerator / it.PointsDenominator) : null;
+      } else if (it.WeightedDenominator != null) {
+        weight = it.WeightedDenominator; weightAch = it.WeightedNumerator;
+      }
+      upsertAssign(it.GradeObjectName, {
+        score:          it.PointsNumerator != null && it.PointsNumerator > 0 ? it.PointsNumerator : null,
+        pointsPossible: it.PointsDenominator ?? null,
+        weight:         r2(weight),
+        weightAchieved: r2(weightAch),
+      });
+    }
+
+    // Overall course grade: categories → average only their graded children
+    // (ungraded/dropped = 0/0, excluded, not treated as a real zero), scaled by
+    // category weight; standalone items → their own weighted contribution.
+    let num = 0, den = 0;
+    for (const cat of catList) {
+      const w = cat.Weight;
+      if (w == null) continue;
+      let cn = 0, cd = 0;
+      for (const g of (cat.Grades || [])) {
+        const v = valById[String(g.Id)];
+        if (v && v.PointsNumerator > 0 && v.PointsDenominator) { cn += v.PointsNumerator; cd += v.PointsDenominator; }
+      }
+      if (cd > 0) { num += w * (cn / cd); den += w; }
+    }
+    for (const it of items) {
+      const id = String(it.GradeObjectIdentifier);
+      if (childIds.has(id) || it.GradeObjectTypeName === "Category") continue;
+      if (!(it.PointsNumerator > 0)) continue;
+      if (it.WeightedNumerator != null && it.WeightedDenominator != null) { num += it.WeightedNumerator; den += it.WeightedDenominator; }
+    }
+    if (den > 0) course.currentScore = Math.round((num / den) * 1000) / 10;
+
+    if (finalGrade && finalGrade.PointsNumerator != null && finalGrade.PointsDenominator)
+      course.finalScore = Math.round((finalGrade.PointsNumerator / finalGrade.PointsDenominator) * 1000) / 10;
+
+    assignments.push(...byTitle.values());
   }));
-  return { lms: "d2l", files, courses: courses.length };
+
+  // Unlike Canvas's fixed "v1" API, D2L's LP/LE versions are auto-discovered per
+  // tenant (line ~895) and can be wrong. If every course's content/toc call failed,
+  // the sync would otherwise silently report "0 files, done" with no clue why —
+  // surface it as a real, diagnosable error instead (matches the Moodle no-sesskey
+  // error shape below).
+  if (courses.length > 0 && tocFailures === courses.length) {
+    return {
+      lms: "d2l", error: true, files: [],
+      detail: `content/toc failed for all ${courses.length} course(s) — LE API version ${leV} may not match this tenant, or the session/XSRF token is stale`,
+    };
+  }
+  return { lms: "d2l", files, courses, assignments };
 }
 
 async function enumMoodleSW(origin, sesskey) {
@@ -1133,7 +1345,13 @@ async function enumMoodleSW(origin, sesskey) {
   const mc = (cres && cres.courses) || [];
   const files = [];
   await Promise.all(mc.map(async (c) => {
-    try { const secs = await call("core_course_get_contents", { courseid: Number(c.id) }); for (const sec of (secs || [])) for (const mod of (sec.modules || [])) for (const ct of (mod.contents || [])) { if (ct.type === "file" && ct.fileurl) files.push({ url: ct.fileurl, filename: ct.filename || mod.name || "file", courseId: String(c.id) }); } } catch { /* skip */ }
+    try {
+      const secs = await call("core_course_get_contents", { courseid: Number(c.id) });
+      for (const sec of (secs || [])) for (const mod of (sec.modules || [])) for (const ct of (mod.contents || [])) {
+        const name = ct.filename || mod.name || "file";
+        if (ct.type === "file" && ct.fileurl && !looksLikeVideoAudio(name)) files.push({ url: ct.fileurl, filename: name, courseId: String(c.id) });
+      }
+    } catch { /* skip */ }
   }));
   return { lms: "moodle", files, courses: mc.length };
 }
@@ -1340,9 +1558,30 @@ async function runFullSync(tabId, host, { force = false } = {}) {
     if (!res || !res.lms) return { ok: false, reason: "no-lms" };
     syncErrorAt.delete(host);
 
+    // Course/assignment/grade sync (currently D2L only — see enumD2LSW). Runs BEFORE
+    // files so the courses table already has a row by the time file ingest tries to
+    // link a course_id (same lookup api/lms-ingest.ts already does for Canvas).
+    if (Array.isArray(res.courses) && res.courses.length) {
+      try {
+        const cr = await fetch(`${API_BASE}/api/lms-ingest?action=courses`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ userId: auth.userId, courses: res.courses, assignments: res.assignments ?? [] }),
+        });
+        const crBody = await cr.text();
+        if (!cr.ok) console.error(`[FschoolAI] course/assignment sync HTTP ${cr.status}:`, crBody.slice(0, 300));
+        else console.log("[FschoolAI] course/assignment sync ok:", crBody.slice(0, 200));
+      } catch (e) { console.error("[FschoolAI] course/assignment sync failed (network):", e.message); }
+    } else {
+      console.warn("[FschoolAI] no res.courses to sync — enumD2LSW returned", Array.isArray(res.courses) ? "an empty array" : typeof res.courses);
+    }
+
     const files = Array.isArray(res.files) ? res.files : [];
     let imported = 0, skipped = 0, failed = 0, blocked = 0, lastError = null, firstFailUrl = null;
-    await runPool(files, 6, async (f) => {
+    // 12 concurrent downloads (was 6) — most files are either a near-instant size
+    // reject or a real extraction+embedding call, so doubling throughput here is
+    // the single biggest lever on total sync wall-clock time.
+    await runPool(files, 12, async (f) => {
       if (!f || !f.url) return;
       // isPrivateTarget blocks internal hosts; isAllowedSyncFileUrl blocks
       // third-party URLs (credentialed-fetch SSRF / RAG poison).
