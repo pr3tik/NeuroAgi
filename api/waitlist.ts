@@ -9,6 +9,24 @@
 // Table: public.waitlist (supabase-waitlist-migration.sql) — RLS-on server-only; the
 // browser only ever talks to this endpoint. Emails via lazy Resend (nudge.ts pattern).
 import { Resend } from "resend";
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+// ── Dashboard session tokens ──────────────────────────────────────────────────
+// A correct password buys a signed, self-contained 30-day token (HMAC over its expiry
+// with a server-only secret). The password itself is never stored client-side.
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+function dashSecret() { return process.env.SUPABASE_SERVICE_KEY || process.env.CRON_SECRET || "fschool-waitlist-dev"; }
+function signSession(exp: number): string {
+  return `${exp}.${createHmac("sha256", dashSecret()).update(String(exp)).digest("base64url")}`;
+}
+function verifySession(token: string): boolean {
+  const [expStr, sig] = String(token || "").split(".");
+  const exp = parseInt(expStr, 10);
+  if (!expStr || !sig || !Number.isFinite(exp) || Date.now() > exp) return false;
+  const expected = createHmac("sha256", dashSecret()).update(expStr).digest("base64url");
+  try { return sig.length === expected.length && timingSafeEqual(Buffer.from(sig), Buffer.from(expected)); }
+  catch { return false; }
+}
 
 function sb() {
   const url = process.env.SUPABASE_URL;
@@ -93,7 +111,8 @@ export default async function handler(req: any, res: any) {
       const password = process.env.WAITLIST_DASH_PASSWORD || "abc";
       const secret = process.env.CRON_SECRET;
       const key = (req.headers?.authorization ?? "").replace(/^Bearer\s+/i, "") || req.query?.key || "";
-      if (key !== password && !(secret && key === secret)) return res.status(401).json({ error: "Unauthorized" });
+      // Accept a valid 30-day session token, the raw password, or the prod CRON_SECRET.
+      if (!verifySession(key) && key !== password && !(secret && key === secret)) return res.status(401).json({ error: "Unauthorized" });
 
       const { url, headers } = sb();
       // select=* so an absent optional column can't 400 the whole read; cap generously.
@@ -131,6 +150,16 @@ export default async function handler(req: any, res: any) {
     }
 
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+    // ── admin login: exchange the password for a signed 30-day session token ──
+    if (action === "admin-login") {
+      const password = process.env.WAITLIST_DASH_PASSWORD || "abc";
+      const secret = process.env.CRON_SECRET;
+      const pw = String(req.body?.password ?? "");
+      if (pw !== password && !(secret && pw === secret)) return res.status(401).json({ error: "Wrong password." });
+      const exp = Date.now() + TOKEN_TTL_MS;
+      return res.status(200).json({ token: signSession(exp), exp });
+    }
 
     // ── public: join ──────────────────────────────────────────────────────────
     if (action === "join") {

@@ -12,7 +12,7 @@ import {
   Tooltip, CartesianGrid,
 } from "recharts";
 
-const KEY_STORAGE = "wl_admin_key";
+const TOKEN_STORAGE = "wl_admin_token";  // 30-day session token (localStorage → persists across restarts)
 const GOLD = "#C49A3C";
 const FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif";
 
@@ -37,25 +37,27 @@ const fmtDateTime = (iso: string | null) => {
 };
 
 export default function WaitlistDashboard() {
-  const [key, setKey] = useState<string>(() => { try { return sessionStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; } });
-  const [keyInput, setKeyInput] = useState("");
+  const [token, setToken] = useState<string>(() => { try { return localStorage.getItem(TOKEN_STORAGE) || ""; } catch { return ""; } });
+  const [pwInput, setPwInput] = useState("");
+  const [authing, setAuthing] = useState(false);
   const [data, setData] = useState<AdminData | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "error" | "unauthorized">("idle");
   const [errMsg, setErrMsg] = useState("");
 
-  const load = useCallback(async (k: string) => {
-    if (!k) return;
+  // Load dashboard data with the 30-day session token.
+  const load = useCallback(async (tok: string) => {
+    if (!tok) return;
     setStatus("loading"); setErrMsg("");
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
     try {
       const res = await fetch("/api/waitlist?action=admin", {
-        headers: { Authorization: `Bearer ${k}` }, signal: ctrl.signal,
+        headers: { Authorization: `Bearer ${tok}` }, signal: ctrl.signal,
       });
       if (res.status === 401) {
-        setStatus("unauthorized"); setErrMsg("Wrong password.");
-        try { sessionStorage.removeItem(KEY_STORAGE); } catch {}
-        setKey("");
+        // Token expired or invalid → drop it and ask for the password again.
+        try { localStorage.removeItem(TOKEN_STORAGE); } catch {}
+        setToken(""); setStatus("unauthorized"); setErrMsg("Your session expired — enter the password again.");
         return;
       }
       const body = await res.json().catch(() => ({}));
@@ -67,17 +69,33 @@ export default function WaitlistDashboard() {
     } finally { clearTimeout(timer); }
   }, []);
 
-  useEffect(() => { if (key) load(key); }, [key, load]);
+  useEffect(() => { if (token) load(token); }, [token, load]);
 
-  function submitKey() {
-    const k = keyInput.trim();
-    if (!k) return;
-    try { sessionStorage.setItem(KEY_STORAGE, k); } catch {}
-    setKey(k);
+  // Exchange the password for a signed 30-day session token (verified server-side).
+  async function submitPassword() {
+    const pw = pwInput.trim();
+    if (!pw || authing) return;
+    setAuthing(true); setErrMsg("");
+    try {
+      const res = await fetch("/api/waitlist?action=admin-login", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.token) { setStatus("unauthorized"); setErrMsg(body.error || "Wrong password."); return; }
+      try { localStorage.setItem(TOKEN_STORAGE, body.token); } catch {}
+      setPwInput(""); setStatus("loading"); setToken(body.token);   // effect triggers load()
+    } catch {
+      setStatus("unauthorized"); setErrMsg("Couldn't reach the server. Try again.");
+    } finally { setAuthing(false); }
+  }
+
+  function logout() {
+    try { localStorage.removeItem(TOKEN_STORAGE); } catch {}
+    setToken(""); setData(null); setStatus("unauthorized"); setErrMsg("");
   }
 
   // ── Access gate ─────────────────────────────────────────────────────────────
-  if (!key || status === "unauthorized") {
+  if (!token || status === "unauthorized") {
     return (
       <Shell>
         <div style={{ maxWidth: 380, margin: "18vh auto 0", textAlign: "center", animation: "wlUp .5s ease both" }}>
@@ -85,14 +103,15 @@ export default function WaitlistDashboard() {
           <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 6px", color: "#f5f5f7" }}>Waitlist dashboard</h1>
           <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", margin: "0 0 22px", lineHeight: 1.5 }}>Enter the password to continue.</p>
           <input
-            type="password" value={keyInput} autoFocus
-            onChange={e => setKeyInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && submitKey()}
+            type="password" value={pwInput} autoFocus
+            onChange={e => setPwInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && submitPassword()}
             placeholder="Password"
             style={{ width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "13px 16px", color: "#f5f5f7", fontSize: 15, fontFamily: FONT, outline: "none", marginBottom: 12 }}
           />
-          <button onClick={submitKey} style={{ width: "100%", background: GOLD, color: "#111", border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>Open dashboard</button>
-          {status === "unauthorized" && <p style={{ color: "#ff6b60", fontSize: 13, marginTop: 14 }}>{errMsg}</p>}
+          <button onClick={submitPassword} disabled={authing} style={{ width: "100%", background: GOLD, color: "#111", border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 600, cursor: authing ? "default" : "pointer", opacity: authing ? 0.6 : 1, fontFamily: FONT }}>{authing ? "Checking…" : "Open dashboard"}</button>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", marginTop: 14 }}>Stays signed in on this device for 30 days.</p>
+          {status === "unauthorized" && errMsg && <p style={{ color: "#ff6b60", fontSize: 13, marginTop: 8 }}>{errMsg}</p>}
         </div>
       </Shell>
     );
@@ -104,7 +123,7 @@ export default function WaitlistDashboard() {
   if (status === "error") {
     return <Shell><Centered>
       <p style={{ color: "#ff6b60", marginBottom: 14 }}>{errMsg}</p>
-      <button onClick={() => load(key)} style={btnGhost}>Retry</button>
+      <button onClick={() => load(token)} style={btnGhost}>Retry</button>
     </Centered></Shell>;
   }
   if (!data) return <Shell><Centered>No data.</Centered></Shell>;
@@ -126,7 +145,10 @@ export default function WaitlistDashboard() {
               <p style={{ fontSize: 12, color: "rgba(255,255,255,0.38)", margin: "2px 0 0" }}>Updated {fmtDateTime(data.generatedAt)}</p>
             </div>
           </div>
-          <button onClick={() => load(key)} style={btnGhost}>↻ Refresh</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => load(token)} style={btnGhost}>↻ Refresh</button>
+            <button onClick={logout} style={btnGhost}>Sign out</button>
+          </div>
         </div>
 
         {/* Stat cards */}
