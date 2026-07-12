@@ -1770,14 +1770,23 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
         // The next startAutoListen() will stop this stream before opening a fresh one.
         const bargeinData = new Float32Array(analyser.fftSize);
         const BARGE_THRESH = 0.012 * 2.5;
+        const BARGE_FRAMES = 10;   // ~150-200ms of SUSTAINED input before we treat it as a
+                                   // real interruption — so the tutor's own audio leaking
+                                   // into the mic (echo on speakers) or a one-frame blip
+                                   // can't cut its answer off mid-sentence.
+        let bargeCount = 0;
         function bargeinTick() {
           if (!analyserRef.current) return; // stream was closed
           analyser.getFloatTimeDomainData(bargeinData);
           const rms = Math.sqrt(bargeinData.reduce((s, v) => s + v * v, 0) / bargeinData.length);
           voiceRmsRef.current = Math.min(rms * 14, 1);
           if (speakingRef.current && rms > BARGE_THRESH) {
-            stopResponse(); // kills TTS chain + aborts stream
-            return;         // let sendMessage's finally-path call startAutoListen
+            if (++bargeCount >= BARGE_FRAMES) {
+              stopResponse(); // kills TTS chain + aborts stream
+              return;         // let sendMessage's finally-path call startAutoListen
+            }
+          } else {
+            bargeCount = 0;   // reset on any quiet frame — only sustained speech interrupts
           }
           silenceRafRef.current = requestAnimationFrame(bargeinTick);
         }
@@ -1795,9 +1804,11 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       // Silence + barge-in detection loop
       const data = new Float32Array(analyser.fftSize);
       const SPEECH_THRESH  = 0.012;
-      const SILENCE_MS     = 600;   // time of silence before auto-stop
+      const SILENCE_MS     = 1400;  // trailing silence before auto-stop — long enough that a
+                                    // natural mid-sentence pause doesn't cut the speaker off
       const MIN_SPEECH_MS  = 400;   // min speech duration before silence timer arms
       let   speechStartTime = null; // when speech first crossed threshold this utterance
+      let   bargeFrames     = 0;    // consecutive loud frames while tutor speaks (debounce)
 
       function silenceTick() {
         if (!analyserRef.current) return;
@@ -1805,9 +1816,12 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
         const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length);
         voiceRmsRef.current = Math.min(rms * 14, 1);
 
-        // Barge-in: user speaks while tutor is speaking → interrupt
+        // Barge-in: user speaks while tutor is speaking → interrupt. Require SUSTAINED
+        // input (not a single spike) so the tutor's own audio / a blip can't cut it off.
         if (speakingRef.current && rms > SPEECH_THRESH * 2.5) {
-          stopResponse();
+          if (++bargeFrames >= 10) stopResponse();
+        } else {
+          bargeFrames = 0;
         }
 
         if (rms > SPEECH_THRESH) {
