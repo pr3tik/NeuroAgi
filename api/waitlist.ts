@@ -88,10 +88,12 @@ export default async function handler(req: any, res: any) {
     // Powers waitlist.fschoolai.com. Aggregates server-side with the service key so it
     // works regardless of RLS on the table.
     if (action === "admin") {
+      // Server-side password check. Default "abc" (override with WAITLIST_DASH_PASSWORD);
+      // the prod CRON_SECRET also works so an admin/cron caller can reuse this endpoint.
+      const password = process.env.WAITLIST_DASH_PASSWORD || "abc";
       const secret = process.env.CRON_SECRET;
-      if (!secret) return res.status(500).json({ error: "CRON_SECRET not configured" });
-      const key = (req.headers?.authorization ?? "").replace(/^Bearer\s+/i, "") || req.query?.key;
-      if (key !== secret) return res.status(401).json({ error: "Unauthorized" });
+      const key = (req.headers?.authorization ?? "").replace(/^Bearer\s+/i, "") || req.query?.key || "";
+      if (key !== password && !(secret && key === secret)) return res.status(401).json({ error: "Unauthorized" });
 
       const { url, headers } = sb();
       // select=* so an absent optional column can't 400 the whole read; cap generously.
