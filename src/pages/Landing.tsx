@@ -3298,6 +3298,16 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
         {/* Faint radial highlight behind cards */}
         <div aria-hidden="true" style={{ position: "absolute", top: "30%", right: "5%", width: 640, height: 640, borderRadius: "50%", background: "radial-gradient(circle, rgba(148,196,240,0.10) 0%, rgba(182,160,220,0.06) 40%, transparent 70%)", pointerEvents: "none" }} />
 
+        {/* Invisible entry to the waitlist dashboard — a hidden strip to the RIGHT of the
+            cards. No visual, no pointer hint; only someone who knows it's here clicks it. */}
+        <button
+          onClick={() => { window.location.href = "/waitlist-dashboard"; }}
+          aria-label="Waitlist stats"
+          style={{ position: "absolute", top: "50%", right: 0, transform: "translateY(-50%)",
+            width: 46, height: 160, background: "transparent", border: "none", padding: 0,
+            cursor: "default", zIndex: 5 }}
+        />
+
         <div className="hero-inner" style={{ width: "100%", maxWidth: 1180, margin: "0 auto", padding: "0 clamp(20px,4vw,48px)", display: "flex", alignItems: "center", gap: "clamp(32px,5vw,72px)", flexWrap: "wrap" }}>
 
           {/* ── LEFT: copy + CTAs ── */}

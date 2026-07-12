@@ -53,7 +53,7 @@ export default function WaitlistDashboard() {
         headers: { Authorization: `Bearer ${k}` }, signal: ctrl.signal,
       });
       if (res.status === 401) {
-        setStatus("unauthorized"); setErrMsg("That access key was rejected.");
+        setStatus("unauthorized"); setErrMsg("Wrong password.");
         try { sessionStorage.removeItem(KEY_STORAGE); } catch {}
         setKey("");
         return;
@@ -83,12 +83,12 @@ export default function WaitlistDashboard() {
         <div style={{ maxWidth: 380, margin: "18vh auto 0", textAlign: "center", animation: "wlUp .5s ease both" }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: GOLD, margin: "0 auto 20px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: "#111" }}>W</div>
           <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 6px", color: "#f5f5f7" }}>Waitlist dashboard</h1>
-          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", margin: "0 0 22px", lineHeight: 1.5 }}>Enter the admin access key to continue.</p>
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", margin: "0 0 22px", lineHeight: 1.5 }}>Enter the password to continue.</p>
           <input
             type="password" value={keyInput} autoFocus
             onChange={e => setKeyInput(e.target.value)}
             onKeyDown={e => e.key === "Enter" && submitKey()}
-            placeholder="Access key"
+            placeholder="Password"
             style={{ width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "13px 16px", color: "#f5f5f7", fontSize: 15, fontFamily: FONT, outline: "none", marginBottom: 12 }}
           />
           <button onClick={submitKey} style={{ width: "100%", background: GOLD, color: "#111", border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>Open dashboard</button>
