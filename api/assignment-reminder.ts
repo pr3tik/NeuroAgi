@@ -105,6 +105,7 @@ export default async function handler(req, res) {
         select: "title,due_at,courses(name)",
         user_id: `eq.${user.id}`,
         submitted_at: "is.null",
+        manual_done_at: "is.null",   // app-side "done" counts too — never SMS about work the student already marked complete
         // Two-sided window: due from now through +48h (h48). Previously only the lower
         // bound was applied, so the "due soon" text fired for ALL future assignments.
         due_at: [`gte.${now.toISOString()}`, `lte.${h48}`],

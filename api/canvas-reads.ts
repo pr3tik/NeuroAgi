@@ -132,7 +132,11 @@ async function upcoming(
       courseName: a.courses?.name ?? "",
       dueAt: a.due_at ?? null,
       pointsPossible: a.points_possible ?? null,
-      submitted: a.submitted_at != null,
+      // "Done" = a Canvas submission OR the student marked it done in-app. manual_done_at
+      // is FschoolAI's own completion flag (Canvas never writes it); the client's
+      // loadCanvasData ORs the two the same way, so upcoming/overdue must too — otherwise
+      // work the student finished in-app keeps surfacing as pending/behind.
+      submitted: a.submitted_at != null || a.manual_done_at != null,
       missing: a.missing ?? false,
     }))
     .filter((a: any) => (dropSubmitted ? !a.submitted : true));
