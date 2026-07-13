@@ -10,11 +10,20 @@ beforeEach(() => {
   })) as any;
 });
 
+// Tabs is now the ONLY nav mode (swipe removed), so BottomNav is the sole way to reach
+// every page — this list is the reachability guarantee the deleted nav.test.ts used to
+// give the swipe graph. Kept as an explicit list of the 12 routable pages (NOT derived
+// from LABEL, which carries a dead "courses" key with no route/tab).
+const ALL_PAGE_LABELS = [
+  "Work", "Canvas", "Study", "Leaderboard", "Identity",   // primary
+  "Assignment", "Toolkit", "Files", "Rooms", "Spaces", "Reggie", "Connections", // secondary
+];
+
 describe("BottomNav (web sidebar)", () => {
-  it("shows every page (primary + secondary) and no mobile 'More' sheet", () => {
+  it("shows EVERY routable page (primary + secondary) and no mobile 'More' sheet", () => {
     render(<BottomNav currentPage="work" onNavigate={vi.fn()} />);
-    for (const label of ["Work", "Canvas", "Study", "Leaderboard", "Identity", "Assignment", "Toolkit", "Files", "Rooms"])
-      expect(screen.getByText(label)).toBeInTheDocument();
+    for (const label of ALL_PAGE_LABELS)
+      expect(screen.getByText(label), `sidebar missing "${label}"`).toBeInTheDocument();
     expect(screen.queryByText("More")).not.toBeInTheDocument();
   });
 

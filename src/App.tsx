@@ -6,9 +6,7 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check } from "lucide-react";
-import { NAV, LABEL }       from "./navigation/navConfig";
-import { useSwipe }         from "./navigation/useSwipe";
-import PageDots             from "./components/PageDots";
+import { LABEL }            from "./navigation/navConfig";
 import NeuralRing           from "./components/NeuralRing";
 import ReggieTester         from "./components/ReggieTester";
 import UniBrainTester       from "./components/UniBrainTester";
@@ -91,9 +89,9 @@ const SHELL_STYLES = `
   .app-main {
     padding: 20px 22px 100px;
   }
-  /* Tabs mode on web (≥768px): BottomNav becomes a fixed left sidebar, so push
-     the page content over to make room (232px rail / 64px collapsed — must match
-     RAIL_W in BottomNav.tsx). Only applies in tabs mode (.nav-tabs). */
+  /* On web (≥768px): BottomNav becomes a fixed left sidebar, so push the page
+     content over to make room (232px rail / 64px collapsed — must match RAIL_W in
+     BottomNav.tsx). The shell always carries .nav-tabs (tabs is the only nav mode). */
   @media (min-width: 768px) {
     .nav-tabs .app-page-transition {
       margin-left: 232px;
@@ -127,7 +125,7 @@ function PageLoader() {
 }
 
 export default function App() {
-  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary, navMode } = useApp();
+  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary } = useApp();
 
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
@@ -445,18 +443,11 @@ export default function App() {
     }, 180);
   }, []);
 
-  const swipeNavigate = useCallback((dir) => {
-    const next = NAV[currentPage]?.[dir];
-    if (next) navigate(next);
-  }, [currentPage, navigate]);
-
   useEffect(() => {
     if (!pendingNav) return;
     navigate(pendingNav.page ?? pendingNav);
     setPendingNav(null);
   }, [pendingNav, navigate, setPendingNav]);
-
-  const { onTouchStart, onTouchEnd } = useSwipe(swipeNavigate);
 
   // ── Auth ───────────────────────────────────────────────────────────────────
   const handleEnter = useCallback(async (creds: {
@@ -847,11 +838,7 @@ export default function App() {
   const PageComponent = PAGES[currentPage];
 
   return (
-    <div
-      className={`app-shell${navMode === "tabs" ? " nav-tabs" : ""}${navCollapsed ? " nav-collapsed" : ""}`}
-      onTouchStart={navMode === "tabs" ? undefined : onTouchStart}
-      onTouchEnd={navMode === "tabs" ? undefined : onTouchEnd}
-    >
+    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}`}>
       {overlays}
       <TokenToast />
 
@@ -969,7 +956,6 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
-          {navMode !== "tabs" && <PageDots currentPage={currentPage} />}
         </header>
 
         <main className="app-main">
@@ -982,14 +968,12 @@ export default function App() {
       <NeuralRing currentPage={currentPage} />
       {showDevTools() && <ReggieTester />}
       {showDevTools() && <UniBrainTester />}
-      {navMode === "tabs" && (
-        <BottomNav
-          currentPage={currentPage}
-          onNavigate={navigate}
-          collapsed={navCollapsed}
-          onToggleCollapse={() => setNavCollapsed(v => !v)}
-        />
-      )}
+      <BottomNav
+        currentPage={currentPage}
+        onNavigate={navigate}
+        collapsed={navCollapsed}
+        onToggleCollapse={() => setNavCollapsed(v => !v)}
+      />
     </div>
   );
 }

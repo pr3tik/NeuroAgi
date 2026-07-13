@@ -1168,7 +1168,7 @@ export default function Whiteboard({
       border: "1px solid rgba(196,154,60,0.2)", borderRadius: "14px",
       background: "rgba(196,154,60,0.03)", marginBottom: "20px", overflow: "hidden",
       touchAction: "none", overscrollBehavior: "none",
-    }} data-no-swipe="true">
+    }}>
       <style>{`@keyframes laserFade{to{opacity:0;transform:translate(-50%,-50%) scale(2.5)}}`}</style>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid rgba(196,154,60,0.12)" }}>
