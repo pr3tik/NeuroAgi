@@ -1,4 +1,4 @@
-// BottomNav.jsx — Tab navigation (the 'tabs' alternative to swipe mode).
+// BottomNav.tsx — Tab navigation (the app's only nav mode).
 // Responsive: a left sidebar on web (≥768px, all pages visible) and a bottom
 // tab row on mobile (5 primary + a "More" sheet for the rest). The web breakpoint
 // here must match the 768px rule in App.jsx's SHELL_STYLES (and the 232px rail

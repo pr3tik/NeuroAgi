@@ -4,7 +4,6 @@
 //  • Drag freely anywhere on screen; stays exactly where released (free placement, no corner snap).
 //  • Position is global and persists across page navigation.
 //  • Ring hides (opacity 0, pointer-events none) while the chat is open.
-//  • Ring drag sets document.body[data-ring-drag] so useSwipe ignores the gesture.
 //  • Chat is a non-modal floating window (bottom-right); the app stays interactive while open.
 //  • Chat can be closed by the × button, swiping down on the drag handle, or a navigation command.
 //  • Renders via createPortal into document.body to escape any ancestor overflow/stacking context.
@@ -1356,7 +1355,6 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   // ── Drag handlers ───────────────────────────────────────────────────────────
   const handlePointerDown = useCallback((e) => {
     e.preventDefault(); e.stopPropagation();
-    document.body.dataset.ringDrag = "1";
     dragStartRef.current  = { px: pos.left, py: pos.top, mx: e.clientX, my: e.clientY };
     hasDraggedRef.current = false;
     setIsDrag(true);
@@ -1373,7 +1371,6 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
 
   const handlePointerUp = useCallback(() => {
     if (!isDragging) return;
-    delete document.body.dataset.ringDrag;
     setIsDrag(false);
     if (hasDraggedRef.current) {
       setPos(p => clamp(p));

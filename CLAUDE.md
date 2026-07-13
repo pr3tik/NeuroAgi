@@ -25,7 +25,7 @@ After any non-trivial change, run **typecheck + build + test** before claiming i
 - **Frontend:** React 18 + Vite SPA, **TypeScript** (migrated from JSX; `allowJs` still on).
   - `src/pages/` — top-level screens (Study, Canvas, Leaderboard, …)
   - `src/components/` — UI (NeuralRing = tutor chat, DocUpload, NotificationPanel, …)
-  - `src/context/AppContext.tsx` — global state (user, courses, navMode, study config)
+  - `src/context/AppContext.tsx` — global state (user, courses, study config)
   - `src/api/` — client-side API wrappers (e.g. `canvasSync.ts`); `src/lib/` — pure logic (e.g. `srs.ts`, `chatMessages.ts`)
 - **Backend:** Vercel serverless functions in **`api/*.ts`** (one file per endpoint). Several are
   action-routed (`?action=…`) to stay under Vercel's function count limit — e.g. `rag.ts`

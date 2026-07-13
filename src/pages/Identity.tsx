@@ -94,7 +94,7 @@ function fmtEventDate(iso) {
 }
 
 export default function Identity() {
-  const { userData, courses, assignments, canvasToken, updateUserField, tokenSummary, userId, navMode, setNavMode } = useApp();
+  const { userData, courses, assignments, canvasToken, updateUserField, tokenSummary, userId } = useApp();
   const [tokenExpanded, setTokenExpanded] = useState(false);
 
   // Editable name
@@ -461,42 +461,6 @@ export default function Identity() {
           </a>
         </div>
       )}
-
-      {/* Navigation preference */}
-      <div style={{ marginBottom: "32px" }}>
-        <p style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "12px" }}>
-          Navigation
-        </p>
-        <div style={{ display: "flex", gap: "10px" }}>
-          {[
-            { mode: "swipe", title: "Swipe",  desc: "Gesture between pages" },
-            { mode: "tabs",  title: "Tab bar", desc: "Tap a bottom bar" },
-          ].map(opt => {
-            const active = (navMode ?? "swipe") === opt.mode;
-            return (
-              <button
-                key={opt.mode}
-                onClick={() => setNavMode(opt.mode)}
-                style={{
-                  flex: 1, textAlign: "left", cursor: "pointer", fontFamily: "inherit",
-                  background: active ? "rgba(0,210,190,0.08)" : "var(--color-surface)",
-                  border: `1px solid ${active ? "rgba(0,210,190,0.35)" : "var(--color-border)"}`,
-                  borderRadius: "var(--radius-card)", padding: "14px 16px",
-                  transition: "all 0.15s",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ fontSize: "14px", fontWeight: 600, color: active ? "rgba(0,210,190,0.95)" : "var(--text-primary)" }}>
-                    {opt.title}
-                  </span>
-                  {active && <Check size={15} style={{ color: "rgba(0,210,190,0.95)" }} />}
-                </div>
-                <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>{opt.desc}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       {/* Friends */}
       {userId && <FriendsSection userId={userId} ownName={userData?.name} />}
