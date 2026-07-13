@@ -64,7 +64,9 @@ async function prep(body, supabaseUrl, supabaseKey, anthropicKey) {
   let assignments = [];
   try {
     const aRes = await fetch(
-      `${supabaseUrl}/rest/v1/assignments?user_id=eq.${userId}&course_id=eq.${courseId}&submitted_at=is.null&select=title,description,due_at,points_possible&order=due_at.asc&limit=10`,
+      // Exclude both Canvas-submitted AND app-marked-done work (manual_done_at) — an
+      // assignment the student already finished isn't an "open" one to prep for.
+      `${supabaseUrl}/rest/v1/assignments?user_id=eq.${userId}&course_id=eq.${courseId}&submitted_at=is.null&manual_done_at=is.null&select=title,description,due_at,points_possible&order=due_at.asc&limit=10`,
       { headers }
     );
     if (aRes.ok) assignments = await aRes.json();

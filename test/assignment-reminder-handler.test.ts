@@ -49,4 +49,22 @@ describe("assignment-reminder handler", () => {
     expect(res.statusCode).not.toBe(401);
     expect(res.statusCode).not.toBe(500);
   });
+
+  it("excludes app-marked-done work (manual_done_at=is.null) — regression: no SMS about assignments the student already completed", async () => {
+    process.env.CRON_SECRET = "test-secret";
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.includes("/rest/v1/users")) return { ok: true, json: async () => [{ id: "u1", phone: "+15550001111" }], text: async () => "" };
+      return { ok: true, json: async () => [], text: async () => "" }; // assignments → none
+    }));
+    const handler = await load();
+    const res = makeRes();
+    await handler({ method: "GET", headers: { authorization: "Bearer test-secret" } }, res);
+    const assignCall = calls.find(u => u.includes("/rest/v1/assignments"));
+    expect(assignCall).toBeTruthy();
+    expect(assignCall).toContain("submitted_at=is.null");
+    expect(assignCall).toContain("manual_done_at=is.null");
+  });
 });

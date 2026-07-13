@@ -359,7 +359,7 @@ Examples:
     else if (queryType === "assignment_detail") {
       // `description` = the assignment instructions, so the tutor can advise on what
       // the work actually requires (keyword-matched queries pull the most detail).
-      let url = `${supabaseUrl}/rest/v1/assignments?user_id=eq.${userId}&select=title,due_at,score,points_possible,missing,late,submitted_at,description&order=due_at.asc&limit=20`;
+      let url = `${supabaseUrl}/rest/v1/assignments?user_id=eq.${userId}&select=title,due_at,score,points_possible,missing,late,submitted_at,manual_done_at,description&order=due_at.asc&limit=20`;
       if (keyword) url += `&title=ilike.*${encodeURIComponent(keyword)}*`;
       const r = await fetch(url, { headers: sbHeaders });
       if (r.ok) {
@@ -373,7 +373,7 @@ Examples:
                 `• ${a.title}`,
                 a.due_at        ? `due ${new Date(a.due_at).toLocaleDateString()}` : null,
                 a.score != null ? `score ${a.score}/${a.points_possible}` : null,
-                a.submitted_at  ? `submitted` : null,
+                (a.submitted_at || a.manual_done_at) ? `submitted` : null,
                 a.missing       ? "MISSING" : null,
                 a.late          ? "LATE"    : null,
               ].filter(Boolean).join(" | ");

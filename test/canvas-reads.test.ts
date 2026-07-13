@@ -98,6 +98,26 @@ describe("canvas-reads handler", () => {
     expect(res.body.assignments).toHaveLength(2);
   });
 
+  it("upcoming/overdue treat manual_done_at (app-marked done) as submitted — regression: in-app completions must not resurface", async () => {
+    // submitted_at is null (no Canvas submission) but the student marked it done in-app.
+    stubFetch({
+      assignments: [
+        { id: "a1", course_id: "c1", title: "Still open",  due_at: "2999-01-01T00:00:00Z", submitted_at: null, manual_done_at: null,                    courses: { name: "Bio" } },
+        { id: "a2", course_id: "c1", title: "Marked done",  due_at: "2999-01-02T00:00:00Z", submitted_at: null, manual_done_at: "2026-01-01T00:00:00Z", courses: { name: "Bio" } },
+      ],
+    });
+    const h = await load();
+    // Default upcoming: the app-completed one is hidden and flagged submitted.
+    let res = makeRes();
+    await h({ method: "POST", body: { action: "upcoming", userId: "u1" } }, res);
+    expect(res.body.assignments.map((a: any) => a.name)).toEqual(["Still open"]);
+    // status:'all' keeps it but marks submitted:true so the model knows it's done.
+    res = makeRes();
+    await h({ method: "POST", body: { action: "upcoming", userId: "u1", status: "all" } }, res);
+    const done = res.body.assignments.find((a: any) => a.name === "Marked done");
+    expect(done.submitted).toBe(true);
+  });
+
   it("grades: a Canvas courseId filters via canvas_course_id (never id.eq → no uuid-cast 400)", async () => {
     const fn = stubFetch({
       courses: [{ id: "c-uuid", canvas_course_id: "98765", course_code: "BIO", current_score: 80, final_score: null }],
