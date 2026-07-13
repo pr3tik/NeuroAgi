@@ -131,6 +131,13 @@ export default async function handler(req: any, res: any) {
       for (const x of rows) { const s = (x.source || "unknown").toString(); bySourceMap[s] = (bySourceMap[s] || 0) + 1; }
       const bySource = Object.entries(bySourceMap).map(([source, count]) => ({ source, count })).sort((a, b) => b.count - a.count);
 
+      // Location breakdown (rows with a captured country — signups since the geo
+      // migration; older rows have no IP-derived location to backfill from).
+      const byCountryMap: Record<string, number> = {};
+      for (const x of rows) { if (x.country) byCountryMap[x.country] = (byCountryMap[x.country] || 0) + 1; }
+      const byCountry = Object.entries(byCountryMap).map(([country, count]) => ({ country, count })).sort((a, b) => b.count - a.count).slice(0, 25);
+      const located = rows.filter(x => x.country).length;
+
       // Per-day buckets (UTC date) → daily count + running cumulative.
       const dayMap = new Map<string, number>();
       for (const x of rows) { const d = (x.created_at || "").slice(0, 10); if (d) dayMap.set(d, (dayMap.get(d) || 0) + 1); }
@@ -140,12 +147,13 @@ export default async function handler(req: any, res: any) {
       const recent = rows.slice(-30).reverse().map(x => ({
         email: x.email, name: x.name ?? null, source: x.source ?? null,
         referred_by: x.referred_by ?? null, created_at: x.created_at ?? null, invited: !!x.invited_at,
+        country: x.country ?? null, region: x.region ?? null, city: x.city ?? null,
       }));
 
       return res.status(200).json({
         total, invited, pending: total - invited, referred,
         last24h: within(86_400_000), last7d: within(7 * 86_400_000), last30d: within(30 * 86_400_000),
-        bySource, daily, recent, generatedAt: new Date().toISOString(),
+        bySource, byCountry, located, daily, recent, generatedAt: new Date().toISOString(),
       });
     }
 
@@ -178,11 +186,36 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true, success: true, already: true, alreadyJoined: true, invited: !!hit.invited_at, position, total });
       }
 
-      const ins = await fetch(`${url}/rest/v1/waitlist`, {
+      // Location from Vercel's edge geo headers — free, per-request, no external API.
+      // Absent in local dev (nulls). City is percent-encoded UTF-8 per Vercel docs.
+      const geoHdr = (k: string) => {
+        const v = req.headers?.[k];
+        if (!v) return null;
+        try { return decodeURIComponent(String(v)).slice(0, 80) || null; } catch { return String(v).slice(0, 80); }
+      };
+      const geo = {
+        country: geoHdr("x-vercel-ip-country"),
+        region:  geoHdr("x-vercel-ip-country-region"),
+        city:    geoHdr("x-vercel-ip-city"),
+      };
+
+      const baseRow = { email, name, source, referred_by: ref };
+      const insert = (body: any) => fetch(`${url}/rest/v1/waitlist`, {
         method: "POST", headers: { ...headers, Prefer: "return=representation" },
-        body: JSON.stringify({ email, name, source, referred_by: ref }),
+        body: JSON.stringify(body),
       });
-      if (!ins.ok) throw new Error(`waitlist insert failed (${ins.status}): ${(await ins.text()).slice(0, 150)}`);
+      let ins = await insert({ ...baseRow, ...geo });
+      if (!ins.ok) {
+        const errText = (await ins.text()).slice(0, 300);
+        // Geo columns not migrated yet (PGRST204 "column ... schema cache") → a join must
+        // NEVER fail over optional location data: retry without it.
+        if (/column|schema cache/i.test(errText)) {
+          ins = await insert(baseRow);
+          if (!ins.ok) throw new Error(`waitlist insert failed (${ins.status}): ${(await ins.text()).slice(0, 150)}`);
+        } else {
+          throw new Error(`waitlist insert failed (${ins.status}): ${errText.slice(0, 150)}`);
+        }
+      }
       const row = ((await ins.json()) as any[])[0];
       const { position, total } = await positionOf(row.created_at);
 
