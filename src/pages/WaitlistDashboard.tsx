@@ -29,9 +29,25 @@ type AdminData = {
   total: number; invited: number; pending: number; referred: number;
   last24h: number; last7d: number; last30d: number;
   bySource: { source: string; count: number }[];
+  byCountry?: { country: string; count: number }[];
+  located?: number;   // rows carrying a location (signups since the geo migration)
   daily: DailyPoint[];
-  recent: { email: string; name: string | null; source: string | null; referred_by: string | null; created_at: string | null; invited: boolean }[];
+  recent: { email: string; name: string | null; source: string | null; referred_by: string | null; created_at: string | null; invited: boolean;
+            country?: string | null; region?: string | null; city?: string | null }[];
   generatedAt: string;
+};
+
+// ── Country display helpers (ISO alpha-2 → flag emoji + English name) ─────────
+const flagOf = (cc: string) =>
+  /^[A-Za-z]{2}$/.test(cc) ? cc.toUpperCase().replace(/./g, ch => String.fromCodePoint(127397 + ch.charCodeAt(0))) : "";
+const countryName = (cc: string) => {
+  try { return new Intl.DisplayNames(["en"], { type: "region" }).of(cc.toUpperCase()) ?? cc; }
+  catch { return cc; }
+};
+const locationLabel = (r: { city?: string | null; region?: string | null; country?: string | null }) => {
+  if (!r.country) return "—";
+  const place = [r.city, r.region].filter(Boolean).join(", ");
+  return `${flagOf(r.country)} ${place ? `${place} · ` : ""}${countryName(r.country)}`.trim();
 };
 
 const fmtDate = (iso: string) => {
@@ -219,6 +235,25 @@ export default function WaitlistDashboard() {
               </div>
             </Card>
 
+            {/* Location breakdown — populated by signups after the geo migration */}
+            {(data.byCountry?.length ?? 0) > 0 && (
+              <Card title={`By location${data.located != null && data.located < data.total ? ` · ${data.located} of ${data.total} signups located` : ""}`}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {data.byCountry!.map(c => (
+                    <div key={c.country} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={{ width: 170, flexShrink: 0, fontSize: 13, color: SUB, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {flagOf(c.country)} {countryName(c.country)}
+                      </span>
+                      <div style={{ flex: 1, height: 8, background: "#ececed", borderRadius: 20, overflow: "hidden" }}>
+                        <div style={{ width: `${(c.count / Math.max(1, data.byCountry![0].count)) * 100}%`, height: "100%", background: BLUE, borderRadius: 20 }} />
+                      </div>
+                      <span style={{ width: 44, textAlign: "right", fontSize: 13, fontWeight: 600, color: INK, fontVariantNumeric: "tabular-nums" }}>{c.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
             <Card title="By source">
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {data.bySource.map(s => (
@@ -238,7 +273,7 @@ export default function WaitlistDashboard() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ color: DIM, textAlign: "left" }}>
-                      {["Email", "Name", "Source", "Joined", "Status"].map(h => (
+                      {["Email", "Name", "Location", "Source", "Joined", "Status"].map(h => (
                         <th key={h} style={{ padding: "8px 12px", fontWeight: 500, borderBottom: `1px solid ${LINE}`, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
@@ -248,6 +283,7 @@ export default function WaitlistDashboard() {
                       <tr key={i} style={{ color: INK }}>
                         <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}`, whiteSpace: "nowrap" }}>{r.email}</td>
                         <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}`, color: SUB }}>{r.name || "—"}</td>
+                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}`, color: SUB, whiteSpace: "nowrap" }}>{locationLabel(r)}</td>
                         <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}`, color: SUB }}>{r.source || "—"}</td>
                         <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}`, color: SUB, whiteSpace: "nowrap" }}>{fmtDateTime(r.created_at)}</td>
                         <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}` }}>

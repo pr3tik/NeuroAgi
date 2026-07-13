@@ -51,6 +51,52 @@ describe("waitlist join", () => {
     expect(sent[0].subject).toMatch(/#42/);
   });
 
+  it("stamps location from Vercel geo headers onto the insert (city URI-decoded)", async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.includes("email=eq.")) return R([]);
+      if (init?.method === "POST" && u.includes("/waitlist")) {
+        bodies.push(JSON.parse(init.body));
+        return R([{ id: "w1", created_at: "2026-07-13T00:00:00Z" }]);
+      }
+      if (u.includes("created_at=lte.")) return R([], { count: 1 });
+      return R([], { count: 1 });
+    }));
+    const h = await load(); const res = makeRes();
+    await h({
+      method: "POST", query: { action: "join" }, body: { email: "geo@school.edu" },
+      headers: { "x-vercel-ip-country": "CA", "x-vercel-ip-country-region": "ON", "x-vercel-ip-city": "Waterloo%20North" },
+    }, res);
+    expect(res.statusCode).toBe(200);
+    expect(bodies[0]).toMatchObject({ email: "geo@school.edu", country: "CA", region: "ON", city: "Waterloo North" });
+  });
+
+  it("geo columns not migrated yet → retries WITHOUT location; the join still succeeds", async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.includes("email=eq.")) return R([]);
+      if (init?.method === "POST" && u.includes("/waitlist")) {
+        const body = JSON.parse(init.body);
+        bodies.push(body);
+        if ("country" in body) return R({ message: "Could not find the 'country' column of 'waitlist' in the schema cache" }, { ok: false, status: 400 });
+        return R([{ id: "w1", created_at: "2026-07-13T00:00:00Z" }]);
+      }
+      if (u.includes("created_at=lte.")) return R([], { count: 1 });
+      return R([], { count: 1 });
+    }));
+    const h = await load(); const res = makeRes();
+    await h({
+      method: "POST", query: { action: "join" }, body: { email: "geo2@school.edu" },
+      headers: { "x-vercel-ip-country": "CA" },
+    }, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(bodies).toHaveLength(2);                 // geo attempt, then plain retry
+    expect("country" in bodies[1]).toBe(false);
+  });
+
   it("duplicate email → friendly alreadyJoined with the SAME position, no insert, no email", async () => {
     const posts: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
