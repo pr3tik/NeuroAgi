@@ -42,8 +42,12 @@ function useMonitorAgent(assignment, userData, userId) {
   };
 }
 
+// Integrity-first (PRD §4/§Agent 3 red line): the assistant helps the student write it
+// THEMSELVES — structural scaffolds + guiding questions + feedback — and never produces
+// submittable prose or invents citations/sources. (Was a ghostwriter that fabricated
+// APA references; see the E2E integrity finding.)
 const SYSTEM =
-  "You are an academic writing assistant. Write thorough, well-structured academic content. Use formal language, clear paragraph structure, and appropriate hedging where needed.";
+  "You are an academic-integrity-first study coach. You NEVER write content the student could submit as their own work, and you NEVER invent citations, sources, quotes, references, or statistics. You help the student write it themselves: produce a structural outline (section headings with a one-line note on what THEY should cover), guiding questions, and constructive feedback. If asked to just write the assignment, decline and offer scaffolding and guidance instead.";
 
 const EDIT_SYSTEM =
   "You are an academic editing assistant. Follow the instruction precisely. Return ONLY the edited text — no preamble, no explanation, no quotation marks.";
@@ -168,7 +172,7 @@ export default function Assignment() {
     setGenerating(true);
     setDraft("");
     const content = await groq(
-      [{ role: "user", content: `Write a detailed academic response to this assignment: ${prompt}` }],
+      [{ role: "user", content: `Create a STRUCTURAL OUTLINE to help me write this myself — section headings, a one-line note on what I should cover in each, 2-3 guiding questions per section, and a short "before you submit" checklist. Do NOT write the actual prose, essay body, answers, or any citations/sources; output only the skeleton for me to fill in.\n\nAssignment: ${prompt}` }],
       SYSTEM + "\n\n" + buildStudentContext()
     );
     setDraft(content);
@@ -402,12 +406,12 @@ export default function Assignment() {
 
         {!draft && (
           generating
-            ? <p style={{ color: "var(--text-dim)", fontSize: "13px", letterSpacing: "0.3px" }}>Generating draft…</p>
+            ? <p style={{ color: "var(--text-dim)", fontSize: "13px", letterSpacing: "0.3px" }}>Building your outline…</p>
             : <button
                 onClick={generateDraft}
                 style={{ background: "var(--color-accent)", color: "#111111", border: "none", borderRadius: "var(--radius-btn)", padding: "12px 24px", fontSize: "14px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}
               >
-                Generate Draft
+                Build an outline
               </button>
         )}
 
