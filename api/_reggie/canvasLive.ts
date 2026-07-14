@@ -35,7 +35,19 @@ export async function canvasGET(creds: CanvasCreds, path: string, params: Record
     if (Array.isArray(v)) v.forEach((x) => url.searchParams.append(k, String(x)));
     else url.searchParams.set(k, String(v));
   }
-  const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${creds.token}` } });
+  // Bounded fetch: a slow/unreachable Canvas must fail fast, never hang the tool loop
+  // (an unbounded GET could stall a turn for a minute-plus).
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 12000);
+  let r: Response;
+  try {
+    r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${creds.token}` }, signal: ac.signal });
+  } catch (e: any) {
+    if (e?.name === "AbortError") throw new Error("Canvas timed out — it's slow or unreachable right now. Try again in a moment.");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!r.ok) {
     const body = (await r.text().catch(() => "")).slice(0, 200);
     if (r.status === 401) throw new Error("Canvas rejected the stored token — reconnect Canvas in the app.");
