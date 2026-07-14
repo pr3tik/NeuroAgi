@@ -23,34 +23,34 @@ try { localStorage.removeItem('fschool_friendships'); } catch { /* ignore */ }
 // Supabase — USER IDENTITY (live, canonical)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// public.users is RLS-locked to the owner, so cross-user identity lookups go through the
+// find_user_by_email SECURITY DEFINER RPC (email match, bypasses RLS) and the users_public
+// view (id/name/location only — no email/scores). Do NOT read public.users directly here.
+
 /** Look up a user by email (case-insensitive). Returns { id, name, email } or null. */
 export async function findUserByEmail(email) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('id, name, email')
-    .ilike('email', email.trim())
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('find_user_by_email', { p_email: email.trim() });
   if (error) throw error;
-  return data;
+  return (Array.isArray(data) ? data[0] : data) ?? null;
 }
 
-/** Search users by partial name (for an add-by-name flow). Returns [{ id, name, email }]. */
+/** Search users by partial name (for an add-by-name flow). Returns [{ id, name }]. */
 export async function searchUsersByName(query) {
   const { data, error } = await supabase
-    .from('users')
-    .select('id, name, email')
+    .from('users_public')
+    .select('id, name')
     .ilike('name', `%${query.trim()}%`)
     .limit(8);
   if (error) throw error;
   return data ?? [];
 }
 
-/** Fetch user profiles for a list of ids. Returns { [id]: { name, email } }. */
+/** Fetch user profiles for a list of ids. Returns { [id]: { name } }. */
 export async function getUserProfiles(ids) {
   if (!ids.length) return {};
   const { data, error } = await supabase
-    .from('users')
-    .select('id, name, email')
+    .from('users_public')
+    .select('id, name')
     .in('id', ids);
   if (error) throw error;
   return Object.fromEntries((data ?? []).map(u => [u.id, u]));

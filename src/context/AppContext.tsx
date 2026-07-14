@@ -192,6 +192,10 @@ export function AppProvider({ children }) {
   // Load user + cached Canvas data from Supabase on mount
   useEffect(() => {
     async function init() {
+      // Ensure the GoTrue session is loaded before reading users — public.users is now
+      // RLS-locked to the owner, so the request must carry the auth token (avoids a boot race
+      // where a mount-time read fires as anon before supabase-js attaches the session).
+      await supabase.auth.getSession();
       const { data: user } = await supabase
         .from("users")
         .select("*")
@@ -311,6 +315,7 @@ export function AppProvider({ children }) {
    *  Returns the fresh row (or null if the read failed) so callers — like the email-
    *  verification gate — can react instead of failing silently. */
   const refreshUser = useCallback(async () => {
+    await supabase.auth.getSession();   // token attached before the RLS-locked users read
     const { data: user } = await supabase
       .from("users")
       .select("*")
