@@ -156,7 +156,7 @@ function defaultDraft(email, initName) {
     manualCanvasUrl: "",
     token: "",
     isCustomSchool: false,
-    intake: {},          // { [questionKey]: optionId | "skipped" }
+    intake: {},          // { [questionKey]: optionId[] }  (multi-select; [] = skipped)
     onboardingComplete: false,
   };
 }
@@ -395,7 +395,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
     setSyncDone(true);
   }
 
-  const answeredCount = INTAKE_KEYS.filter(k => draft.intake?.[k]).length;
+  const answeredCount = INTAKE_KEYS.filter(k => (draft.intake?.[k]?.length ?? 0) > 0).length;
 
   // Advance to the brain card when the narration is done AND all five
   // questions are answered or skipped.
@@ -405,16 +405,29 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
     return () => clearTimeout(t);
   }, [step, syncDone, qIndex]);
 
-  function answerQuestion(key, optionId) {
-    const opt = intakeOption(key, optionId);
-    setDraft(d => ({ ...d, intake: { ...(d.intake ?? {}), [key]: optionId } }));
-    if (opt?.echo) setGenLines(prev => [...prev, `  ✓ ${opt.echo}`]);
+  // Multi-select: tapping an option TOGGLES it (pick all that apply). Advancing is via the
+  // Continue button (or Skip) — a tap no longer auto-advances. Each newly-selected option
+  // echoes into the sync feed once, the moment it's added.
+  function toggleOption(key, optionId) {
+    const cur: string[] = Array.isArray(draft.intake?.[key]) ? draft.intake[key] : [];
+    const on = cur.includes(optionId);
+    if (!on) {
+      const opt = intakeOption(key, optionId);
+      if (opt?.echo) setGenLines(prev => [...prev, `  ✓ ${opt.echo}`]);
+    }
+    const next = on ? cur.filter(x => x !== optionId) : [...cur, optionId];
+    setDraft(d => ({ ...d, intake: { ...(d.intake ?? {}), [key]: next } }));
+  }
+
+  // Advance past the current question (keeps whatever is selected; empty = a skip).
+  function continueQuestion(key) {
+    setDraft(d => ({ ...d, intake: { ...(d.intake ?? {}), [key]: Array.isArray(d.intake?.[key]) ? d.intake[key] : [] } }));
     setQIndex(i => i + 1);
   }
 
-  // The skip itself is a signal — logged, never an error.
+  // The skip itself is a signal — logged, never an error. Empty selection = skipped.
   function skipQuestion(key) {
-    setDraft(d => ({ ...d, intake: { ...(d.intake ?? {}), [key]: "skipped" } }));
+    setDraft(d => ({ ...d, intake: { ...(d.intake ?? {}), [key]: [] } }));
     setQIndex(i => i + 1);
   }
 
@@ -422,9 +435,14 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
 
   // Corrections on the card are the highest-confidence declared data — a tap
   // simply overwrites the intake answer in place.
+  // Multi-select correction: toggle the option in place; keep the panel open so the
+  // student can pick/unpick several.
   function fixAnswer(key, optionId) {
-    setDraft(d => ({ ...d, intake: { ...(d.intake ?? {}), [key]: optionId } }));
-    setFixing(null);
+    setDraft(d => {
+      const cur: string[] = Array.isArray(d.intake?.[key]) ? d.intake[key] : [];
+      const next = cur.includes(optionId) ? cur.filter(x => x !== optionId) : [...cur, optionId];
+      return { ...d, intake: { ...(d.intake ?? {}), [key]: next } };
+    });
   }
 
   async function finishOnboarding() {
@@ -450,7 +468,10 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
     const skipped = [];
     for (const k of INTAKE_KEYS) {
       const v = draft.intake?.[k];
-      if (v && v !== "skipped") intake[k] = v;
+      // Multi-select is stored as an array in the draft; the users-table column is text,
+      // so join to a comma string. Tolerate a legacy single-string value defensively.
+      const arr = Array.isArray(v) ? v.filter(x => x && x !== "skipped") : (v && v !== "skipped" ? [v] : []);
+      if (arr.length) intake[k] = arr.join(",");
       else skipped.push(k);
     }
 
@@ -479,8 +500,9 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
   /* ── Brain-card lines ───────────────────────────────────────────────────── */
   const cardIntakeLines = INTAKE_KEYS.map(key => {
     const v = draft.intake?.[key];
-    const opt = v && v !== "skipped" ? intakeOption(key, v) : null;
-    return { key, text: opt ? opt.card : "Skipped — tap to answer", skipped: !opt };
+    const ids: string[] = Array.isArray(v) ? v : (v && v !== "skipped" ? [v] : []);
+    const cards = ids.map(id => intakeOption(key, id)?.card).filter(Boolean);
+    return { key, text: cards.length ? cards.join(" · ") : "Skipped — tap to answer", skipped: cards.length === 0 };
   });
 
   /* ── Render ─────────────────────────────────────────────────────────────── */
@@ -575,31 +597,54 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
                   {currentQuestion.q}
                 </h2>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-                  {currentQuestion.options.map(opt => (
-                    <button
-                      key={opt.id}
-                      className="ob-pill"
-                      onClick={() => answerQuestion(currentQuestion.key, opt.id)}
-                      style={chipStyle()}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                  {currentQuestion.options.map(opt => {
+                    const on = (draft.intake?.[currentQuestion.key] ?? []).includes(opt.id);
+                    return (
+                      <button
+                        key={opt.id}
+                        className="ob-pill"
+                        onClick={() => toggleOption(currentQuestion.key, opt.id)}
+                        style={chipStyle(on)}
+                      >
+                        {on && <Check size={12} style={{ marginRight: "5px", verticalAlign: "-1px" }} />}
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
-                <button
-                  className="ob-skip"
-                  onClick={() => skipQuestion(currentQuestion.key)}
-                  style={{
-                    background: "none", border: "none",
-                    color: "rgba(255,255,255,0.18)",
-                    fontSize: "12px", cursor: "pointer",
-                    fontFamily: "inherit", marginTop: "16px",
-                    display: "block", padding: "0",
-                    transition: "color 0.15s",
-                  }}
-                >
-                  not sure / skip →
-                </button>
+                <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.28)", margin: "10px 0 0" }}>
+                  Pick all that apply.
+                </p>
+                <div style={{ display: "flex", alignItems: "center", gap: "18px", marginTop: "14px" }}>
+                  <button
+                    className="ob-cont"
+                    onClick={() => continueQuestion(currentQuestion.key)}
+                    disabled={(draft.intake?.[currentQuestion.key]?.length ?? 0) === 0}
+                    style={{
+                      background: "rgba(255,255,255,0.92)", color: "#111",
+                      border: "none", borderRadius: "10px", padding: "9px 20px",
+                      fontSize: "14px", fontWeight: "600", fontFamily: "inherit",
+                      cursor: (draft.intake?.[currentQuestion.key]?.length ?? 0) === 0 ? "default" : "pointer",
+                      opacity: (draft.intake?.[currentQuestion.key]?.length ?? 0) === 0 ? 0.35 : 1,
+                      transition: "opacity 0.15s",
+                    }}
+                  >
+                    Continue →
+                  </button>
+                  <button
+                    className="ob-skip"
+                    onClick={() => skipQuestion(currentQuestion.key)}
+                    style={{
+                      background: "none", border: "none",
+                      color: "rgba(255,255,255,0.18)",
+                      fontSize: "12px", cursor: "pointer",
+                      fontFamily: "inherit", padding: "0",
+                      transition: "color 0.15s",
+                    }}
+                  >
+                    not sure / skip →
+                  </button>
+                </div>
               </div>
             )}
 
@@ -714,7 +759,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
                     {open && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 4px 4px", animation: "obFadeIn 0.25s ease" }}>
                         {q.options.map(opt => {
-                          const on = draft.intake?.[line.key] === opt.id;
+                          const on = (draft.intake?.[line.key] ?? []).includes(opt.id);
                           return (
                             <button
                               key={opt.id}

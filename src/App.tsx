@@ -521,16 +521,20 @@ export default function App() {
     // would take name/school down with them. localStorage draft still holds
     // the answers either way.
     if ((intake && Object.keys(intake).length > 0) || intakeSkipped?.length) {
+      const meta = { version: "onboarding-v2.1", skipped: intakeSkipped ?? [], completed_at: new Date().toISOString() };
       try {
-        await updateUserField({
-          ...intake,
-          intake_meta: {
-            version: "onboarding-v2.1",
-            skipped: intakeSkipped ?? [],
-            completed_at: new Date().toISOString(),
-          },
-        });
-      } catch { /* column may be absent until the migration runs */ }
+        // intake values are comma-joined multi-selects. The users_*_check constraints must
+        // allow multi-values (supabase-onboarding-multiselect-migration.sql). If that
+        // migration hasn't run, the single-value CHECK rejects the comma string (400) —
+        // supabase-js returns the error rather than throwing, so fall back to persisting
+        // the FIRST pick per question so intake isn't lost in the meantime.
+        const res = await updateUserField({ ...intake, intake_meta: meta });
+        if (res?.error) {
+          const firsts: Record<string, string> = {};
+          for (const [k, v] of Object.entries(intake)) firsts[k] = String(v).split(",")[0];
+          await updateUserField({ ...firsts, intake_meta: meta });
+        }
+      } catch { /* columns may be absent until the migration runs */ }
     }
     if (token && baseUrl) {
       try { await saveCanvasCredentials(token, baseUrl); } catch {}
