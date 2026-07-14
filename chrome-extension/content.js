@@ -569,10 +569,14 @@
         crSent.add("i:" + sid);
         const type = row.getAttribute("data-stream-item-type");   // "1" assignment, "5" material
         const txt = (row.innerText || "").replace(/\s+/g, " ").trim();
-        const dueM = txt.match(/\bdue\b[^]*?(?=\s+more_vert|$)/i);
+        // "No due date" must be handled BEFORE the generic due-strip, otherwise stripping
+        // " due date…" leaves the leading "No" glued to the title (e.g. "…Practice No").
+        const noDue = /\bno\s+due\s+date\b/i.test(txt);
+        const dueM = noDue ? null : txt.match(/\bdue\b[^]*?(?=\s+more_vert|$)/i);
         const dueText = dueM ? dueM[0].slice(0, 80) : null;
         const title = (txt
           .replace(/^(completed\s+|turned in\s+|assigned\s+|missing\s+|done\s+late\s+)?(assignment|material|question|quiz)\s+\S+\s+/i, "")
+          .replace(/\s+no\s+due\s+date\b.*$/i, "")
           .replace(/\s+(due|posted|edited|assigned)\b.*$/i, "")
           .replace(/\s*more_vert.*$/i, "").trim()) || "Untitled";
         // type 5 = material (filtered out of assignments downstream); everything else = gradable work.
