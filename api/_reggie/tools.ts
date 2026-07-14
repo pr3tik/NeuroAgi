@@ -330,7 +330,7 @@ export const TOOLS: ReggieTool[] = [
   {
     name: "canvas_modules",
     description:
-      "Read a course's Canvas MODULES (the week/topic structure with items). Call for 'what's in module 3', 'what topics does this course cover', 'what's the course structure'.",
+      "Read a course's Canvas MODULES — ONLY the week/topic module containers and their items. Call for 'what's in module 3', 'what's the module structure'. Do NOT use this for a list of the course's Pages (use canvas_pages) or Quizzes (use canvas_quizzes) — those are separate tools.",
     input_schema: {
       type: "object",
       properties: { course: { type: ["string", "number"], description: "Course by name, code, or Canvas id." } },
@@ -346,7 +346,7 @@ export const TOOLS: ReggieTool[] = [
   {
     name: "canvas_pages",
     description:
-      "Read a course's Canvas wiki PAGES. Without pageSlug: list the pages. With pageSlug: return that page's full text content. Call for lecture/session pages, syllabus-style content ('what does the week 5 page say').",
+      "Read a course's Canvas wiki PAGES. Without pageSlug: LIST the pages. With pageSlug: return that page's full text content. This is THE tool for any request about the course's Pages — 'list the pages', 'what pages are in this course', 'show me the Canvas pages', a lecture/session/wiki page, or 'what does the week 5 page say'. (Not canvas_modules.)",
     input_schema: {
       type: "object",
       properties: {
@@ -364,7 +364,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "canvas_quizzes",
-    description: "List a course's Canvas QUIZZES (title, due date, points, question count). Call for 'do I have any quizzes', 'when is the next quiz in X'.",
+    description: "List a course's Canvas QUIZZES (title, due date, points, question count). This is THE tool for any quiz request — 'do I have any quizzes', 'list my quizzes', 'show me the quizzes in X', 'when is the next quiz'. (Not canvas_modules.)",
     input_schema: {
       type: "object",
       properties: { course: { type: ["string", "number"], description: "Course by name, code, or Canvas id." } },
