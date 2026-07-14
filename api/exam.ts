@@ -111,7 +111,9 @@ Spread sessions from today up to the day before the exam, spacing topics for ret
   const r = await callModel({
     task: "default", system: sys,
     messages: [{ role: "user", content: prompt }],
-    max_tokens: 8000, metadata: { tool: "exam.generate_plan", user_id: userId },
+    // A dated study plan is compact JSON — 3000 tokens is ample and roughly halves the
+    // generation time vs the old 8000 (this call dominated a ~118s planner turn in E2E).
+    max_tokens: 3000, metadata: { tool: "exam.generate_plan", user_id: userId },
   });
   if (!r.ok) return res.status(r.status || 502).json({ error: r.error ?? "plan generation failed" });
 

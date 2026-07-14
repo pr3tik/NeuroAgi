@@ -137,6 +137,10 @@ async function upcoming(
       // loadCanvasData ORs the two the same way, so upcoming/overdue must too — otherwise
       // work the student finished in-app keeps surfacing as pending/behind.
       submitted: a.submitted_at != null || a.manual_done_at != null,
+      // Explicit overdue flag (past due AND not done) so the model never has to infer it
+      // from dates — stops it claiming "nothing overdue" while past-due work sits in an
+      // status:'all' list. (E2E: a "what have I completed?" answer wrongly said caught-up.)
+      overdue: a.due_at != null && new Date(a.due_at).getTime() < now && !(a.submitted_at != null || a.manual_done_at != null),
       missing: a.missing ?? false,
     }))
     .filter((a: any) => (dropSubmitted ? !a.submitted : true));

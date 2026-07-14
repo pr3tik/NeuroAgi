@@ -102,9 +102,12 @@ export async function resolveCourse(userId: string, course: any): Promise<any> {
     const hit =
       rows.find((c) => (c.course_code || "").toLowerCase() === lc || (c.name || "").toLowerCase() === lc) ||       // exact code/name
       rows.find((c) => (c.name || "").toLowerCase().includes(lc) || (c.course_code || "").toLowerCase().includes(lc)); // partial
-    return hit ? hit.id : raw;
+    // Unresolvable non-id course reference → null, NOT the raw string. Returning a bogus
+    // string (e.g. a model-invented "General") gets stored as course_id and breaks
+    // course-scoped filtering (E2E: saved flashcards were unreachable on the Study page).
+    return hit ? hit.id : null;
   } catch {
-    return raw;
+    return null;
   }
 }
 

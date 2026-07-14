@@ -104,8 +104,8 @@ const CASES: Record<string, { args: any; check: (r: any) => void }> = {
   evaluate_answers: { args: { items: [{ question: "q", studentAnswer: "a" }] }, check: (r) => { expect(Array.isArray(r.results)).toBe(true); expect(typeof r.totalScore).toBe("number"); } },
   generate_study_plan: { args: { courseId: 5, examDate: "2026-08-10" }, check: (r) => { expect(typeof r.planId).toBe("string"); expect(Array.isArray(r.sessions)).toBe(true); } },
   generate_framework: { args: { topic: "photosynthesis" }, check: (r) => { expect(Array.isArray(r.nodes)).toBe(true); expect(Array.isArray(r.edges)).toBe(true); } },
-  list_flashcards: { args: { courseId: "c-uuid" }, check: (r) => { expect(Array.isArray(r.cards)).toBe(true); } },
-  save_flashcards: { args: { courseId: "c-uuid", cards: [{ question: "q", answer: "a" }] }, check: (r) => { expect(r.ok).toBe(true); } },
+  list_flashcards: { args: { course: "Bio" }, check: (r) => { expect(Array.isArray(r.cards)).toBe(true); } },              // course NAME → resolves to c-uuid
+  save_flashcards: { args: { course: "Bio", cards: [{ question: "q", answer: "a" }] }, check: (r) => { expect(r.ok).toBe(true); } },
   summarize_text: { args: { text: "a long reading about cells that should be summarized" }, check: (r) => { expect(typeof r.summary).toBe("string"); } },
   what_if_plan: { args: { basePlan: { examDate: "2026-08-10", sessions: [{ date: "2026-08-01", topic: "Kinetics", activities: ["read"], estimatedMinutes: 60 }] }, changes: { dropTopics: ["Kinetics"] } }, check: (r) => { expect(r.readiness).toBeGreaterThanOrEqual(0); expect(Array.isArray(r.deltas)).toBe(true); } },
   token_summary: { args: {}, check: (r) => { expect(r).toBeDefined(); expect(typeof r).toBe("object"); } },
@@ -166,7 +166,7 @@ describe("Reggie tool registry", () => {
     expect(await resolveCourse("u1", "bi")).toBe("c-uuid");                                    // partial name
     expect(await resolveCourse("u1", "111")).toBe("111");                                      // numeric Canvas id → pass-through
     expect(await resolveCourse("u1", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBe("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"); // uuid → pass-through
-    expect(await resolveCourse("u1", "No Such Course")).toBe("No Such Course");                // no match → raw fallback
+    expect(await resolveCourse("u1", "No Such Course")).toBeNull();                            // no match → null (never a bogus string)
   });
 
   it("a failing handler surfaces as a thrown tool error (loop turns it into is_error)", async () => {
