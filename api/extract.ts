@@ -516,7 +516,7 @@ export default async function handler(req, res) {
       // (The document insert is the load-bearing part: even before embeddings land,
       // chunks are immediately keyword-searchable via full-text in hybrid search.)
       try {
-        const { ingest, embedBatch } = await import("./rag");
+        const { ingest, embedBatch } = await import("./rag.js");
         const result = await ingest({ userId, courseId: courseId ?? null, title: name ?? "Document", kind: "document", pages, text: combined });
         if (result.status === 200 && result.json?.documentId) {
           // Embed a few bounded batches inline (covers typical docs); kept small so a
