@@ -503,11 +503,14 @@ export function AppProvider({ children }) {
     const patch = typeof fieldOrPatch === "object"
       ? fieldOrPatch
       : { [fieldOrPatch]: value };
-    await supabase.from("users").upsert(
+    // supabase-js returns { error } (never throws) — return it so callers can react
+    // (e.g. onboarding retries a constraint-rejected multi-value write). [[supabase-js-silent-upsert-errors]]
+    const { error } = await supabase.from("users").upsert(
       { id: userId, ...patch },
       { onConflict: "id" }
     );
-    setUserData(prev => ({ ...(prev ?? { id: userId }), ...patch }));
+    if (!error) setUserData(prev => ({ ...(prev ?? { id: userId }), ...patch }));
+    return { error };
   }, [userId]);
 
   // Mark an assignment done from inside the app (not via a Canvas submission). Persists to
