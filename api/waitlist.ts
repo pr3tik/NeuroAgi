@@ -33,7 +33,7 @@ function verifySession(token: string): boolean {
 // is verified — this stops bots/typos/spam from inflating the list. The verify link carries
 // a stateless HMAC token over the row id (an unguessable uuid) + expiry, so no token column
 // is needed and a forged or expired link is rejected.
-const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — matches the auto-purge window so a link is always clickable for the full week
 function signVerify(id: string, exp: number): string {
   const sig = createHmac("sha256", dashSecret()).update(`${id}.${exp}`).digest("base64url");
   return `${id}.${exp}.${sig}`;
@@ -104,15 +104,18 @@ function confirmationHtml(name: string | null, position: number) {
 </td></tr></table></td></tr></table></body></html>`;
 }
 
-function verificationHtml(name: string | null, link: string) {
+function verificationHtml(name: string | null, link: string, warn = false) {
   const who = name ? `, ${esc(name)}` : "";
+  const body = warn
+    ? `We're keeping the FschoolAI waitlist to real students only. Tap below to confirm your spot — <b>if you don't confirm within a week, you'll be removed from the list.</b>`
+    : `One tap to lock in your spot on the FschoolAI waitlist. You're not counted until you confirm — so we know every name on the list is a real student. This link is valid for 7 days.`;
   return `<!DOCTYPE html><html><body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:48px 24px">
 <table width="480" style="max-width:480px;width:100%;border-top:3px solid #C49A3C">
 <tr><td style="padding:40px 40px 40px">
 <p style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:rgba(26,24,20,.4);margin:0 0 28px;font-weight:500">FSchoolAI</p>
 <h2 style="font-family:Georgia,serif;font-size:28px;color:#1a1814;margin:0 0 16px">Confirm your email${who}.</h2>
-<p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 28px">One tap to lock in your spot on the FschoolAI waitlist. You're not counted until you confirm — so we know every name on the list is a real student. This link expires in 24 hours.</p>
+<p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 28px">${body}</p>
 <a href="${link}" style="display:inline-block;background:#1a1814;color:#F6F2E9;text-decoration:none;padding:14px 28px;border-radius:10px;font-size:15px;font-weight:600">Confirm my spot &rarr;</a>
 <p style="color:rgba(26,24,20,.35);font-size:12px;line-height:1.6;border-top:1px solid rgba(26,24,20,.08);padding-top:20px;margin-top:32px">If you didn't request this, just ignore this email — nothing was added.</p>
 </td></tr></table></td></tr></table></body></html>`;
@@ -136,7 +139,7 @@ function verifyErrorHtml(base: string) {
 <body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center">
 <div style="max-width:420px;text-align:center;padding:32px">
 <h2 style="font-family:Georgia,serif;color:#1a1814;font-size:26px;margin:0 0 12px">This link has expired.</h2>
-<p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 24px">Confirmation links last 24 hours. Head back and join again — we'll send a fresh one.</p>
+<p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 24px">Confirmation links are valid for a week. Head back and join again — we'll send a fresh one.</p>
 <a href="${base}/?waitlist=1" style="display:inline-block;background:#1a1814;color:#F6F2E9;text-decoration:none;padding:13px 26px;border-radius:10px;font-size:15px;font-weight:600">Back to FschoolAI</a>
 </div></body></html>`;
 }
@@ -333,15 +336,19 @@ export default async function handler(req: any, res: any) {
       };
 
       const baseRow = { email, name, source, referred_by: ref };
+      // Stamp when the verification email goes out so the 7-day auto-purge clock starts now for
+      // this signup (same as the batch verify-blast). Kept in "extras" so the missing-column
+      // retry below strips it too, pre-migration.
+      const extras = { ...geo, verification_sent_at: new Date().toISOString() };
       const insert = (body: any) => fetch(`${url}/rest/v1/waitlist`, {
         method: "POST", headers: { ...headers, Prefer: "return=representation" },
         body: JSON.stringify(body),
       });
-      let ins = await insert({ ...baseRow, ...geo });
+      let ins = await insert({ ...baseRow, ...extras });
       if (!ins.ok) {
         const errText = (await ins.text()).slice(0, 300);
-        // Geo columns not migrated yet (PGRST204 "column ... schema cache") → a join must
-        // NEVER fail over optional location data: retry without it.
+        // Optional columns (geo/verification_sent_at) not migrated yet (PGRST204 "column ...
+        // schema cache") → a join must NEVER fail over them: retry with just the core row.
         if (/column|schema cache/i.test(errText)) {
           ins = await insert(baseRow);
           if (!ins.ok) throw new Error(`waitlist insert failed (${ins.status}): ${(await ins.text()).slice(0, 150)}`);
@@ -399,7 +406,73 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true, invited: results.filter((x) => x.ok).length, results });
     }
 
-    return res.status(400).json({ error: "Unknown action. Use join, verify, stats, or invite." });
+    // ── admin: one-time catch-up blast — verify existing signups (Bearer CRON_SECRET) ──
+    // Sends a verification link to every signup that was never asked to confirm
+    // (verified_at IS NULL AND verification_sent_at IS NULL — i.e. rows created before the
+    // verification feature). Stamps verification_sent_at ONLY after a successful send, which
+    // starts that signup's 7-day purge clock. Idempotent + resumable: re-running skips
+    // already-sent rows and retries failures. `limit` (default 200, max 1000) batches large lists.
+    if (action === "verify-blast") {
+      const secret = process.env.CRON_SECRET;
+      if (!secret) return res.status(500).json({ error: "CRON_SECRET not configured" });
+      if ((req.headers?.authorization ?? "") !== `Bearer ${secret}`) return res.status(401).json({ error: "Unauthorized" });
+      const resend = mailer();
+      if (!resend) return res.status(500).json({ error: "RESEND_API_KEY not configured" });
+
+      const { url, headers } = sb();
+      const base = appUrl(req);
+      const limit = Math.min(parseInt(String(req.query?.limit ?? "200"), 10) || 200, 1000);
+      const r = await fetch(`${url}/rest/v1/waitlist?verified_at=is.null&verification_sent_at=is.null&select=id,email,name&order=created_at.asc&limit=${limit}`, { headers });
+      if (!r.ok) return res.status(502).json({ error: `waitlist read failed (${r.status})` });
+      const rows = (await r.json()) as any[];
+
+      let sent = 0; const errors: string[] = [];
+      // Small concurrency so we stay under Resend's rate limit + the function timeout.
+      for (let i = 0; i < rows.length; i += 8) {
+        await Promise.all(rows.slice(i, i + 8).map(async (row) => {
+          try {
+            const link = `${base}/api/waitlist?action=verify&token=${encodeURIComponent(signVerify(row.id, Date.now() + VERIFY_TTL_MS))}`;
+            await resend.emails.send({
+              from: "FSchoolAI <noreply@fschoolai.com>", to: row.email,
+              subject: "Confirm your email to stay on the FschoolAI waitlist",
+              html: verificationHtml(row.name, link, true),
+            });
+            // Stamp ONLY after a successful send: unsent rows stay null → safe from the purge
+            // and retried on the next run.
+            await fetch(`${url}/rest/v1/waitlist?id=eq.${row.id}`, {
+              method: "PATCH", headers, body: JSON.stringify({ verification_sent_at: new Date().toISOString() }),
+            });
+            sent++;
+          } catch (e: any) { errors.push(`${row.email}: ${e?.message ?? "send failed"}`); }
+        }));
+      }
+
+      const remRes = await fetch(`${url}/rest/v1/waitlist?verified_at=is.null&verification_sent_at=is.null&select=id`, { headers: { ...headers, Prefer: "count=exact", Range: "0-0" } });
+      const remaining = parseInt((remRes.headers.get("content-range") ?? "/0").split("/")[1] || "0", 10);
+      return res.status(200).json({ ok: true, sent, remaining, errors: errors.slice(0, 20) });
+    }
+
+    // ── admin: purge unverified after the 7-day window (Bearer CRON_SECRET) ──
+    // Mirrors the pg_cron job so it can be run/tested on demand. ONE filtered DELETE (not a
+    // REST loop). Only rows that were actually emailed (verification_sent_at IS NOT NULL) and
+    // are past the window are removed — never an un-emailed row.
+    if (action === "purge-unverified") {
+      const secret = process.env.CRON_SECRET;
+      if (!secret) return res.status(500).json({ error: "CRON_SECRET not configured" });
+      const auth = req.headers?.authorization ?? "";
+      if (auth !== `Bearer ${secret}`) return res.status(401).json({ error: "Unauthorized" });
+      const days = Math.min(Math.max(parseInt(String(req.query?.days ?? "7"), 10) || 7, 1), 60);
+      const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+      const { url, headers } = sb();
+      const del = await fetch(`${url}/rest/v1/waitlist?verified_at=is.null&verification_sent_at=not.is.null&verification_sent_at=lt.${encodeURIComponent(cutoff)}`, {
+        method: "DELETE", headers: { ...headers, Prefer: "return=representation" },
+      });
+      if (!del.ok) return res.status(502).json({ error: `purge failed (${del.status})` });
+      const removed = ((await del.json().catch(() => [])) as any[]).length;
+      return res.status(200).json({ ok: true, removed, cutoff });
+    }
+
+    return res.status(400).json({ error: "Unknown action. Use join, verify, stats, invite, verify-blast, or purge-unverified." });
   } catch (e: any) {
     return res.status(502).json({ error: e?.message ?? "waitlist failed" });
   }
