@@ -89,6 +89,9 @@ function CourseDetail({ course, assignments, color, onBack }) {
         <h1 style={{ fontSize: "24px", fontWeight: "600", color: "var(--text-primary)", letterSpacing: "-0.3px", marginTop: "4px", lineHeight: 1.25 }}>
           {course.name}
         </h1>
+        {course.professor && (
+          <p style={{ color: "var(--text-dim)", fontSize: "13px", marginTop: "6px" }}>Prof. {course.professor}</p>
+        )}
       </div>
 
       {/* Grade summary */}
@@ -208,6 +211,9 @@ export default function Courses() {
                     display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                     {c.name}
                   </p>
+                  {c.professor && (
+                    <p style={{ color: "var(--text-dim)", fontSize: "11px", marginTop: "4px" }}>Prof. {c.professor}</p>
+                  )}
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: "12px" }}>
                   <span style={{ color: "var(--text-dim)", fontSize: "11px" }}>{count} item{count !== 1 ? "s" : ""}</span>

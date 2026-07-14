@@ -326,14 +326,16 @@ Examples:
   try {
     if (queryType === "course_grades") {
       // All courses with scores
-      let url = `${supabaseUrl}/rest/v1/courses?user_id=eq.${userId}&select=name,course_code,current_score,final_score&order=name.asc`;
+      let url = `${supabaseUrl}/rest/v1/courses?user_id=eq.${userId}&select=name,course_code,current_score,final_score,professor&order=name.asc`;
       if (keyword) url += `&or=(name.ilike.*${encodeURIComponent(keyword)}*,course_code.ilike.*${encodeURIComponent(keyword)}*)`;
-      const r = await fetch(url, { headers: sbHeaders });
+      let r = await fetch(url, { headers: sbHeaders });
+      // professor may not exist yet (pre-migration) — a bad column 400s the whole select, so retry without it.
+      if (!r.ok) r = await fetch(url.replace(",professor", ""), { headers: sbHeaders });
       if (r.ok) {
         const rows = await r.json();
         if (rows.length) {
           context = "LIVE GRADE DATA:\n" + rows
-            .map(c => `• ${c.course_code ?? ""} ${c.name}: current ${c.current_score ?? "N/A"}%, final ${c.final_score ?? "N/A"}%`)
+            .map(c => `• ${c.course_code ?? ""} ${c.name}: current ${c.current_score ?? "N/A"}%, final ${c.final_score ?? "N/A"}%${c.professor ? ` — Prof. ${c.professor}` : ""}`)
             .join("\n");
         }
       }
