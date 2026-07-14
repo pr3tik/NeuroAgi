@@ -476,6 +476,25 @@
     return (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ");
   }
 
+  // Scrape a "Due <date>" string from a scope — used on the item DETAILS page, where the due
+  // date isn't in a list row. Best-effort: a wrong/absent match just yields null (parseable
+  // due dates fail safe to due_at:null in the background).
+  function crScrapeDue(scope) {
+    const t = ((scope || document.body).innerText || "").match(/\bdue\b[^\n]{0,60}/i);
+    return t ? t[0].slice(0, 80) : null;
+  }
+
+  // The course name shown in the course-page header (classwork/stream/people), for when the
+  // student opens a course directly and no dashboard course card is present to name it.
+  function crPageCourseName() {
+    const h = document.querySelector('[role="heading"][aria-level="1"], h1');
+    let name = h ? (h.textContent || "").trim().replace(/\s+/g, " ") : "";
+    if (!name) name = document.title.replace(/\s*[-–]\s*Google Classroom.*$/i, "")
+      .replace(/\s*[-–]\s*(Classwork|Stream|People|Grades|To-?do)\s*$/i, "").trim();
+    return name && name.length >= 2 && !/^(stream|classwork|people|grades|to-?do|open)$/i.test(name)
+      ? name.slice(0, 200) : null;
+  }
+
   function collectClassroom() {
     const courses = [], items = [], attachments = [];
     const pageCid = crPageCourseId();
@@ -486,7 +505,9 @@
     if (self && !crSent.has("i:" + self[3])) {
       crSent.add("i:" + self[3]);
       const title = document.title.replace(/\s*[-–]\s*Google Classroom.*$/i, "").trim();
-      items.push({ courseWebId: self[1], kind: self[2], itemWebId: self[3], title: title || "Untitled", dueText: null });
+      // Scrape the due date off the details DOM — session dedup (crSent) means the list row
+      // can't backfill it later, so if we don't grab it here it's lost for the whole visit.
+      items.push({ courseWebId: self[1], kind: self[2], itemWebId: self[3], title: title || "Untitled", dueText: crScrapeDue() });
     }
 
     for (const a of document.querySelectorAll("a[href]")) {
@@ -536,26 +557,66 @@
         items.push({ courseWebId: m[1], kind: m[2], itemWebId: m[3], title: title || "Untitled", dueText });
       }
     }
+
+    // Classwork LIST rows are NOT <a href> links in the current Classroom UI — they are
+    // expandable <li>s carrying the numeric stream-item id + type in data-* attributes. Scrape
+    // those so the ENTIRE classwork list is captured from one visit, without the student opening
+    // each item (the anchor loop above only ever fires on an item's own details page).
+    if (pageCid) {
+      for (const row of document.querySelectorAll("[data-stream-item-id]")) {
+        const sid = row.getAttribute("data-stream-item-id");
+        if (!/^\d{6,20}$/.test(sid || "") || crSent.has("i:" + sid)) continue;
+        crSent.add("i:" + sid);
+        const type = row.getAttribute("data-stream-item-type");   // "1" assignment, "5" material
+        const txt = (row.innerText || "").replace(/\s+/g, " ").trim();
+        const dueM = txt.match(/\bdue\b[^]*?(?=\s+more_vert|$)/i);
+        const dueText = dueM ? dueM[0].slice(0, 80) : null;
+        const title = (txt
+          .replace(/^(completed\s+|turned in\s+|assigned\s+|missing\s+|done\s+late\s+)?(assignment|material|question|quiz)\s+\S+\s+/i, "")
+          .replace(/\s+(due|posted|edited|assigned)\b.*$/i, "")
+          .replace(/\s*more_vert.*$/i, "").trim()) || "Untitled";
+        // type 5 = material (filtered out of assignments downstream); everything else = gradable work.
+        items.push({ courseWebId: pageCid, kind: type === "5" ? "m" : "a", itemWebId: sid, numericId: sid, title: title.slice(0, 300), dueText });
+      }
+    }
+
+    // On a course page (classwork/stream) with no dashboard course card captured, emit the
+    // current course from the URL id + a scraped header name so its assignments link to a real
+    // course row instead of orphaning with course_id:null (background upserts courses first).
+    if (pageCid && !crSent.has("c:" + pageCid)) {
+      const nm = crPageCourseName();
+      if (nm) { crSent.add("c:" + pageCid); courses.push({ webId: pageCid, name: nm }); }
+    }
     return { courses, items, attachments };
+  }
+
+  async function runClassroomCapture() {
+    try {
+      if (!chrome?.runtime?.sendMessage) return;               // orphaned script
+      if (window !== window.top) return;                       // top frame only
+      // Same consent gate as every other capture path — one prompt per host.
+      if (await ensureSiteConsent() !== "on") return;
+      const { courses, items, attachments } = collectClassroom();
+      if (!courses.length && !items.length && !attachments.length) return;
+      chrome.runtime.sendMessage({
+        type: "CLASSROOM_CAPTURE",
+        payload: { courses, items, attachments, pageUrl: location.href },
+      }, () => void chrome.runtime.lastError);
+    } catch { /* never break the host page */ }
   }
 
   let crTimer = null;
   function scheduleClassroomCapture() {
     if (crTimer) return;
-    crTimer = setTimeout(async () => {
+    crTimer = setTimeout(() => {
       crTimer = null;
-      try {
-        if (!chrome?.runtime?.sendMessage) return;             // orphaned script
-        if (window !== window.top) return;                     // top frame only
-        // Same consent gate as every other capture path — one prompt per host.
-        if (await ensureSiteConsent() !== "on") return;
-        const { courses, items, attachments } = collectClassroom();
-        if (!courses.length && !items.length && !attachments.length) return;
-        chrome.runtime.sendMessage({
-          type: "CLASSROOM_CAPTURE",
-          payload: { courses, items, attachments, pageUrl: location.href },
-        }, () => void chrome.runtime.lastError);
-      } catch { /* never break the host page */ }
+      // The Classwork list lazy-renders well after document_idle, and a single capture can fire
+      // before its rows exist (→ nothing captured, no retrigger). Capture at several offsets so
+      // slow-rendering lists are still picked up; crSent dedups, so later passes only emit the
+      // newly-appeared courses/items/attachments.
+      runClassroomCapture();
+      setTimeout(runClassroomCapture, 3500);
+      setTimeout(runClassroomCapture, 8000);
     }, 2500);   // let the SPA settle; batches instead of per-mutation spam
   }
 

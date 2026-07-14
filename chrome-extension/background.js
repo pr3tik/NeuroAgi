@@ -892,7 +892,9 @@ async function classroomCapture({ courses = [], items = [], attachments = [] }) 
       const idMap = await classroomCourseIds(auth);
       const rows = [];
       for (const it of workItems) {
-        const key = decodeClassroomId(it.itemWebId);
+        // List-scraped rows carry the numeric id directly (numericId); anchor/self items carry a
+        // base64 webId that decodeClassroomId turns into the same gc_<numeric> key → dedupes both.
+        const key = it.numericId ? "gc_" + it.numericId : decodeClassroomId(it.itemWebId);
         if (classroomUpserted.has("a:" + key)) continue;
         classroomUpserted.add("a:" + key);
         rows.push({
