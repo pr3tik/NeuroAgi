@@ -2,6 +2,7 @@
 // All data logic (fetchAssignments, fetchModules, addManualCourse, etc.) unchanged.
 
 import { useState, useEffect } from "react";
+import { calendarDaysUntil } from "../lib/dueDate";
 import { Check, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import ManualUploadSheet from "../components/ManualUploadSheet";
@@ -22,9 +23,8 @@ const CARD_BG =
 function fmt(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
-  const now = new Date();
-  const diff = +d - +now;
-  const days = Math.ceil(diff / 86400000);
+  const days = calendarDaysUntil(dateStr);
+  if (days === null) return null;
   if (days < 0)  return { label: "Past due",      urgent: false, past: true  };
   if (days === 0) return { label: "Due today",     urgent: true,  past: false };
   if (days === 1) return { label: "Due tomorrow",  urgent: true,  past: false };
