@@ -230,6 +230,55 @@ describe("waitlist stats + invites", () => {
     expect(urls[0]).toContain("verified_at=not.is.null");                          // spam/unverified excluded
   });
 
+  it("verify-blast is fail-closed: 401 without the secret", async () => {
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "verify-blast" }, headers: {} }, res);
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("verify-blast sends a link to each un-emailed unverified row + stamps verification_sent_at", async () => {
+    const patches: any[] = [];
+    let readCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (init?.method === "PATCH") { patches.push({ u, body: JSON.parse(init.body) }); return R([]); }
+      // first read = the batch of unverified+unsent rows; count read = remaining
+      if (u.includes("verified_at=is.null") && u.includes("verification_sent_at=is.null")) {
+        if (u.includes("select=id&") || /Range/.test(JSON.stringify(init?.headers || {}))) return R([], { count: 0 });
+        if (readCount++ === 0) return R([{ id: "w1", email: "a@x.edu", name: "A" }, { id: "w2", email: "b@x.edu", name: null }]);
+        return R([], { count: 0 });
+      }
+      return R([]);
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "verify-blast" }, headers: { authorization: "Bearer cron-secret", host: "fschoolai.com" } }, res);
+    expect(res.body).toMatchObject({ ok: true, sent: 2, remaining: 0 });
+    expect(sent).toHaveLength(2);
+    expect(sent.every(m => /confirm/i.test(m.subject))).toBe(true);
+    expect(sent[0].html).toContain("action=verify&token=w1.");
+    expect(sent.some(m => /removed from the list/i.test(m.html))).toBe(true);   // the warning copy
+    expect(patches.every(p => "verification_sent_at" in p.body)).toBe(true);    // clock stamped after send
+    expect(patches).toHaveLength(2);
+  });
+
+  it("purge-unverified is fail-closed + issues ONE filtered DELETE (verified null, sent, past window)", async () => {
+    let delUrl = "";
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      if (init?.method === "DELETE") { delUrl = String(url); return R([{ id: "old1" }, { id: "old2" }]); }
+      return R([]);
+    }));
+    const h1 = await load(); const res1 = makeRes();
+    await h1({ method: "POST", query: { action: "purge-unverified" }, headers: {} }, res1);
+    expect(res1.statusCode).toBe(401);                                          // fail-closed
+
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "purge-unverified" }, headers: { authorization: "Bearer cron-secret" } }, res);
+    expect(res.body).toMatchObject({ ok: true, removed: 2 });
+    expect(delUrl).toContain("verified_at=is.null");
+    expect(delUrl).toContain("verification_sent_at=not.is.null");
+    expect(delUrl).toContain("verification_sent_at=lt.");                       // only past the window
+  });
+
   it("invite is fail-closed: 401 without the secret", async () => {
     const h = await load(); const res = makeRes();
     await h({ method: "POST", query: { action: "invite" }, body: { emails: ["stu@school.edu"] }, headers: {} }, res);
