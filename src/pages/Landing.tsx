@@ -2713,12 +2713,26 @@ function Confetti() {
 // States: idle → loading → success | error | duplicate
 function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () => void }) {
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error" | "duplicate">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error" | "duplicate" | "verify">("idle");
   const [position, setPosition] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 320); }, []);
+
+  // Arriving from the email confirmation link (/api/waitlist?action=verify → /?verified=1&pos=N):
+  // show the confirmed-success screen with the real position.
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("verified") === "1") {
+        setPosition(parseInt(q.get("pos") || "0", 10) || 0);
+        setStatus("success");
+        setShowConfetti(true);
+        setTimeout(() => setShowConfetti(false), 3600);
+      }
+    } catch { /* no-op */ }
+  }, []);
 
   async function submit() {
     const q = email.trim();
@@ -2735,8 +2749,10 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
         signal: ctrl.signal,
       });
       const data = await res.json().catch(() => ({}));
-      if (data.already || data.alreadyJoined) { setStatus("duplicate"); return; }
-      if (res.ok && data.success) {
+      // A verified member re-joining → already in. A new/unconfirmed signup → must verify email.
+      if (data.alreadyJoined && data.verified) { setStatus("duplicate"); return; }
+      if (data.needsVerification) { setStatus("verify"); return; }
+      if (res.ok && data.success) {                 // legacy no-verify path (fallback)
         setPosition(data.position ?? 0);
         setStatus("success");
         setShowConfetti(true);
@@ -2754,6 +2770,7 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
   }
 
   const isSuccess = status === "success";
+  const isVerifyPending = status === "verify";
 
   return (
     <>
@@ -2843,7 +2860,7 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
                 You're <strong style={{ color: "#1d1d1f", fontWeight: 600 }}>#{position.toLocaleString()}</strong> on the waitlist.
               </p>
               <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.55, marginBottom: 28 }}>
-                Check your inbox. We just sent a confirmation. We launch{" "}
+                Email confirmed — your spot is locked in. We launch{" "}
                 <strong style={{ color: "#0066cc", fontWeight: 500 }}>August 1st, 2026.</strong>
               </p>
 
@@ -2853,6 +2870,36 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
               </div>
 
               <button className="wl-btn-primary" onClick={onClose}>Done</button>
+            </div>
+          ) : isVerifyPending ? (
+            /* ── Pending email verification ── */
+            <div style={{ textAlign: "center", paddingTop: 8 }}>
+              <div style={{
+                width: 80, height: 80, borderRadius: "50%", background: "rgba(0,113,227,0.10)",
+                display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px",
+                animation: "successPop 0.45s cubic-bezier(0.16,1,0.3,1) both",
+              }}>
+                <svg width="38" height="38" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z" stroke="#0071e3" strokeWidth="1.6" />
+                  <path d="M3.5 7l8.5 6 8.5-6" stroke="#0071e3" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <h2 style={{ fontSize: 28, fontWeight: 600, letterSpacing: "-0.025em", color: "#1d1d1f", margin: "0 0 10px" }}>
+                Check your inbox.
+              </h2>
+              <p style={{ fontSize: 17, color: "#6e6e73", lineHeight: 1.6, margin: "0 0 6px" }}>
+                We sent a confirmation link to<br />
+                <strong style={{ color: "#1d1d1f", fontWeight: 600, wordBreak: "break-all" }}>{email.trim().toLowerCase()}</strong>.
+              </p>
+              <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.55, marginBottom: 28 }}>
+                Click it to lock in your spot — you're not officially on the list until you confirm. The link expires in 24 hours.
+              </p>
+              <button className="wl-btn-primary" onClick={submit} style={{ marginBottom: 10 }}>
+                Resend link
+              </button>
+              <button onClick={onClose} style={{ width: "100%", background: "none", border: "none", color: "#6e6e73", fontSize: 15, cursor: "pointer", fontFamily: FONT, padding: 8 }}>
+                Done
+              </button>
             </div>
           ) : (
             /* ── Entry form ── */
@@ -3036,7 +3083,9 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
   const [waitlistOpen, setWaitlistOpen] = useState(() => {
     try {
       const q = new URLSearchParams(window.location.search);
-      return window.location.pathname === "/waitlist" || q.has("waitlist");
+      // ?verified=1 = returning from the email confirmation link → open the modal so it can
+      // show the confirmed-success screen.
+      return window.location.pathname === "/waitlist" || q.has("waitlist") || q.get("verified") === "1";
     } catch { return false; }
   });
   const [forgotStatus, setForgotStatus] = useState<"sent"|"error"|null>(null);
