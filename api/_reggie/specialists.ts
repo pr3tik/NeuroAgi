@@ -33,7 +33,7 @@ function base(persona: string, brainContext?: string | null): string {
 export const SPECIALISTS: Record<string, Specialist> = {
   tutor: {
     key: "tutor", title: "General tutor", task: "tutor",
-    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "canvas_announcements", "canvas_modules", "canvas_submission_feedback", "canvas_inbox", "canvas_past_courses", "office_hours_capture", "summarize_text", "list_flashcards", "list_friends", "nudge_friend", "university_brain_profile", "contribute_course_intel", "token_summary", "navigate"],
+    tools: ["rag_search", "canvas_get_grades", "canvas_get_upcoming", "canvas_announcements", "canvas_modules", "canvas_pages", "canvas_quizzes", "canvas_submission_feedback", "canvas_inbox", "canvas_past_courses", "canvas_course_files", "office_hours_capture", "summarize_text", "list_flashcards", "list_friends", "nudge_friend", "university_brain_profile", "contribute_course_intel", "token_summary", "navigate"],
     system: (o) => base("Answer the student's question clearly and help them understand it, pulling from their uploaded materials (rag_search) and Canvas when relevant — including live Canvas: announcements, module structure, submission feedback, inbox, and past courses. If they mention going to office hours, capture what happened (office_hours_capture).", o.brainContext),
   },
   insight_explainer: {
