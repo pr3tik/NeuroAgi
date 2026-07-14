@@ -102,9 +102,14 @@ export async function fetchCourses(canvasToken, baseUrl, proxyUrl) {
   // current_grading_period_scores, or course_image when the account feature
   // is off). A single failing include must not kill the entire sync, so try
   // progressively simpler include sets until one succeeds.
+  // include[]=teachers rides through the /api/canvas proxy passthrough and makes Canvas
+  // return a per-course teachers:[{id,display_name}] array. Keep teachers-free fallbacks so
+  // an instance that 500s on the teachers include still syncs (professor just comes back null).
   const includeSets = [
-    'include[]=total_scores&include[]=current_grading_period_scores&include[]=course_image',
-    'include[]=total_scores&include[]=course_image',
+    'include[]=total_scores&include[]=current_grading_period_scores&include[]=course_image&include[]=teachers',
+    'include[]=total_scores&include[]=course_image&include[]=teachers',
+    'include[]=total_scores&include[]=teachers',
+    'include[]=teachers',
     'include[]=total_scores',
     '',
   ];

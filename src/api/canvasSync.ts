@@ -206,6 +206,7 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
     canvas_course_id: c.id,
     name:             c.name,
     course_code:      c.courseCode,
+    professor:        c.professor ?? null,
     current_score:    c.currentScore,
     final_score:      c.finalScore,
     image_url:        c.imageUrl,
@@ -213,10 +214,23 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
     updated_at:       now,
   }));
 
-  const { data: upsertedCourses, error: courseError } = await supabase
+  let { data: upsertedCourses, error: courseError } = await supabase
     .from('courses')
     .upsert(courseRows, { onConflict: 'user_id,canvas_course_id' })
     .select('id, canvas_course_id');
+
+  // `professor` ships with supabase-course-professor-migration.sql (run manually in the SQL
+  // editor). If that migration hasn't run yet, PostgREST rejects the whole upsert (PGRST204).
+  // Rather than break the entire sync, drop professor and retry — it persists automatically
+  // once the migration is applied.
+  if (courseError && /professor/i.test(courseError.message || '')) {
+    const stripped = courseRows.map(({ professor, ...rest }) => rest);
+    ({ data: upsertedCourses, error: courseError } = await supabase
+      .from('courses')
+      .upsert(stripped, { onConflict: 'user_id,canvas_course_id' })
+      .select('id, canvas_course_id'));
+    if (!courseError) console.warn("courses.professor missing — run supabase-course-professor-migration.sql; synced without professor");
+  }
 
   if (courseError) throw new Error(`Courses upsert failed: ${courseError.message}`);
 
@@ -463,6 +477,7 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
         dbId:             c.id,
         name:             c.name,
         courseCode:       c.course_code,
+        professor:        c.professor ?? null,
         currentScore:     c.current_score,
         finalScore:       c.final_score,
         imageUrl:         c.image_url,
@@ -584,6 +599,7 @@ export async function loadCanvasData(userId) {
     dbId:             c.id,
     name:             c.name,
     courseCode:       c.course_code,
+    professor:        c.professor ?? null,
     currentScore:     c.current_score,
     finalScore:       c.final_score,
     imageUrl:         c.image_url,
@@ -698,6 +714,7 @@ export async function loadCanvasData(userId) {
         dbId:             null,
         name:             c.name ?? c.code ?? "Course",
         courseCode:       c.code ?? "",
+        professor:        c.professor ?? c.teacher ?? null,
         currentScore:     score,
         finalScore:       null,
         imageUrl:         null,

@@ -7,12 +7,23 @@
 
 // ─── Courses ─────────────────────────────────────────────────────────────────
 
+function extractProfessor(raw) {
+  const teachers = Array.isArray(raw.teachers) ? raw.teachers : [];
+  const names = teachers.map(t => t && (t.display_name || t.name)).filter(Boolean);
+  return names.length ? [...new Set(names)].join(', ') : null;
+}
+
 export function normalizeCourse(raw) {
   const enrollment = Array.isArray(raw.enrollments) ? raw.enrollments[0] : null;
   return {
     id: raw.id,
-    name: raw.name || '',
-    courseCode: raw.course_code || '',
+    // Cross-fallback: a Canvas course can return only one of name/course_code (name-less
+    // access-restricted stubs, unpublished sections). Without this, a code-only course got
+    // name:'' and was silently dropped by the normalizeCourses() filter — never reaching the
+    // DB or any UI. Keep both fields populated so the course survives and always has a label.
+    name: raw.name || raw.course_code || raw.original_name || '',
+    courseCode: raw.course_code || raw.name || '',
+    professor: extractProfessor(raw),
     imageUrl: raw.image_download_url || null,
     currentScore: enrollment ? (enrollment.computed_current_score ?? null) : null,
     finalScore:   enrollment ? (enrollment.computed_final_score   ?? null) : null,
@@ -24,7 +35,10 @@ export function normalizeCourse(raw) {
 
 export function normalizeCourses(rawCourses, limit = 12) {
   return rawCourses
-    .filter(c => c.name && !c.access_restricted_by_date)
+    // Keep a course if it has EITHER a name or a course_code (the normalizeCourse fallback
+    // turns a code-only course into a usable labelled course). Previously required c.name,
+    // which dropped code-only courses at ingest.
+    .filter(c => (c.name || c.course_code) && !c.access_restricted_by_date)
     .slice(0, limit)
     .map(normalizeCourse);
 }
@@ -275,8 +289,9 @@ export function normalizePastCourse(raw) {
     : (enrollment?.enrollment_state === 'completed' ? 'Past' : '');
   return {
     id: raw.id,
-    name: raw.name || '',
-    courseCode: raw.course_code || '',
+    name: raw.name || raw.course_code || raw.original_name || '',
+    courseCode: raw.course_code || raw.name || '',
+    professor: extractProfessor(raw),
     imageUrl: raw.image_download_url || null,
     finalScore: enrollment ? (enrollment.computed_final_score ?? null) : null,
     enrollmentState: 'completed',
@@ -287,7 +302,7 @@ export function normalizePastCourse(raw) {
 
 export function normalizePastCourses(rawCourses, limit = 20) {
   return rawCourses
-    .filter(c => c.name && !c.access_restricted_by_date)
+    .filter(c => (c.name || c.course_code) && !c.access_restricted_by_date)
     .slice(0, limit)
     .map(normalizePastCourse);
 }
