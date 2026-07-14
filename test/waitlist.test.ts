@@ -100,6 +100,19 @@ describe("waitlist join", () => {
     expect("country" in bodies[1]).toBe(false);
   });
 
+  it("ignores a forged x-forwarded-host in the verification link (no branded-email open redirect)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.includes("email=eq.")) return R([]);
+      if (init?.method === "POST") return R([{ id: "w1", created_at: "2026-07-10T00:00:00Z" }]);
+      return R([], { count: 0 });
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "join" }, body: { email: "stu@school.edu" }, headers: { "x-forwarded-host": "evil.com" } }, res);
+    expect(sent[0].html).toContain("https://fschoolai.com/api/waitlist?action=verify");
+    expect(sent[0].html).not.toContain("evil.com");
+  });
+
   it("duplicate VERIFIED email → alreadyJoined with the SAME position, no insert, no email", async () => {
     const posts: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
@@ -148,7 +161,7 @@ describe("waitlist verify", () => {
     const patches: any[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
       const u = String(url);
-      if (init?.method === "PATCH") { patches.push({ u, body: JSON.parse(init.body) }); return R([]); }
+      if (init?.method === "PATCH") { patches.push({ u, body: JSON.parse(init.body) }); return R([{ id: "w1" }]); } // representation: we flipped it
       if (u.includes("id=eq.w1") && u.includes("select=")) return R([{ id: "w1", email: "stu@school.edu", name: "Stu", created_at: "2026-07-01T00:00:00Z", verified_at: null }]);
       if (u.includes("created_at=lte.")) return R([], { count: 5 });               // verified-only position
       return R([], { count: 90 });                                                 // verified-only total
@@ -191,6 +204,20 @@ describe("waitlist verify", () => {
     expect(res.statusCode).toBe(302);
     expect(sent).toHaveLength(0);                                                  // already verified → nothing re-sent
   });
+
+  it("concurrent verify — PATCH flips 0 rows (lost the race to a prefetch) → no duplicate email", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (init?.method === "PATCH") return R([]);                                  // another request already flipped it
+      if (u.includes("id=eq.w1") && u.includes("select=")) return R([{ id: "w1", email: "stu@school.edu", name: null, created_at: "2026-07-01T00:00:00Z", verified_at: null }]);
+      if (u.includes("created_at=lte.")) return R([], { count: 5 });
+      return R([], { count: 90 });
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "GET", query: { action: "verify", token: token("w1", Date.now() + 60000) }, headers: { host: "fschoolai.com" } }, res);
+    expect(res.statusCode).toBe(302);                                             // still redirects to success
+    expect(sent).toHaveLength(0);                                                 // the racing request emailed, not this one
+  });
 });
 
 describe("waitlist stats + invites", () => {
@@ -214,7 +241,7 @@ describe("waitlist stats + invites", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
       const u = String(url);
       if (init?.method === "PATCH") { patches.push(u); return R([]); }
-      if (u.includes("email=eq.stu")) return R([{ id: "w-abc", invited_at: null }]);
+      if (u.includes("email=eq.stu")) return R([{ id: "w-abc", invited_at: null, verified_at: "2026-07-02T00:00:00Z" }]);
       if (u.includes("email=eq.ghost")) return R([]);
       return R([]);
     }));
@@ -231,5 +258,22 @@ describe("waitlist stats + invites", () => {
     ]);
     expect(sent[0].html).toContain("/?invite=w-abc");
     expect(patches[0]).toContain("id=eq.w-abc");
+  });
+
+  it("invite skips UNVERIFIED rows — verified before eligible", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (init?.method === "PATCH") return R([]);
+      if (u.includes("email=eq.pending")) return R([{ id: "w-x", invited_at: null, verified_at: null }]);
+      return R([]);
+    }));
+    const h = await load(); const res = makeRes();
+    await h({
+      method: "POST", query: { action: "invite" }, body: { emails: ["pending@school.edu"] },
+      headers: { authorization: "Bearer cron-secret", host: "fschoolai.com" },
+    }, res);
+    expect(res.body.invited).toBe(0);
+    expect(res.body.results[0]).toMatchObject({ email: "pending@school.edu", ok: false, reason: "not verified" });
+    expect(sent).toHaveLength(0);
   });
 });

@@ -62,10 +62,17 @@ function mailer() {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+// Escape user-controlled text before interpolating into email HTML.
+const esc = (s: any) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+
 function appUrl(req: any) {
-  const host = req.headers?.["x-forwarded-host"] || req.headers?.host;
+  const host = String(req.headers?.["x-forwarded-host"] || req.headers?.host || "");
   const PROD = ["fschoolai.com", "fschool-ai.vercel.app"];
-  if (host && (PROD.includes(host) || !String(host).endsWith(".vercel.app"))) {
+  // ALLOWLIST ONLY. `x-forwarded-host` is client-controlled, so never reflect an arbitrary
+  // host into email links or the verify redirect — that would let an attacker send
+  // FschoolAI-branded emails whose confirm link points at their own domain (open redirect /
+  // phishing). Vercel's own *.vercel.app preview hosts are issued by Vercel, so honor those.
+  if (host && (PROD.includes(host) || host.endsWith(".vercel.app"))) {
     const proto = req.headers?.["x-forwarded-proto"] || "https";
     return `${proto}://${host}`;
   }
@@ -85,7 +92,7 @@ async function positionOf(createdAt: string): Promise<{ position: number; total:
 }
 
 function confirmationHtml(name: string | null, position: number) {
-  const who = name ? `, ${name}` : "";
+  const who = name ? `, ${esc(name)}` : "";
   return `<!DOCTYPE html><html><body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:48px 24px">
 <table width="480" style="max-width:480px;width:100%;border-top:3px solid #C49A3C">
@@ -98,7 +105,7 @@ function confirmationHtml(name: string | null, position: number) {
 }
 
 function verificationHtml(name: string | null, link: string) {
-  const who = name ? `, ${name}` : "";
+  const who = name ? `, ${esc(name)}` : "";
   return `<!DOCTYPE html><html><body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:48px 24px">
 <table width="480" style="max-width:480px;width:100%;border-top:3px solid #C49A3C">
@@ -177,16 +184,24 @@ export default async function handler(req: any, res: any) {
       if (!row) return sendErr();
 
       const wasVerified = !!row.verified_at;
+      let justVerified = false;
       if (!wasVerified) {
-        // Only-if-still-null keeps it idempotent under double-clicks / link prefetchers.
-        await fetch(`${url}/rest/v1/waitlist?id=eq.${encodeURIComponent(id)}&verified_at=is.null`, {
-          method: "PATCH", headers, body: JSON.stringify({ verified_at: new Date().toISOString() }),
-        }).catch(() => {});
+        // Only-if-still-null PATCH that RETURNS the affected row: we flipped it iff a row comes
+        // back. Gating the emails on this (not the earlier read) makes them idempotent under
+        // concurrent hits — a mail-scanner prefetch (SafeLinks/Apple MPP) racing the real click
+        // both read verified_at=null, but only the one whose PATCH flips the row emails.
+        const patch = await fetch(`${url}/rest/v1/waitlist?id=eq.${encodeURIComponent(id)}&verified_at=is.null`, {
+          method: "PATCH", headers: { ...headers, Prefer: "return=representation" },
+          body: JSON.stringify({ verified_at: new Date().toISOString() }),
+        }).catch(() => null);
+        if (!patch || !patch.ok) return sendErr();               // couldn't persist → don't claim success
+        const flipped = (await patch.json().catch(() => [])) as any[];
+        justVerified = Array.isArray(flipped) && flipped.length > 0;
       }
 
       const { position, total } = await positionOf(row.created_at);
 
-      if (!wasVerified) {
+      if (justVerified) {
         const resend = mailer();
         if (resend) {
           resend.emails.send({
@@ -197,7 +212,7 @@ export default async function handler(req: any, res: any) {
           resend.emails.send({
             from: "FSchoolAI <noreply@fschoolai.com>", to: "vincent@fschoolai.com",
             subject: `New VERIFIED waitlist signup — ${total} total`,
-            html: `<p>Verified FschoolAI waitlist signup: <b>${row.email}</b>${row.name ? ` (${row.name})` : ""}.</p><p>The waitlist now has <b>${total}</b> verified ${total === 1 ? "member" : "members"}.</p>`,
+            html: `<p>Verified FschoolAI waitlist signup: <b>${esc(row.email)}</b>${row.name ? ` (${esc(row.name)})` : ""}.</p><p>The waitlist now has <b>${total}</b> verified ${total === 1 ? "member" : "members"}.</p>`,
           }).catch((e: any) => console.error("[waitlist] verified notify failed:", e?.message));
         }
       }
@@ -280,7 +295,7 @@ export default async function handler(req: any, res: any) {
     // ── public: join ──────────────────────────────────────────────────────────
     if (action === "join") {
       const email = String(req.body?.email ?? "").trim().toLowerCase();
-      const name = String(req.body?.name ?? "").trim() || null;
+      const name = (String(req.body?.name ?? "").trim().slice(0, 80)) || null;
       const source = String(req.body?.source ?? "landing").slice(0, 60);
       const ref = String(req.body?.ref ?? "").trim() || null;
       if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "A valid email is required." });
@@ -360,10 +375,13 @@ export default async function handler(req: any, res: any) {
       const results: any[] = [];
       for (const email of emails) {
         try {
-          const r = await fetch(`${url}/rest/v1/waitlist?email=eq.${encodeURIComponent(email)}&select=id,invited_at`, { headers });
+          // select=* so a pre-migration verified_at column can't 400 the lookup.
+          const r = await fetch(`${url}/rest/v1/waitlist?email=eq.${encodeURIComponent(email)}&select=*`, { headers });
           if (!r.ok) { results.push({ email, ok: false, reason: `lookup failed (${r.status})` }); continue; }
           const row = ((await r.json().catch(() => [])) as any[])[0];
           if (!row) { results.push({ email, ok: false, reason: "not on the waitlist" }); continue; }
+          // Only verified members are eligible for invites (the whole point of verification).
+          if (!row.verified_at) { results.push({ email, ok: false, reason: "not verified" }); continue; }
           await resend.emails.send({
             from: "FSchoolAI <noreply@fschoolai.com>",
             to: email,
