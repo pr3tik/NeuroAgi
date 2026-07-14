@@ -145,5 +145,26 @@ async function upcoming(
     }))
     .filter((a: any) => (dropSubmitted ? !a.submitted : true));
 
-  return res.status(200).json({ ok: true, status: mode, assignments });
+  // For the default 'upcoming' view, ALSO surface overdue-unsubmitted work. The upcoming
+  // query is future-windowed (due_at >= now), so overdue items are absent from `assignments`
+  // entirely — which let the model present "what's due" without them and even claim
+  // "nothing overdue" (E2E: a many-tool request dropped both overdue items + said "you're in
+  // good shape"). Returning overdue alongside means a caller can never miss past-due work.
+  let overdue: any[] = [];
+  if (mode === "upcoming") {
+    const oUrl = `${sbUrl}/rest/v1/assignments?user_id=eq.${u}&select=*,courses(name)`
+      + `&due_at=lt.${encodeURIComponent(nowIso)}&submitted_at=is.null&manual_done_at=is.null`
+      + `&order=due_at.desc&limit=200`;
+    const or = await fetch(oUrl, { headers: H });
+    if (or.ok) {
+      overdue = ((await or.json()) || []).map((a: any) => ({
+        id: a.id, name: a.title ?? a.name ?? "", courseId: a.course_id, courseName: a.courses?.name ?? "",
+        dueAt: a.due_at ?? null, pointsPossible: a.points_possible ?? null, submitted: false, overdue: true, missing: a.missing ?? false,
+      }));
+    }
+  }
+
+  const payload: any = { ok: true, status: mode, assignments };
+  if (mode === "upcoming") { payload.overdue = overdue; payload.overdueCount = overdue.length; }
+  return res.status(200).json(payload);
 }
