@@ -98,6 +98,29 @@ describe("canvas-reads handler", () => {
     expect(res.body.assignments).toHaveLength(2);
   });
 
+  it("upcoming ALSO returns overdue-unsubmitted work as overdue[] + overdueCount — regression: a 'what's due' answer must never drop/omit overdue items or falsely say caught-up", async () => {
+    // Two /assignments queries fire on 'upcoming': the future window, then the overdue one
+    // (due_at=lt.now & submitted_at=is.null & manual_done_at=is.null). Distinguish by URL.
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      const R = (d: any) => ({ ok: true, status: 200, json: async () => d, text: async () => JSON.stringify(d) });
+      if (u.includes("/rest/v1/users")) return R([{ id: "u1" }]);
+      if (u.includes("/rest/v1/assignments")) {
+        if (u.includes("due_at=lt.") && u.includes("submitted_at=is.null")) {
+          return R([{ id: "od1", course_id: "c1", title: "Overdue Essay", due_at: "2020-01-01T00:00:00Z", submitted_at: null, manual_done_at: null, courses: { name: "Bio" } }]);
+        }
+        return R([{ id: "a1", course_id: "c1", title: "Future HW", due_at: "2999-01-01T00:00:00Z", submitted_at: null, courses: { name: "Bio" } }]);
+      }
+      return R([]);
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", body: { action: "upcoming", userId: "u1" } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.assignments.map((a: any) => a.name)).toEqual(["Future HW"]);
+    expect(res.body.overdueCount).toBe(1);
+    expect(res.body.overdue[0]).toMatchObject({ name: "Overdue Essay", overdue: true });
+  });
+
   it("upcoming/overdue treat manual_done_at (app-marked done) as submitted — regression: in-app completions must not resurface", async () => {
     // submitted_at is null (no Canvas submission) but the student marked it done in-app.
     stubFetch({

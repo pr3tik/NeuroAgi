@@ -127,7 +127,7 @@ export const TOOLS: ReggieTool[] = [
   {
     name: "canvas_get_upcoming",
     description:
-      "List the student's assignments by window. status:'upcoming' (default) = future due, soonest first ('what's due', 'what's next'). status:'overdue' = PAST-DUE and unsubmitted, i.e. what they're BEHIND on ('what's overdue', 'what am I late on', 'what did I miss'). status:'all' = everything. Use 'overdue' for any past-due/behind/late question.",
+      "List the student's assignments by window. status:'upcoming' (default) = future due, soonest first ('what's due', 'what's next'). status:'overdue' = PAST-DUE and unsubmitted, i.e. what they're BEHIND on ('what's overdue', 'what am I late on', 'what did I miss'). status:'all' = everything. Use 'overdue' for any past-due/behind/late question. NOTE: the 'upcoming' response ALSO includes `overdue` (the past-due-unsubmitted items) and `overdueCount` — you MUST include those overdue items when listing what's due, and you must NOT tell the student they're caught up / have nothing overdue unless overdueCount is 0.",
     input_schema: {
       type: "object",
       properties: {
