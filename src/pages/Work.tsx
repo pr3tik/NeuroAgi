@@ -1,6 +1,7 @@
 // Work.tsx — Home page. Greeting, upcoming assignments from Canvas, bottom stats row.
 
 import { useEffect, useState } from "react";
+import { calendarDaysUntil } from "../lib/dueDate";
 import { useApp } from "../context/AppContext";
 import { Flame } from "lucide-react";
 import { coursesToGpa } from "../lib/gpa";
@@ -11,9 +12,8 @@ import SchoolPrompt from "../components/SchoolPrompt";
 function formatDue(dateStr) {
   if (!dateStr) return null;
   const due = new Date(dateStr);
-  const now = new Date();
-  const diffMs = +due - +now;
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  const diffDays = calendarDaysUntil(dateStr);
+  if (diffDays === null) return null;
 
   if (diffDays < 0)  return { label: "Overdue",   urgent: true };
   if (diffDays === 0) return { label: "Due today", urgent: true };

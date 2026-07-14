@@ -4,6 +4,7 @@
 // Draft supports text-selection toolbar (Shorten / Expand / Change Direction / Suggest / Copy).
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { calendarDaysUntil } from "../lib/dueDate";
 import { createPortal } from "react-dom";
 import { groq }          from "../api/groq";
 import { Target, Check, ChevronUp, ChevronDown } from "lucide-react";
@@ -83,8 +84,8 @@ function AllDoneState() {
 function formatDue(dueAt) {
   if (!dueAt) return null;
   const d = new Date(dueAt);
-  const now = new Date();
-  const diffDays = Math.round((+d - +now) / 86400000);
+  const diffDays = calendarDaysUntil(dueAt);
+  if (diffDays === null) return null;
   if (diffDays < 0)  return "Past due";
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Tomorrow";

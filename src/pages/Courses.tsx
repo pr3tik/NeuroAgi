@@ -2,6 +2,7 @@
 // that course's assignments + grade. Reads live courses/assignments from AppContext.
 
 import { useState, useMemo } from "react";
+import { calendarDaysUntil } from "../lib/dueDate";
 import { useApp } from "../context/AppContext";
 
 const card = {
@@ -47,8 +48,8 @@ function scoreToLetter(pct) {
 function formatDue(dateStr) {
   if (!dateStr) return null;
   const due = new Date(dateStr);
-  if (isNaN(due.getTime())) return null;
-  const diffDays = Math.ceil((+due - +new Date()) / (1000 * 60 * 60 * 24));
+  const diffDays = calendarDaysUntil(dateStr);
+  if (diffDays === null) return null;
   if (diffDays < 0)   return { label: "Overdue",   urgent: true };
   if (diffDays === 0) return { label: "Due today", urgent: true };
   if (diffDays === 1) return { label: "Tomorrow",  urgent: true };
