@@ -10,6 +10,7 @@
 // browser only ever talks to this endpoint. Emails via lazy Resend (nudge.ts pattern).
 import { Resend } from "resend";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { rateLimit } from "./_ratelimit.js";
 
 // ── Dashboard session tokens ──────────────────────────────────────────────────
 // A correct password buys a signed, self-contained 30-day token (HMAC over its expiry
@@ -297,6 +298,8 @@ export default async function handler(req: any, res: any) {
 
     // ── public: join ──────────────────────────────────────────────────────────
     if (action === "join") {
+      // Anonymous + sends email → strict per-IP cap to stop signup/email-bomb spam.
+      if (!(await rateLimit(req, res, "waitlist-join", { anonMax: 5, authMax: 20, windowSecs: 60 }))) return;
       const email = String(req.body?.email ?? "").trim().toLowerCase();
       const name = (String(req.body?.name ?? "").trim().slice(0, 80)) || null;
       const source = String(req.body?.source ?? "landing").slice(0, 60);

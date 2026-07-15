@@ -10,6 +10,7 @@
 //   - `pages` = structured per-page text (RAG ingest uses this for page locators)
 
 import { createClient } from "@supabase/supabase-js";
+import { rateLimit } from "./_ratelimit.js";
 
 const MAX_PAGES = 300;          // generous; most uploads are far smaller
 const SAFETY_CHARS = 1_500_000; // hard ceiling (~375k tokens) to avoid OOM on pathological files
@@ -433,6 +434,7 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (!(await rateLimit(req, res, "extract", { anonMax: 15, authMax: 80 }))) return;
 
   const { base64, storagePath, bucket = "media-uploads", keepFile = false, file_type, name, youtubeUrl, userId, courseId, detectStructure = false } = req.body ?? {};
 

@@ -4,6 +4,7 @@
 // than touching api/claude.ts or api/extract.ts, so the shared, already-live tutor/upload
 // paths used by every existing account are completely unaffected.
 import { createClient } from "@supabase/supabase-js";
+import { rateLimit } from "./_ratelimit.js";
 import { callModel } from "./_gateway.js";
 
 const GUEST_LIMIT  = 3;   // per guest uid, within the window
@@ -31,6 +32,7 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (!(await rateLimit(req, res, "guest-demo", { anonMax: 15, authMax: 60 }))) return;
 
   const { guestUid, question, base64, file_type, name } = req.body ?? {};
   if (!guestUid) return res.status(400).json({ error: "guestUid required" });
