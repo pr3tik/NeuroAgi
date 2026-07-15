@@ -9,14 +9,18 @@
 
 import { useState, useCallback } from "react";
 import {
-  View, Text, Image, TextInput, TouchableOpacity, StyleSheet,
+  Text, Image, TextInput, TouchableOpacity, StyleSheet,
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../context/AuthContext";
 
-const BG = "#0f0f0f";
+// Pure black, not the app's usual #0f0f0f — matches web's DARK.bg token
+// (src/pages/Landing.tsx) AND the exact background the logo's transparency
+// was extracted against, so the glyph's anti-aliased edge blends without
+// even the faint tonal mismatch a lighter background would introduce.
+const BG = "#000000";
 
 // Mirrors src/pages/Landing.tsx's DARK theme tokens (the ones AuthModal uses).
 const C = {
@@ -61,14 +65,11 @@ export default function LoginScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <View style={styles.brandRow}>
-            <Image
-              source={require("../assets/images/fschoolai-logo.jpeg")}
-              style={styles.logo}
-              resizeMode="cover"
-            />
-            <Text style={styles.brandName}>FschoolAI</Text>
-          </View>
+          <Image
+            source={require("../assets/images/fschoolai-logo.png")}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <Text style={styles.title}>Welcome back</Text>
           <Text style={styles.subtitle}>Enter your email and password to continue.</Text>
 
@@ -120,17 +121,13 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   safe:   { flex: 1, backgroundColor: BG },
   scroll: { flexGrow: 1, justifyContent: "center", padding: 28 },
-  // Icon badge + wordmark side by side (the version with both, for comparison
-  // against logo-only / text-only).
-  brandRow: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 10, marginBottom: 28,
-  },
+  // Background removed (luma-matte extraction from the source JPEG's solid
+  // black bg — see plans/ for how, if this ever needs redoing from a fresh
+  // export) — the glyph sits directly on the screen with no container shape,
+  // per cofounder feedback that a boxed logo + "FschoolAI" text read as too
+  // packed. Logo alone carries the brand here.
   logo: {
-    width: 40, height: 40, borderRadius: 10,
-  },
-  brandName: {
-    fontFamily: "Inter_600SemiBold", fontSize: 20, color: C.text, letterSpacing: -0.2,
+    width: 96, height: 96, alignSelf: "center", marginBottom: 20,
   },
   // Matches web AuthModal's <h2>: 22px / 600 / -0.3 tracking.
   title: {
