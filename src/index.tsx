@@ -28,6 +28,7 @@ if (window.location.pathname === "/card") {
   Promise.all([
     import("./App"),
     import("./context/AppContext"),
+    import("./api/installApiAuth"),   // side-effect: attach the session JWT to /api/* calls
   ]).then(([{ default: App }, { AppProvider }]) => {
     ReactDOM.createRoot(document.getElementById("root")).render(
       <AppProvider>
