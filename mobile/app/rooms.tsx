@@ -14,10 +14,7 @@ import {
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
-
-// TODO: replace with the real signed-in user once identity.tsx (mobile login)
-// is built. Same stand-in account as work.tsx / assignment.tsx.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 // ── Design tokens (from tokens.css — web resolves var(--color-accent) etc.) ──
 const ACCENT       = "rgba(255,255,255,0.85)";  // --color-accent
@@ -68,22 +65,22 @@ function generateRoomCode() {
 }
 
 // ── Server RPC wrappers (mirrors src/api/rooms.ts) ────────────────────────────
-async function rpcListRooms(): Promise<Room[]> {
-  const { data, error } = await supabase.rpc("list_accessible_rooms", { p_user: TEST_USER_ID });
+async function rpcListRooms(userId: string): Promise<Room[]> {
+  const { data, error } = await supabase.rpc("list_accessible_rooms", { p_user: userId });
   if (error) throw error;
   return (data ?? []) as Room[];
 }
 
-async function rpcJoinRoom(roomId: string, code: string | null = null): Promise<string> {
+async function rpcJoinRoom(userId: string, roomId: string, code: string | null = null): Promise<string> {
   const { data, error } = await supabase.rpc("join_room", {
-    p_user: TEST_USER_ID, p_room: roomId, p_code: code,
+    p_user: userId, p_room: roomId, p_code: code,
   });
   if (error) throw error;
   return (data ?? "denied") as string;
 }
 
-async function rpcLeaveRoom(roomId: string) {
-  const { error } = await supabase.rpc("leave_room", { p_user: TEST_USER_ID, p_room: roomId });
+async function rpcLeaveRoom(userId: string, roomId: string) {
+  const { error } = await supabase.rpc("leave_room", { p_user: userId, p_room: roomId });
   if (error) throw error;
 }
 
@@ -310,6 +307,7 @@ function RoomDetail({ room, courseLabel, onlineIds, onBack, onLeft }: {
   room: Room; courseLabel: string | null; onlineIds: string[];
   onBack: () => void; onLeft: () => void;
 }) {
+  const userId = useUserId();
   const [members, setMembers] = useState<{ id: string; name: string; role: string }[]>([]);
   const [leaving, setLeaving] = useState(false);
 
@@ -341,7 +339,7 @@ function RoomDetail({ room, courseLabel, onlineIds, onBack, onLeft }: {
   async function handleLeave() {
     if (leaving) return;
     setLeaving(true);
-    try { await rpcLeaveRoom(room.id); } catch { /* non-fatal */ }
+    try { await rpcLeaveRoom(userId, room.id); } catch { /* non-fatal */ }
     setLeaving(false);
     onLeft();
   }
@@ -383,7 +381,7 @@ function RoomDetail({ room, courseLabel, onlineIds, onBack, onLeft }: {
                 <View key={m.id} style={styles.memberRow}>
                   <View style={[styles.memberDot, { backgroundColor: online ? ACCENT : "rgba(255,255,255,0.15)" }]} />
                   <Text style={styles.memberName} numberOfLines={1}>
-                    {m.id === TEST_USER_ID ? `${m.name} (you)` : m.name}
+                    {m.id === userId ? `${m.name} (you)` : m.name}
                   </Text>
                   {m.role === "host" && <Text style={styles.hostTag}>Host</Text>}
                   <Text style={styles.memberStatus}>{online ? "studying now" : "offline"}</Text>
@@ -427,6 +425,7 @@ const EMPTY_MSG: Record<string, { title: string; sub: string }> = {
 };
 
 export default function RoomsScreen() {
+  const userId = useUserId();
   const [rooms, setRooms]             = useState<Room[]>([]);
   const [loading, setLoading]         = useState(true);
   const [loadError, setLoadError]     = useState("");
@@ -448,7 +447,7 @@ export default function RoomsScreen() {
   useEffect(() => {
     let ch: any = null;
     try {
-      ch = supabase.channel("global-studying", { config: { presence: { key: `mobile-${TEST_USER_ID}` } } });
+      ch = supabase.channel("global-studying", { config: { presence: { key: `mobile-${userId}` } } });
       ch.on("presence", { event: "sync" }, () => {
         setGlobalState({ ...ch.presenceState() });
       }).subscribe();
@@ -458,7 +457,7 @@ export default function RoomsScreen() {
       if (ch) { try { supabase.removeChannel(ch); } catch {} }
       presenceRef.current = null;
     };
-  }, []);
+  }, [userId]);
 
   const totalOnline = Object.keys(globalState).length;
   const roomCounts: Record<string, number> = {};
@@ -472,7 +471,7 @@ export default function RoomsScreen() {
     fetchRooms();
     fetchPendingRequests();
     fetchCourses();
-  }, []);
+  }, [userId]);
 
   // Auto-clear the "not eligible" banner (matches web).
   useEffect(() => {
@@ -486,7 +485,7 @@ export default function RoomsScreen() {
     setLoadError("");
     try {
       // Server-filtered: only rooms this user is eligible to see.
-      setRooms(await rpcListRooms());
+      setRooms(await rpcListRooms(userId));
     } catch {
       // RPC missing/unreachable — fall back to a plain read of active rooms.
       try {
@@ -509,7 +508,7 @@ export default function RoomsScreen() {
       const { data } = await supabase
         .from("room_members")
         .select("room_id, status")
-        .eq("user_id", TEST_USER_ID)
+        .eq("user_id", userId)
         .in("status", ["requested", "joined"]);
       const map: Record<string, string> = {};
       (data ?? []).forEach((r: any) => { map[r.room_id] = r.status; });
@@ -522,7 +521,7 @@ export default function RoomsScreen() {
       const { data } = await supabase
         .from("courses")
         .select("id, name, course_code")
-        .eq("user_id", TEST_USER_ID);
+        .eq("user_id", userId);
       setCourses((data ?? []) as Course[]);
     } catch { /* course labels are optional */ }
   }
@@ -535,7 +534,7 @@ export default function RoomsScreen() {
     setJoiningId(room.id);
     setJoinError("");
     try {
-      const status = await rpcJoinRoom(room.id);
+      const status = await rpcJoinRoom(userId, room.id);
       if (status === "joined") {
         setPendingReqs(p => ({ ...p, [room.id]: "joined" }));
         setActiveRoom(room);
@@ -564,7 +563,7 @@ export default function RoomsScreen() {
         .maybeSingle();
       if (!room) { setCodeError("No active room found with that code."); setCodeLookingUp(false); return; }
       // A valid code bypasses room type + access filters (server-side).
-      const status = await rpcJoinRoom(room.id, code);
+      const status = await rpcJoinRoom(userId, room.id, code);
       if (status === "joined") {
         setCodeInput("");
         setPendingReqs(p => ({ ...p, [room.id]: "joined" }));
@@ -591,7 +590,7 @@ export default function RoomsScreen() {
       const { data, error } = await supabase
         .from("study_rooms")
         .insert({
-          created_by:     TEST_USER_ID,
+          created_by:     userId,
           name:           name.trim(),
           course_id:      courseId ? Number(courseId) : null,
           room_type:      roomType,
@@ -608,7 +607,7 @@ export default function RoomsScreen() {
     if (!room) { setJoinError("Couldn't create the room."); return; }
     // Host membership is written by the RPC (direct room_members writes are revoked).
     try {
-      await rpcJoinRoom(room.id);
+      await rpcJoinRoom(userId, room.id);
     } catch {
       await supabase.from("study_rooms").update({ is_active: false }).eq("id", room.id);
       setJoinError("Couldn't create the room.");

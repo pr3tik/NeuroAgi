@@ -16,10 +16,7 @@ import {
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
-
-// TODO: replace with the real signed-in user once identity.tsx (mobile login)
-// is built. Mirrors work.tsx / assignment.tsx.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 // ── Design tokens (tokens.css) ───────────────────────────────────────────────
 
@@ -173,6 +170,7 @@ function AddMaterialCard() {
 // ── AddToSpaceModal — direct Supabase, same as web ───────────────────────────
 
 function AddToSpaceModal({ file, onClose }: { file: FileItem; onClose: () => void }) {
+  const userId = useUserId();
   const [spaces, setSpaces]   = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding]   = useState<string | null>(null);
@@ -181,16 +179,16 @@ function AddToSpaceModal({ file, onClose }: { file: FileItem; onClose: () => voi
   useEffect(() => {
     supabase.from("spaces")
       .select("id, name, color")
-      .eq("user_id", TEST_USER_ID)
+      .eq("user_id", userId)
       .order("last_active", { ascending: false })
       .then(({ data }) => { setSpaces(data ?? []); setLoading(false); });
-  }, []);
+  }, [userId]);
 
   async function addToSpace(spaceId: string) {
     setAdding(spaceId);
     try {
       await supabase.from("space_items").insert({
-        space_id: spaceId, user_id: TEST_USER_ID,
+        space_id: spaceId, user_id: userId,
         item_type: "document", item_ref: file.id, title: file.name,
       });
       await supabase.from("spaces").update({ last_active: new Date().toISOString() }).eq("id", spaceId);
@@ -408,6 +406,7 @@ function ReaderView({ file, onBack }: { file: FileItem; onBack: () => void }) {
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function FilesScreen() {
+  const userId = useUserId();
   const [files, setFiles]     = useState<FileItem[]>([]);
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -425,12 +424,12 @@ export default function FilesScreen() {
         // slice that can exclude exactly the newest extension-synced files.
         supabase.from("files")
           .select("id,course_id,lms_file_id,name,file_type,size_bytes,source_url,folder,status,storage_path,summary,highlights,processed_at,content_text")
-          .eq("user_id", TEST_USER_ID)
+          .eq("user_id", userId)
           .order("updated_at", { ascending: false })
           .limit(500),
         supabase.from("courses")
           .select("id, name, course_code")
-          .eq("user_id", TEST_USER_ID),
+          .eq("user_id", userId),
       ]);
       if (cancelled) return;
 
@@ -453,7 +452,7 @@ export default function FilesScreen() {
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   // Group by course — files without a course land in "My Documents" (web parity).
   const { myDocs, courseGroups } = useMemo(() => {

@@ -15,9 +15,7 @@ import {
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
-
-// TODO: replace with real signed-in user once mobile auth exists.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 // Web CARD_BG is a radial wash (35→74→117→25 greys at 0.6 alpha) under a 20%
 // black overlay. Approximated with a diagonal linear gradient + overlay View.
@@ -337,6 +335,7 @@ function PastCoursesSection({ pastCourses }: { pastCourses: any[] }) {
 // ── Main screen ──────────────────────────────────────────────────────────────
 
 export default function CanvasScreen() {
+  const userId = useUserId();
   const [courses, setCourses]             = useState<any[]>([]);
   const [assignments, setAssignments]     = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
@@ -349,12 +348,12 @@ export default function CanvasScreen() {
     setSyncStatus("syncing");
     try {
       const [userRes, cRes, aRes, blobRes] = await Promise.all([
-        supabase.from("users").select("canvas_token").eq("id", TEST_USER_ID).maybeSingle(),
-        supabase.from("courses").select("*").eq("user_id", TEST_USER_ID),
+        supabase.from("users").select("canvas_token").eq("id", userId).maybeSingle(),
+        supabase.from("courses").select("*").eq("user_id", userId),
         supabase.from("assignments")
           .select("id, title, due_at, submitted_at, missing, course_id, courses(canvas_course_id)")
-          .eq("user_id", TEST_USER_ID),
-        supabase.from("canvas_data").select("data_type, payload").eq("user_id", TEST_USER_ID),
+          .eq("user_id", userId),
+        supabase.from("canvas_data").select("data_type, payload").eq("user_id", userId),
       ]);
 
       const blobMap: Record<string, any> = {};
@@ -428,7 +427,7 @@ export default function CanvasScreen() {
     } catch {
       setSyncStatus("error");
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => { load(); }, [load]);
 

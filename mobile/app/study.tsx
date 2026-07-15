@@ -18,11 +18,7 @@ import {
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
-
-// TODO: replace with the real signed-in user once identity.tsx (mobile login)
-// is built. This is Sarim Khan's real TMU account — same Supabase project,
-// so its courses/flashcards are reachable here too.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 // ── Design tokens (mirrors tokens.css) ────────────────────────────────────────
 const C = {
@@ -86,11 +82,11 @@ type Card   = { id: string; question: string; answer: string };
 type SrsMap = Record<string, SrsState>;
 
 // Persist one review row (fire-and-forget from the session).
-async function saveSrsReview(courseId: string | null, card: Card, next: SrsState) {
+async function saveSrsReview(userId: string, courseId: string | null, card: Card, next: SrsState) {
   try {
     await supabase.from("srs_reviews").upsert(
       {
-        user_id:          TEST_USER_ID,
+        user_id:          userId,
         card_key:         cardKey(courseId, card.question),
         course_id:        courseId,
         question:         card.question,
@@ -115,6 +111,7 @@ function StudySession({ cards, courseId, srsMap, onSrsUpdate, onExit }: {
   onSrsUpdate: (key: string, state: SrsState) => void;
   onExit: () => void;
 }) {
+  const userId = useUserId();
   const [idx, setIdx]         = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [results, setResults] = useState<boolean[]>([]);
@@ -134,14 +131,14 @@ function StudySession({ cards, courseId, srsMap, onSrsUpdate, onExit }: {
     if (elapsedMinutes > 0) {
       try {
         const { data } = await supabase
-          .from("users").select("study_time").eq("id", TEST_USER_ID).maybeSingle();
+          .from("users").select("study_time").eq("id", userId).maybeSingle();
         const prev = data?.study_time ?? 0;
         await supabase.from("users")
-          .update({ study_time: prev + elapsedMinutes }).eq("id", TEST_USER_ID);
+          .update({ study_time: prev + elapsedMinutes }).eq("id", userId);
       } catch { /* non-fatal */ }
     }
     exitCallback?.();
-  }, []);
+  }, [userId]);
 
   const resetIdle = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
@@ -179,7 +176,7 @@ function StudySession({ cards, courseId, srsMap, onSrsUpdate, onExit }: {
     const key  = cardKey(courseId, card.question);
     const next = sm2(srsMap[key], correct ? GRADE.good : GRADE.again);
     onSrsUpdate(key, next);
-    saveSrsReview(courseId, card, next);
+    saveSrsReview(userId, courseId, card, next);
 
     exitX.value = withTiming(correct ? 1 : -1, { duration: 280, easing: EASE });
     fade.value  = withTiming(0, { duration: 280, easing: EASE });
@@ -192,7 +189,7 @@ function StudySession({ cards, courseId, srsMap, onSrsUpdate, onExit }: {
       fade.value  = 1;
       judgeLock.current = false;
     }, 290);
-  }, [isDone, card, courseId, srsMap, onSrsUpdate, resetIdle]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isDone, card, courseId, srsMap, onSrsUpdate, resetIdle, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const wrapStyle = useAnimatedStyle(() => ({
     transform: [
@@ -359,6 +356,7 @@ function MarkdownGuide({ text }: { text: string }) {
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function StudyScreen() {
+  const userId = useUserId();
   const [courses, setCourses]         = useState<Course[]>([]);
   const [coursesLoaded, setCoursesLoaded] = useState(false);
   const [course, setCourse]           = useState<Course | null>(null);
@@ -392,7 +390,7 @@ export default function StudyScreen() {
         const { data } = await supabase
           .from("courses")
           .select("id, name, course_code")
-          .eq("user_id", TEST_USER_ID)
+          .eq("user_id", userId)
           .order("updated_at", { ascending: false });
         if (cancelled) return;
         const list: Course[] = (data ?? []).map((c: any) => ({
@@ -408,7 +406,7 @@ export default function StudyScreen() {
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   // Load saved flashcards + SRS scheduling state for the selected course
   const loadExisting = async () => {
@@ -419,12 +417,12 @@ export default function StudyScreen() {
         const [{ data: rows }, { data: srsRows }] = await Promise.all([
           supabase.from("flashcards_v2")
             .select("id, question, answer, created_at")
-            .eq("user_id", TEST_USER_ID)
+            .eq("user_id", userId)
             .eq("course_id", course.dbId)
             .order("created_at", { ascending: false }),
           supabase.from("srs_reviews")
             .select("card_key, ease, interval_days, reps, lapses, due_at")
-            .eq("user_id", TEST_USER_ID)
+            .eq("user_id", userId)
             .eq("course_id", course.dbId),
         ]);
         const loaded: Card[] = (rows ?? []).map((r: any) => ({
@@ -448,7 +446,7 @@ export default function StudyScreen() {
         const { data } = await supabase
           .from("canvas_data")
           .select("payload")
-          .eq("user_id", TEST_USER_ID)
+          .eq("user_id", userId)
           .eq("data_type", `study_guide_${course.dbId}`)
           .maybeSingle();
         if (data?.payload?.text) setGuide(data.payload.text);
@@ -476,7 +474,7 @@ export default function StudyScreen() {
     setFlashcards(prev => prev.filter(c => c.id !== cardId));
     try {
       await supabase.from("flashcards_v2")
-        .delete().eq("id", cardId).eq("user_id", TEST_USER_ID);
+        .delete().eq("id", cardId).eq("user_id", userId);
     } catch { /* optimistic removal stands */ }
   };
 

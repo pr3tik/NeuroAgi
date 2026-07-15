@@ -12,11 +12,7 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { Search, FileText, Flame, ArrowRight } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
-
-// TODO: replace with the real signed-in user once identity.tsx (mobile login)
-// is built. This is Sarim Khan's real TMU account — same Supabase project,
-// so its courses/assignments are reachable here too.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 const MS_HOUR = 3_600_000;
 
@@ -388,6 +384,7 @@ function EmptyState({ syncing, hasToken }: { syncing: boolean; hasToken: boolean
 // ── main screen ───────────────────────────────────────────────────────────────
 
 export default function WorkScreen() {
+  const userId = useUserId();
   const { width } = useWindowDimensions();
   const hour = new Date().getHours();
   const greetingWord = hour < 12 ? "Morning" : hour < 18 ? "Afternoon" : "Evening";
@@ -404,13 +401,13 @@ export default function WorkScreen() {
 
     async function load() {
       const [{ data: user }, { data: courseRows }, { data: rows }] = await Promise.all([
-        supabase.from("users").select("name, gpa, streak").eq("id", TEST_USER_ID).maybeSingle(),
+        supabase.from("users").select("name, gpa, streak").eq("id", userId).maybeSingle(),
         supabase.from("courses")
           .select("id, name, course_code, current_score, final_score")
-          .eq("user_id", TEST_USER_ID),
+          .eq("user_id", userId),
         supabase.from("assignments")
           .select("id, title, due_at, points_possible, score, submitted_at, late, missing, course_id, courses(name, course_code)")
-          .eq("user_id", TEST_USER_ID),
+          .eq("user_id", userId),
       ]);
       if (cancelled) return;
 
@@ -443,7 +440,7 @@ export default function WorkScreen() {
     // Best-effort: never let a network/DB failure crash the screen.
     load().catch(() => { if (!cancelled) setSyncStatus("idle"); });
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   // Filter to upcoming unsubmitted assignments, sorted by due date (top 5)
   const upcoming = assignments

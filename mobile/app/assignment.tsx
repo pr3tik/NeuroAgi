@@ -21,9 +21,7 @@ import { Check, ChevronUp, ChevronDown } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
 import { apiFetch } from "../services/api";
-
-// Mirrors work.tsx's stand-in until mobile auth/identity is built.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 // Same system prompt as src/pages/Assignment.tsx. The web page also appends
 // buildStudentContext() (mock class notes / previous work from src/data/mockData.ts)
@@ -40,8 +38,8 @@ async function groq(messages: { role: string; content: string }[], system = "", 
 }
 
 /** Mirrors src/api/tokens.ts awardTokens() — server validates and sets the amount. */
-async function awardTokens(action: string, meta: object = {}) {
-  return apiFetch("/api/token-engine?action=award", { userId: TEST_USER_ID, action, meta });
+async function awardTokens(userId: string, action: string, meta: object = {}) {
+  return apiFetch("/api/token-engine?action=award", { userId, action, meta });
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
@@ -104,6 +102,7 @@ function AssignmentRow({ a, onPress }: { a: Assignment; onPress: () => void }) {
 }
 
 export default function AssignmentScreen() {
+  const userId = useUserId();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Assignment | null>(null);
@@ -122,7 +121,7 @@ export default function AssignmentScreen() {
       const { data: rows } = await supabase
         .from("assignments")
         .select("id, title, description, due_at, points_possible, score, submitted_at, late, missing, courses(name, course_code)")
-        .eq("user_id", TEST_USER_ID);
+        .eq("user_id", userId);
       if (cancelled) return;
 
       setAssignments((rows ?? []).map((a: any) => ({
@@ -140,7 +139,7 @@ export default function AssignmentScreen() {
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   // Real assignments only — unsubmitted, sorted by due date, capped at 20 (web parity).
   const pending = assignments
@@ -186,8 +185,8 @@ export default function AssignmentScreen() {
     if (!selected || markedDone) return;
     setMarkedDone(true);
     // Best-effort token award — same action + meta as web; never surfaces errors.
-    awardTokens("assignment_submitted", { assignmentId: String(selected.id) }).catch(() => {});
-  }, [selected, markedDone]);
+    awardTokens(userId, "assignment_submitted", { assignmentId: String(selected.id) }).catch(() => {});
+  }, [selected, markedDone, userId]);
 
   // ── Detail view ─────────────────────────────────────────────────────────────
   if (selected) {

@@ -10,9 +10,14 @@
     "backgroundColor": "#0f0f0f",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fschoolai.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "FschoolAI uses your microphone for group study-room audio and talking to Reggie."
+      }
     },
     "android": {
+      "package": "com.fschoolai.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -20,7 +25,12 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH_CONNECT"
+      ]
     },
     "web": {
       "output": "static",
@@ -39,11 +49,26 @@
             "backgroundColor": "#0f0f0f"
           }
         }
+      ],
+      [
+        "@livekit/react-native-expo-plugin",
+        {
+          "android": {
+            "audioType": "communication"
+          }
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b08483af-eb59-48de-989a-fd426dc84850"
+      }
+    },
+    "owner": "sarim.k_06"
   }
 }

@@ -19,10 +19,7 @@ import {
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
-
-// TODO: replace with the real signed-in user once identity.tsx (mobile login)
-// is built. Mirrors work.tsx / assignment.tsx's stand-in.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 // ── tokens.css values used by the web page ───────────────────────────────────
 
@@ -240,6 +237,7 @@ const TABS: { key: DetailTab; label: string }[] = [
 ];
 
 function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
+  const userId = useUserId();
   const [tab,      setTab]      = useState<DetailTab>("docs");
   const [items,    setItems]    = useState<SpaceItem[]>([]);
   const [docFiles, setDocFiles] = useState<Map<string, DocFile>>(new Map());
@@ -260,7 +258,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
     supabase.from("space_items")
       .select("*")
       .eq("space_id", space.id)
-      .eq("user_id", TEST_USER_ID)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .then(({ data, error: err }) => {
         if (cancelled) return;
@@ -268,7 +266,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
         setItems((data ?? []) as SpaceItem[]);
       });
     return () => { cancelled = true; };
-  }, [space.id]);
+  }, [space.id, userId]);
 
   // Chat history (persisted to space_chats on web)
   useEffect(() => {
@@ -276,14 +274,14 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
     supabase.from("space_chats")
       .select("id, role, content")
       .eq("space_id", space.id)
-      .eq("user_id", TEST_USER_ID)
+      .eq("user_id", userId)
       .order("created_at", { ascending: true })
       .limit(200)
       .then(({ data }) => {
         if (!cancelled && data?.length) setChatMsgs(data as ChatMsg[]);
       });
     return () => { cancelled = true; };
-  }, [space.id]);
+  }, [space.id, userId]);
 
   // File objects for doc items
   useEffect(() => {
@@ -307,13 +305,13 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
     let cancelled = false;
     supabase.from("flashcards_v2")
       .select("id, question, answer, course_id")
-      .eq("user_id", TEST_USER_ID)
+      .eq("user_id", userId)
       .in("course_id", docRefs)
       .then(({ data }) => {
         if (!cancelled) setCards((data ?? []) as Flashcard[]);
       });
     return () => { cancelled = true; };
-  }, [refsKey]);
+  }, [refsKey, userId]);
 
   // Exams + latest submitted attempt per exam
   useEffect(() => {
@@ -321,7 +319,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
     supabase.from("exams")
       .select("id, title, questions, created_at")
       .eq("space_id", space.id)
-      .eq("user_id", TEST_USER_ID)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .then(({ data }) => {
         if (cancelled) return;
@@ -330,7 +328,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
         if (!list.length) return;
         supabase.from("exam_attempts")
           .select("id, exam_id, score, submitted_at")
-          .eq("user_id", TEST_USER_ID)
+          .eq("user_id", userId)
           .in("exam_id", list.map(e => e.id))
           .not("submitted_at", "is", null)
           .order("created_at", { ascending: false })
@@ -342,7 +340,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
           });
       });
     return () => { cancelled = true; };
-  }, [space.id]);
+  }, [space.id, userId]);
 
   if (openFile) {
     return <DocReaderView file={openFile} onBack={() => setOpenFile(null)} />;
@@ -578,6 +576,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function SpacesScreen() {
+  const userId = useUserId();
   const [spaces,    setSpaces]    = useState<Space[]>([]);
   const [docCounts, setDocCounts] = useState<Map<string, number>>(new Map());
   const [loading,   setLoading]   = useState(true);
@@ -591,7 +590,7 @@ export default function SpacesScreen() {
       const { data: rows, error: err } = await supabase
         .from("spaces")
         .select("*")
-        .eq("user_id", TEST_USER_ID)
+        .eq("user_id", userId)
         .order("last_active", { ascending: false });
       if (cancelled) return;
 
@@ -608,7 +607,7 @@ export default function SpacesScreen() {
         const { data: items } = await supabase
           .from("space_items")
           .select("space_id")
-          .eq("user_id", TEST_USER_ID)
+          .eq("user_id", userId)
           .eq("item_type", "document")
           .in("space_id", list.map(s => s.id));
         if (cancelled) return;
@@ -622,7 +621,7 @@ export default function SpacesScreen() {
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   if (openSpace) {
     return (

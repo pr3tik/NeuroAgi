@@ -13,11 +13,7 @@ import {
 import { PenLine, TrendingUp, ArrowUp, ArrowDown, Sparkles } from "lucide-react-native";
 import { supabase } from "../services/supabase";
 import { apiFetch } from "../services/api";
-
-// TODO: replace with the real signed-in user once mobile auth exists.
-// Mirrors identity.tsx / work.tsx / assignment.tsx — Sarim Khan's real TMU
-// account on the same Supabase project.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 const ACCENT = "#C49A3C";
 
@@ -64,6 +60,7 @@ function Chip({ label, value }: { label: string; value: string }) {
 }
 
 export default function WritingTracker() {
+  const userId = useUserId();
   const [text, setText]       = useState("");
   const [title, setTitle]     = useState("");
   const [loading, setLoading] = useState(false);
@@ -76,12 +73,12 @@ export default function WritingTracker() {
       const { data } = await supabase
         .from("writing_snapshots")
         .select("id, title, word_count, metrics, created_at")
-        .eq("user_id", TEST_USER_ID)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(8);
       setHistory(data ?? []);
     } catch { /* table may not exist yet, or the read failed — degrade quietly */ }
-  }, []);
+  }, [userId]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
@@ -91,7 +88,7 @@ export default function WritingTracker() {
     setLoading(true); setError(""); setResult(null);
     try {
       const data = await apiFetch("/api/writing-tracker", {
-        userId: TEST_USER_ID, text: value, title: title.trim() || undefined,
+        userId, text: value, title: title.trim() || undefined,
       });
       if (!data?.metrics) { setError("Couldn't analyze that. Try again."); }
       else { setResult(data); setText(""); setTitle(""); loadHistory(); }

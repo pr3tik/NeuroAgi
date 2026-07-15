@@ -8,20 +8,17 @@ import {
   StyleSheet, ActivityIndicator, Linking,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import {
   LogIn, RefreshCw, Layers, CircleDot, Sparkles, Check, Hexagon,
   ArrowUp, Star, ChevronUp, ChevronDown, ArrowUpRight,
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
+import { useAuth } from "../context/AuthContext";
 import GradeGraph, { GradeGraphCourse, GradeGraphAssignment } from "../components/GradeGraph";
 import WritingTracker from "../components/WritingTracker";
 import FriendsSection from "../components/FriendsSection";
-
-// TODO: replace with the real signed-in user once mobile auth exists.
-// Mirrors work.tsx / assignment.tsx — Sarim Khan's real TMU account on the
-// same Supabase project.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
 
 const DISCORD_INVITE_URL = "https://discord.gg/SpFXzPZxBX";
 
@@ -159,6 +156,8 @@ function TokenEventRow({ e, last }: { e: TokenEvent; last: boolean }) {
 // ── main screen ───────────────────────────────────────────────────────────────
 
 export default function IdentityScreen() {
+  const { userId, signOut } = useAuth();
+  const router = useRouter();
   const [loading, setLoading]   = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [user, setUser]         = useState<any>(null);
@@ -175,10 +174,6 @@ export default function IdentityScreen() {
   const [name, setName]               = useState("");
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput]     = useState("");
-
-  // Navigation preference — visual parity with web; not wired to mobile nav yet.
-  // TODO: persist once the mobile app has a tab-bar nav mode.
-  const [navMode, setNavMode] = useState<"swipe" | "tabs">("swipe");
 
   useEffect(() => {
     let cancelled = false;
@@ -202,23 +197,23 @@ export default function IdentityScreen() {
           // gracefully instead of blocking the whole profile screen.
           supabase.from("users")
             .select("name, school, gpa, streak, study_time")
-            .eq("id", TEST_USER_ID).maybeSingle(),
+            .eq("id", userId).maybeSingle(),
           supabase.from("courses")
             .select("id, name, course_code, current_score, final_score")
-            .eq("user_id", TEST_USER_ID),
+            .eq("user_id", userId),
           supabase.from("assignments")
             .select("id", { count: "exact", head: true })
-            .eq("user_id", TEST_USER_ID).not("submitted_at", "is", null),
+            .eq("user_id", userId).not("submitted_at", "is", null),
           supabase.from("token_events")
-            .select("tokens").eq("user_id", TEST_USER_ID).eq("awarded_on", todayStr),
+            .select("tokens").eq("user_id", userId).eq("awarded_on", todayStr),
           supabase.from("token_events")
             .select("action, tokens, created_at")
-            .eq("user_id", TEST_USER_ID).order("created_at", { ascending: false }).limit(10),
+            .eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
           // GradeGraph needs full rows (course_id/due_at/points_possible/score),
           // not just the summary fields the rest of this screen uses.
           supabase.from("assignments")
             .select("id, course_id, due_at, points_possible, score")
-            .eq("user_id", TEST_USER_ID),
+            .eq("user_id", userId),
         ]);
         if (cancelled) return;
         if (uErr) { setLoadError(true); setLoading(false); return; }
@@ -230,7 +225,7 @@ export default function IdentityScreen() {
         try {
           const { data: e } = await supabase.from("users")
             .select("school_city, school_country, points, discord_user_id")
-            .eq("id", TEST_USER_ID).maybeSingle();
+            .eq("id", userId).maybeSingle();
           if (e) enhanced = e;
         } catch {}
 
@@ -268,18 +263,23 @@ export default function IdentityScreen() {
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   const commitName = useCallback(() => {
     setEditingName(false);
     const trimmed = nameInput.trim();
     if (!trimmed || trimmed === name) return;
-    setName(trimmed);
-    // TODO: persist via supabase once mobile auth exists (web writes users.name).
-  }, [nameInput, name]);
+    setName(trimmed); // optimistic — matches this screen's other best-effort writes
+    supabase.from("users").update({ name: trimmed }).eq("id", userId).then(({ error }) => {
+      if (error) setName(name); // revert on failure
+    });
+  }, [nameInput, name, userId]);
 
+  // Stack.Protected already redirects to /login the instant status flips to
+  // "guest" (see app/_layout.tsx) — the explicit replace() just avoids a beat
+  // of stale content on this screen while that re-render lands.
   function handleSignOut() {
-    // TODO: wire up once mobile auth exists (web clears session + fschool_uid).
+    signOut().then(() => router.replace("/login"));
   }
 
   function handleConnectDiscord() {
@@ -507,37 +507,8 @@ export default function IdentityScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── Navigation preference ── */}
-        <View style={{ marginBottom: 32 }}>
-          <View style={{ marginBottom: 12 }}>
-            <SectionLabel>Navigation</SectionLabel>
-          </View>
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            {([
-              { mode: "swipe" as const, title: "Swipe",   desc: "Gesture between pages" },
-              { mode: "tabs"  as const, title: "Tab bar", desc: "Tap a bottom bar" },
-            ]).map(opt => {
-              const active = navMode === opt.mode;
-              return (
-                <TouchableOpacity
-                  key={opt.mode}
-                  onPress={() => setNavMode(opt.mode)}
-                  activeOpacity={0.7}
-                  style={[styles.navCard, active && styles.navCardActive]}
-                >
-                  <View style={styles.navCardTop}>
-                    <Text style={[styles.navTitle, active && { color: C.teal }]}>{opt.title}</Text>
-                    {active && <Check size={15} color={C.teal} />}
-                  </View>
-                  <Text style={styles.navDesc}>{opt.desc}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
         {/* ── Friends ── */}
-        <FriendsSection userId={TEST_USER_ID} ownName={name} />
+        <FriendsSection userId={userId} ownName={name} />
 
         {/* ShareCard intentionally not ported here — it depends on html2canvas +
             navigator.share, both browser-only APIs with no direct RN equivalent
@@ -600,11 +571,6 @@ const styles = StyleSheet.create({
   discordInvite:        { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: "rgba(88,101,242,0.18)", borderRadius: 16 },
   discordInviteText:    { fontFamily: "Inter_400Regular", fontSize: 13, color: "rgba(166,176,255,0.75)" },
 
-  navCard:       { flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 16 },
-  navCardActive: { backgroundColor: "rgba(0,210,190,0.08)", borderColor: "rgba(0,210,190,0.35)" },
-  navCardTop:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
-  navTitle:      { fontFamily: "Inter_600SemiBold", fontSize: 14, color: C.textPrimary },
-  navDesc:       { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textSecondary },
 
   emptyTitle:    { fontFamily: "Inter_600SemiBold", fontSize: 18, color: "#E3E2E2" },
   emptySubtitle: { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(200,197,203,0.6)" },
