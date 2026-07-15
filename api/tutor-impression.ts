@@ -9,6 +9,8 @@
 //   NEVER:  modify users/courses/assignments tables
 //   NEVER:  block the tutor response — caller fires and forgets
 
+import { requireUserOr401 } from "./_auth.js";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -21,8 +23,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: false, reason: "missing env" });
   }
 
-  const { userId, userMessage, tutorResponse } = req.body ?? {};
-  if (!userId || !userMessage || !tutorResponse) {
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  const { userMessage, tutorResponse } = req.body ?? {};
+  const userId = _uid;
+  if (!userMessage || !tutorResponse) {
     return res.status(200).json({ ok: false, reason: "missing fields" });
   }
 

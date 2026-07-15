@@ -84,6 +84,8 @@ function selfBase(): string {
   return process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:5173";
 }
 
+import { requireUserOr401 } from "./_auth.js";
+
 export default async function handler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -91,6 +93,14 @@ export default async function handler(req: any, res: any) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   const action = req.query?.action;
+
+  // Data actions carry the caller JWT (fetch); enforce + use the verified id (list/status
+  // exfil OneDrive via the stored token). 'auth'/'callback' are OAuth redirects — no JWT.
+  if (action !== "auth" && action !== "callback") {
+    const _uid = await requireUserOr401(req, res); if (!_uid) return;
+    if (req.query && typeof req.query === "object") (req.query as any).userId = _uid;
+    if (req.body && typeof req.body === "object") req.body.userId = _uid;
+  }
 
   // ── auth ─────────────────────────────────────────────────────────────────
   if (action === "auth") {

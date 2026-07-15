@@ -15,6 +15,7 @@ export const config = { maxDuration: 300 }; // same budget as api/transcribe.ts
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { ingest, embedBatch } from "./rag.js";
+import { requireUserOr401 } from "./_auth.js";
 
 const BUCKET = "media-uploads";
 const STT_URL = "https://api.elevenlabs.io/v1/speech-to-text";
@@ -344,6 +345,10 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
+  if (req.query && typeof req.query === "object") req.query.userId = _uid;
 
   if (!process.env.SUPABASE_URL || !(process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY))
     return res.status(500).json({ error: "Supabase env not configured" });

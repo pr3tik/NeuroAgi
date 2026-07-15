@@ -22,6 +22,7 @@
 import crypto from "node:crypto";
 import { callModel } from "./_gateway.js";
 import { canvasCreds, canvasGET, resolveCanvasCourseId, stripHtml } from "./_reggie/canvasLive.js";
+import { requireUserOr401 } from "./_auth.js";
 
 function sb() {
   const url = process.env.SUPABASE_URL;
@@ -164,6 +165,8 @@ export default async function handler(req: any, res: any) {
   res.setHeader?.("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
   const action = req.query?.action ?? req.body?.action;
   const { userId, course = null, professor = null } = req.body ?? {};
   if (!userId) return res.status(400).json({ error: "userId is required" });

@@ -21,6 +21,8 @@
 //     fetch('/api/brain-person-link', { method: 'POST', body: JSON.stringify({ userId }) })
 //   Fire-and-forget — don't block login on this.
 
+import { requireUserOr401 } from "./_auth.js";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -37,8 +39,8 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: false, reason: "brain db not configured" });
   }
 
-  const { userId } = req.body ?? {};
-  if (!userId) return res.status(400).json({ error: "userId required" });
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  const userId = _uid;
 
   const sbHeaders = {
     "apikey":        supabaseKey,

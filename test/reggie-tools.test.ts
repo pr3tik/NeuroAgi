@@ -4,6 +4,12 @@
 // loop uses), with the underlying handlers driven by mocked Supabase + fetch, and asserts
 // each returns a well-formed, non-error result. Also asserts registry↔specialist wiring.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("../api/_auth.ts", () => ({
+  requireUser: async (req) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; return id ? { userId: String(id), authId: "test" } : null; },
+  requireUserOr401: async (req, res) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; if (!id) { res?.status?.(401)?.json?.({ error: "auth required" }); return null; } return String(id); },
+}));
+
 import { makeSupabaseMock } from "./helpers";
 
 // rag.ts / token-engine.ts build a Supabase CLIENT (lazily). Mock createClient so those

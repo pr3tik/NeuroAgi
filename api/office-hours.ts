@@ -200,6 +200,8 @@ Return ONLY the paragraph, no preamble, no markdown.`;
   return { status: 200, json: { ok: true, gapUpdate, questionsAsked: Array.isArray(questionIds) ? questionIds.length : 0 } };
 }
 
+import { requireUserOr401 } from "./_auth.js";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -213,6 +215,9 @@ export default async function handler(req, res) {
   if (!supabaseUrl || !supabaseKey) return res.status(500).json({ error: "Supabase env not configured" });
   if (!anthropicKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
 
+  // prep reads / capture writes another user's tutor_mind + assignments — bind to the caller.
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  req.body = { ...(req.body ?? {}), userId: _uid };
   const action = req.query?.action;
   try {
     const result = action === "prep"    ? await prep(req.body, supabaseUrl, supabaseKey, anthropicKey)

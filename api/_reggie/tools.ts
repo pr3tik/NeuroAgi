@@ -50,7 +50,10 @@ export interface ReggieTool {
 // Run a handler and unwrap: throw on >=400 so the loop records a recoverable tool error
 // (surfaced to the model as an is_error tool_result) instead of crashing the turn.
 async function call(handler: any, opts: any, label: string): Promise<any> {
-  const { status, body } = await callApi(handler, opts);
+  // Propagate the (already-verified) acting user id so endpoints that enforce requireUser accept
+  // these in-process tool calls. ctx.userId was verified from the browser JWT in agent-manager.
+  const internalUserId = opts?.body?.userId ?? opts?.query?.userId ?? undefined;
+  const { status, body } = await callApi(handler, { ...opts, internalUserId });
   if (status >= 400) throw new Error(body?.error ? `${label}: ${body.error}` : `${label}: HTTP ${status}`);
   return body;
 }
@@ -210,7 +213,7 @@ export const TOOLS: ReggieTool[] = [
       },
       required: ["items"],
     },
-    invoke: (a) => call(exam, { body: { action: "evaluate_answers", items: a.items } }, "evaluate_answers"),
+    invoke: (a, ctx) => call(exam, { body: { action: "evaluate_answers", userId: ctx.userId, items: a.items } }, "evaluate_answers"),
   },
   {
     name: "generate_study_plan",
@@ -527,7 +530,7 @@ export const TOOLS: ReggieTool[] = [
       const { url, headers } = sbEnv();
       const me = await fetch(`${url}/rest/v1/users?id=eq.${encodeURIComponent(ctx.userId)}&select=name&limit=1`, { headers });
       const fromName = ((await me.json().catch(() => [])) as any[])[0]?.name ?? "A friend";
-      return call(nudge, { body: { fromUserId: ctx.userId, toUserId, fromName, roomName: a.roomName ?? null, recipientOnline: false } }, "nudge_friend");
+      return call(nudge, { body: { userId: ctx.userId, fromUserId: ctx.userId, toUserId, fromName, roomName: a.roomName ?? null, recipientOnline: false } }, "nudge_friend");
     },
   },
   {

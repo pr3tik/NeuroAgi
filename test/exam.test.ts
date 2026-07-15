@@ -4,6 +4,12 @@
 // PostgREST for source-text resolution. Covers validation, the evaluate_answers
 // length/clamp invariants, parseJsonLoose robustness, quiz source resolution, and degrade.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("../api/_auth.ts", () => ({
+  requireUser: async (req) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; return id ? { userId: String(id), authId: "test" } : null; },
+  requireUserOr401: async (req, res) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; if (!id) { res?.status?.(401)?.json?.({ error: "auth required" }); return null; } return String(id); },
+}));
+
 import { makeRes } from "./helpers";
 
 beforeEach(() => {
@@ -44,14 +50,14 @@ describe("exam handler", () => {
     await h({ method: "GET", body: {} }, res);
     expect(res.statusCode).toBe(405);
     res = makeRes();
-    await h({ method: "POST", body: { action: "nope" } }, res);
+    await h({ method: "POST", body: { action: "nope", userId: "u1" } }, res);
     expect(res.statusCode).toBe(400);
   });
 
   it("evaluate_answers: 400 on empty items", async () => {
     stubFetch();
     const h = await load(); const res = makeRes();
-    await h({ method: "POST", body: { action: "evaluate_answers", items: [] } }, res);
+    await h({ method: "POST", body: { action: "evaluate_answers", userId: "u1", items: [] } }, res);
     expect(res.statusCode).toBe(400);
   });
 
@@ -59,7 +65,7 @@ describe("exam handler", () => {
     // model returns ONE result with an out-of-range score, for TWO items
     stubFetch({ anthropicText: '{"results":[{"correct":true,"score":5,"feedback":"great"}]}' });
     const h = await load(); const res = makeRes();
-    await h({ method: "POST", body: { action: "evaluate_answers", items: [
+    await h({ method: "POST", body: { action: "evaluate_answers", userId: "u1", items: [
       { question: "q1", studentAnswer: "a1" },
       { question: "q2", studentAnswer: "a2" },
     ] } }, res);
@@ -73,7 +79,7 @@ describe("exam handler", () => {
   it("evaluate_answers: degrades to ungraded on model failure (never throws)", async () => {
     stubFetch({ anthropicOk: false });
     const h = await load(); const res = makeRes();
-    await h({ method: "POST", body: { action: "evaluate_answers", items: [{ question: "q", studentAnswer: "a" }] } }, res);
+    await h({ method: "POST", body: { action: "evaluate_answers", userId: "u1", items: [{ question: "q", studentAnswer: "a" }] } }, res);
     expect(res.statusCode).toBe(200);
     expect(res.body.results).toEqual([{ correct: false, score: 0, feedback: "ungraded" }]);
     expect(res.body.totalScore).toBe(0);
@@ -82,7 +88,7 @@ describe("exam handler", () => {
   it("parseJsonLoose survives prose + code fences around the JSON", async () => {
     stubFetch({ anthropicText: 'Sure, here you go:\n```json\n{"results":[{"correct":true,"score":1,"feedback":"ok"}]}\n```' });
     const h = await load(); const res = makeRes();
-    await h({ method: "POST", body: { action: "evaluate_answers", items: [{ question: "q", studentAnswer: "a" }] } }, res);
+    await h({ method: "POST", body: { action: "evaluate_answers", userId: "u1", items: [{ question: "q", studentAnswer: "a" }] } }, res);
     expect(res.body.results[0]).toMatchObject({ correct: true, score: 1 });
   });
 
@@ -90,7 +96,7 @@ describe("exam handler", () => {
     // greedy [..] would have grabbed from '[see below]'; the {..} anchor extracts the object
     stubFetch({ anthropicText: 'Grading [see below]: {"results":[{"correct":true,"score":1,"feedback":"ok"}]}' });
     const h = await load(); const res = makeRes();
-    await h({ method: "POST", body: { action: "evaluate_answers", items: [{ question: "q", studentAnswer: "a" }] } }, res);
+    await h({ method: "POST", body: { action: "evaluate_answers", userId: "u1", items: [{ question: "q", studentAnswer: "a" }] } }, res);
     expect(res.body.results[0]).toMatchObject({ correct: true, score: 1 });
     expect(res.body.totalScore).toBe(1);
   });

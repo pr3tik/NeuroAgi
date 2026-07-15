@@ -32,6 +32,11 @@ function bearer(req: any): string | null {
  * Returns { userId, authId } or null when there's no valid session.
  */
 export async function requireUser(req: any): Promise<{ userId: string; authId: string } | null> {
+  // In-process trusted call: callApi() (Reggie's tool loop, agent-manager's brain-context fetch)
+  // sets req.__internalUserId to an ALREADY-verified profile id. A real HTTP request can NEVER set
+  // this — Vercel only populates headers/body/query from the wire — so it's unforgeable from the
+  // browser, and it lets in-process calls skip a redundant JWT round-trip.
+  if (req?.__internalUserId) return { userId: String(req.__internalUserId), authId: "internal" };
   const token = bearer(req);
   if (!token) return null;
   const sb = svc();

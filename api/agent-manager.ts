@@ -12,21 +12,26 @@ import { SPECIALISTS, ROUTES } from "./_reggie/specialists.js";
 import { runReggie, runReggieStream } from "./_reggie/loop.js";
 import tutorContext from "./tutor-context.js";
 import { callApi } from "./_reggie/callApi.js";
+import { requireUserOr401 } from "./_auth.js";
 
 export default async function handler(req: any, res: any) {
   res.setHeader?.("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const {
+  let {
     action = "ask", userId, message,
     courseId = null, assignmentId = null, brainPersonId = null, hint = null,
     history = [], voiceMode = false,
   } = req.body ?? {};
   const wantStream = !!(req.body?.stream || req.query?.stream);
 
-  if (!userId) return res.status(400).json({ error: "userId is required" });
   if (!message || !String(message).trim()) return res.status(400).json({ error: "message is required" });
+  // Verify the caller's session and use the verified profile id — never trust body.userId (it
+  // drove Reggie's tools + brain reads/writes for that user with the service key). The verified
+  // id then flows to every in-process tool call as the trusted internal identity.
+  const _authed = await requireUserOr401(req, res); if (!_authed) return;
+  userId = _authed;
 
   // 1. Brain context — best-effort; never blocks the turn (tutor-context returns
   //    {context:null} when the brain env / person link is absent).
@@ -34,6 +39,7 @@ export default async function handler(req: any, res: any) {
   try {
     const { body } = await callApi(tutorContext, {
       body: { userId, userMessage: message, brainPersonId, activeCourseId: courseId },
+      internalUserId: userId,
     });
     brainContext = body?.context ?? null;
   } catch { /* brain is optional */ }

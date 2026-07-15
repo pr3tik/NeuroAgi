@@ -6,9 +6,9 @@ export interface ApiResult { status: number; body: any; }
 
 export async function callApi(
   handler: (req: any, res: any) => any,
-  opts: { method?: string; body?: any; query?: any; headers?: Record<string, string> } = {},
+  opts: { method?: string; body?: any; query?: any; headers?: Record<string, string>; internalUserId?: string } = {},
 ): Promise<ApiResult> {
-  const { method = "POST", body = {}, query = {}, headers = {} } = opts;
+  const { method = "POST", body = {}, query = {}, headers = {}, internalUserId } = opts;
   return await new Promise<ApiResult>((resolve) => {
     let settled = false;
     const done = (status: number, b: any) => {
@@ -31,6 +31,9 @@ export async function callApi(
     // headers matter for handlers that derive a public base URL from host /
     // x-forwarded-* (e.g. writing-tracker's /api/claude self-call).
     const req: any = { method, body, query, headers };
+    // Trusted in-process identity for endpoints that enforce requireUser — the caller
+    // (agent-manager) already verified this id from the browser JWT. Unforgeable over HTTP.
+    if (internalUserId) req.__internalUserId = internalUserId;
     try {
       Promise.resolve(handler(req, res)).catch((e: any) => done(500, { error: e?.message ?? "handler threw" }));
     } catch (e: any) {

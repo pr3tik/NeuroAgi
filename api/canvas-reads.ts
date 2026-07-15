@@ -8,6 +8,7 @@
 // Contracts: fschoolai_tool_contracts.md §A.
 import { coursesToGpa } from "../src/lib/gpa.js";
 import { courseFilter } from "../src/lib/courseId.js";
+import { requireUserOr401 } from "./_auth.js";
 
 function sbHeaders(key: string) {
   return {
@@ -21,6 +22,8 @@ function sbHeaders(key: string) {
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
   const { action, userId, courseId, withinDays, includeSubmitted, status } = req.body ?? {};
   if (!userId) return res.status(400).json({ error: "userId is required" });
 

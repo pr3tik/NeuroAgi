@@ -8,6 +8,7 @@
 //   action:'generate'  → force a fresh profile from current flashcards + review history
 //   action:'suggest'   → N new candidate flashcards matching the profile's topics/style
 import { callModel } from "./_gateway.js";
+import { requireUserOr401 } from "./_auth.js";
 
 const STALE_MS = 7 * 24 * 60 * 60 * 1000;   // regenerate if profile older than this
 const CARD_COUNT_DRIFT = 0.2;                // or if card count drifted by more than this fraction
@@ -101,8 +102,10 @@ export default async function handler(req: any, res: any) {
   const sbKey = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
   if (!sbUrl || !sbKey) return res.status(500).json({ error: "Supabase env vars not configured" });
 
-  const { action, userId, courseId } = req.body ?? {};
-  if (!userId || courseId == null) return res.status(400).json({ error: "userId and courseId are required" });
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  const { action, courseId } = req.body ?? {};
+  const userId = _uid;
+  if (courseId == null) return res.status(400).json({ error: "courseId is required" });
   const cid = String(courseId);
 
   try {
