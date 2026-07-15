@@ -6,6 +6,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { notify } from "./_notify.js";
 import { awardAchievement, awardFirstTimeAchievement } from "./_achievements.js";
+import { requireUserOr401 } from "./_auth.js";
 
 // Lazy client (import-safe): defers createClient off module-load so importers don't
 // crash on Node-20 (no global WebSocket for supabase-js realtime). All `supabase.*`
@@ -110,6 +111,13 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
+
+  // Authenticate the caller and OVERWRITE any client-supplied userId with the
+  // verified caller id, so all downstream reads of req.body.userId / req.query.userId
+  // transparently use the right id (closes the IDOR where anyone could pass another id).
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
+  if (req.query && typeof req.query === "object") req.query.userId = _uid;
 
   const { action } = req.query;
 

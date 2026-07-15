@@ -173,6 +173,8 @@ function classroomDueAt(cw: any): string | null {
   return new Date(Date.UTC(d.year, (d.month ?? 1) - 1, d.day ?? 1, t.hours ?? 23, t.minutes ?? 59)).toISOString();
 }
 
+import { requireUserOr401 } from "./_auth.js";
+
 export default async function handler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -180,6 +182,16 @@ export default async function handler(req: any, res: any) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   const action = req.query?.action;
+
+  // Every data action (status/list/sync/fetch/disconnect) is called via fetch() and carries
+  // the caller's JWT — enforce it and use the verified id (list/status stream a victim's Drive
+  // files via their stored token = real exfil IDOR). Only 'auth' (a window.location nav) and
+  // 'callback' (Google's redirect, state=userId) have no JWT and must NOT be enforced.
+  if (action !== "auth" && action !== "callback") {
+    const _uid = await requireUserOr401(req, res); if (!_uid) return;
+    if (req.query && typeof req.query === "object") (req.query as any).userId = _uid;
+    if (req.body && typeof req.body === "object") req.body.userId = _uid;
+  }
 
   // ── auth ─────────────────────────────────────────────────────────────────
   if (action === "auth") {

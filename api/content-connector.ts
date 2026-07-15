@@ -9,6 +9,7 @@
 // POST { userId, url?, text?, title? } → { sourceTitle, summary, connections[], saved }
 
 import { createClient } from "@supabase/supabase-js";
+import { requireUserOr401 } from "./_auth.js";
 import {
   detectSourceType, htmlToText, buildPrompt, parseConnections,
 } from "../src/lib/contentConnector.js";
@@ -42,11 +43,16 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
   const { userId, url, text, title } = req.body ?? {};
-  if (!userId) return res.status(400).json({ error: "userId required" });
   if (!url && !text) return res.status(400).json({ error: "url or text required" });
 
   const base = baseUrl(req);
+  // Forward the caller's session JWT to internal endpoints that now enforce auth
+  // (brain-person-link, brain-signal; harmless on the public ones).
+  const fwd: Record<string, string> = { "Content-Type": "application/json" };
+  if (req.headers?.authorization) fwd.Authorization = String(req.headers.authorization);
 
   // ── 1. Resolve the external content to text + a title ──────────────────────
   let content = "", srcTitle = title ?? "", sourceUrl = url ?? null;
@@ -58,7 +64,7 @@ export default async function handler(req, res) {
       if (kind === "youtube") {
         // Reuse the YouTube transcript path in api/extract.
         const ex = await fetch(`${base}/api/extract`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
+          method: "POST", headers: fwd,
           body: JSON.stringify({ youtubeUrl: url, userId }),
         }).then(r => r.ok ? r.json() : null).catch(() => null);
         content = ex?.text ?? "";
@@ -79,7 +85,7 @@ export default async function handler(req, res) {
   try {
     const ragQuery = `${srcTitle} ${content.slice(0, 500)}`.trim();
     const rag = await fetch(`${base}/api/rag?action=query`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: fwd,
       body: JSON.stringify({ userId, query: ragQuery, maxSections: 5, rerank: false }),
     }).then(r => r.ok ? r.json() : null).catch(() => null);
     passages = (rag?.passages ?? []).map((p: any) => ({ title: p.title, heading: p.heading, text: (p.text ?? "").slice(0, 800) }));
@@ -90,7 +96,7 @@ export default async function handler(req, res) {
   try {
     const { system, user } = buildPrompt(content, srcTitle, passages);
     const llm = await fetch(`${base}/api/claude`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: fwd,
       body: JSON.stringify({ messages: [{ role: "user", content: user }], system, max_tokens: 700 }),
     }).then(r => r.ok ? r.json() : null).catch(() => null);
     result = parseConnections(llm?.content ?? "");
@@ -121,13 +127,13 @@ export default async function handler(req, res) {
   if (result.connections.length) {
     try {
       const link = await fetch(`${base}/api/brain-person-link`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: fwd,
         body: JSON.stringify({ userId }),
       }).then(r => r.ok ? r.json() : null).catch(() => null);
       const brainPersonId = link?.brain_person_id;
       if (brainPersonId) {
         await fetch(`${base}/api/brain-signal`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
+          method: "POST", headers: fwd,
           body: JSON.stringify({
             brainPersonId, signalType: "academic", source: "content_connector",
             payload: { type: "content_connection", source_url: sourceUrl, source_title: srcTitle, connections: result.connections },

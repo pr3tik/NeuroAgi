@@ -13,6 +13,7 @@
 // the follow-up that unlocks the write half. Contract: fschoolai_tool_contracts.md §A.
 import { calcRequiredScore } from "../src/lib/whatif.js";
 import { courseFilter } from "../src/lib/courseId.js";
+import { requireUserOr401 } from "./_auth.js";
 
 function sbHeaders(key: string) {
   return {
@@ -26,6 +27,8 @@ function sbHeaders(key: string) {
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
   const { userId, courseId } = req.body ?? {};
   if (!userId || courseId == null) return res.status(400).json({ error: "userId and courseId are required" });
 

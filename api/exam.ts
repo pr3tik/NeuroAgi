@@ -10,6 +10,7 @@
 // synced `files.content_text` (RAG documents) when a documentId/courseId is given.
 import { callModel } from "./_gateway.js";
 import { courseFilter } from "../src/lib/courseId.js";
+import { requireUserOr401 } from "./_auth.js";
 
 /** Claude sometimes wraps JSON in prose/fences — try a clean parse first, then fall
  *  back to pulling the outermost {…}/[…] span. */
@@ -78,6 +79,9 @@ async function resolveSourceText(
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
+  if (req.query && typeof req.query === "object") req.query.userId = _uid;
   const { action } = req.body ?? {};
   const sbUrl = process.env.SUPABASE_URL;
   const sbKey = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;

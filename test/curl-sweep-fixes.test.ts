@@ -2,6 +2,12 @@
 // Regression tests for the bugs found by the live tool-contracts curl sweep
 // (2026-07-08): every case here reproduced against real endpoints before the fix.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("../api/_auth.ts", () => ({
+  requireUser: async (req) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; return id ? { userId: String(id), authId: "test" } : null; },
+  requireUserOr401: async (req, res) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; if (!id) { res?.status?.(401)?.json?.({ error: "auth required" }); return null; } return String(id); },
+}));
+
 import { makeRes, makeSupabaseMock } from "./helpers";
 
 const R = (data: any, ok = true, status = 200) => ({ ok, status, json: async () => data, text: async () => JSON.stringify(data) });
@@ -56,7 +62,7 @@ describe("nudge without RESEND_API_KEY (module-load Resend regression)", () => {
     const h = (await import("../api/nudge.ts")).default;
     let res = makeRes();
     await h({ method: "POST", body: {} }, res);
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(401);                 // no caller identity → auth is the first gate
     res = makeRes();
     await h({ method: "POST", body: { fromUserId: "a", toUserId: "a" } }, res);
     expect(res.statusCode).toBe(400);

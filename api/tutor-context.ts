@@ -43,6 +43,8 @@
 // the function body specifically to avoid that — don't change it to a static
 // top-level import.
 
+import { requireUserOr401 } from "./_auth.js";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -57,7 +59,17 @@ export default async function handler(req, res) {
     return res.status(200).json({ context: null, reason: "missing env" });
   }
 
-  const { userId, userMessage, brainPersonId, courseIds = [], activeCourseId = null } = req.body ?? {};
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
+  const { userId, userMessage, courseIds = [], activeCourseId = null } = req.body ?? {};
+  // Resolve the brain person from the verified user — never trust a body brainPersonId (that
+  // let anyone read another user's brain context by passing their person id).
+  let brainPersonId = null;
+  { const sbU = process.env.SUPABASE_URL, sbK = process.env.SUPABASE_SERVICE_KEY;
+    if (sbU && sbK) {
+      const r = await fetch(`${sbU}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=brain_person_id`, { headers: { apikey: sbK, Authorization: `Bearer ${sbK}` } }).catch(() => null);
+      if (r && r.ok) brainPersonId = ((await r.json().catch(() => []))?.[0]?.brain_person_id) ?? null;
+    } }
   if (!userId || !userMessage) return res.status(200).json({ context: null });
 
   const sbHeaders = {

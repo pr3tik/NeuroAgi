@@ -46,6 +46,8 @@ function getBaseUrl(req) {
   return "https://fschoolai.com";
 }
 
+import { requireUserOr401 } from "./_auth.js";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -53,8 +55,12 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST")    return res.status(405).end();
 
-  const { fromUserId, toUserId, roomId, fromName, roomName, recipientOnline } = req.body ?? {};
-  if (!fromUserId || !toUserId) return res.status(400).json({ error: "fromUserId and toUserId required" });
+  // The sender is always the verified caller — never trust body.fromUserId (spoofed sender +
+  // rate-limit bypass). Keep toUserId (the friend being nudged).
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  const { toUserId, roomId, fromName, roomName, recipientOnline } = req.body ?? {};
+  const fromUserId = _uid;
+  if (!toUserId) return res.status(400).json({ error: "toUserId required" });
   if (fromUserId === toUserId)  return res.status(400).json({ error: "cannot nudge yourself" });
 
   // ── 1. Rate-limit (server-enforced — client can't bypass) ──────────────────

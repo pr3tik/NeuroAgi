@@ -4,6 +4,12 @@
 // The loop is mocked (its mechanics are covered in reggie-loop.test.ts) so we test the
 // controller wiring in isolation; the router runs for real (keyword/hint tiers, no LLM).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("../api/_auth.ts", () => ({
+  requireUser: async (req) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; return id ? { userId: String(id), authId: "test" } : null; },
+  requireUserOr401: async (req, res) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; if (!id) { res?.status?.(401)?.json?.({ error: "auth required" }); return null; } return String(id); },
+}));
+
 import { makeRes } from "./helpers";
 
 const { runReggie, runReggieStream } = vi.hoisted(() => ({ runReggie: vi.fn(), runReggieStream: vi.fn() }));
@@ -48,8 +54,8 @@ describe("agent-manager (Reggie front door)", () => {
   it("405 on non-POST; 400 on missing userId or message", async () => {
     const h = await load();
     let res = makeRes(); await h({ method: "GET", body: {} }, res); expect(res.statusCode).toBe(405);
-    res = makeRes(); await h({ method: "POST", body: { message: "hi" } }, res); expect(res.statusCode).toBe(400);
-    res = makeRes(); await h({ method: "POST", body: { userId: "u1" } }, res); expect(res.statusCode).toBe(400);
+    res = makeRes(); await h({ method: "POST", body: { message: "hi" } }, res); expect(res.statusCode).toBe(401);   // has message, no auth → 401 (auth is the first gate)
+    res = makeRes(); await h({ method: "POST", body: { userId: "u1" } }, res); expect(res.statusCode).toBe(400);   // no message → 400 (checked before auth)
   });
 
   it("classifies a free-form 'ask' (keyword) and returns a blocking result with a tool trace", async () => {

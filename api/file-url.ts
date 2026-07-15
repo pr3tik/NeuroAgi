@@ -6,6 +6,8 @@
 //
 // POST { path: "<userId>/<lms_file_id>.pdf", expiresIn?: seconds } → { url }
 
+import { requireUserOr401 } from "./_auth.js";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -17,8 +19,12 @@ export default async function handler(req, res) {
   const serviceKey  = process.env.SUPABASE_SERVICE_KEY;   // signing requires read perms → service key
   if (!supabaseUrl || !serviceKey) return res.status(500).json({ error: "storage not configured" });
 
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
   const { path, expiresIn = 3600 } = req.body ?? {};
   if (!path || typeof path !== "string") return res.status(400).json({ error: "path required" });
+  // Storage layout is `<userId>/...` — a caller may only sign their OWN files, otherwise anyone
+  // could download another student's private docs by guessing/knowing their path.
+  if (String(path).split("/")[0] !== _uid) return res.status(403).json({ error: "forbidden" });
 
   try {
     const r = await fetch(`${supabaseUrl}/storage/v1/object/sign/course-files/${path}`, {

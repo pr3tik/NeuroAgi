@@ -10,6 +10,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { analyzeWriting, compareMetrics } from "../src/lib/writingMetrics.js";
+import { requireUserOr401 } from "./_auth.js";
 
 function baseUrl(req) {
   const host  = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "localhost") as string;
@@ -38,6 +39,8 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
   const { userId, text, title } = req.body ?? {};
   if (!userId) return res.status(400).json({ error: "userId required" });
   if (!text || String(text).trim().length < 40) {

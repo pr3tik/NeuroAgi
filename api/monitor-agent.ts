@@ -12,6 +12,8 @@
 //   - If student has avoidance pattern in living mind → gentle call-out
 //   - Returns null if no meaningful nudge to give (don't spam)
 
+import { requireUserOr401 } from "./_auth.js";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -23,8 +25,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ nudge: null, reason: "missing env" });
   }
 
-  const { userId, assignment, userData } = req.body ?? {};
-  if (!userId || !assignment) return res.status(200).json({ nudge: null, reason: "missing fields" });
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  const { assignment, userData } = req.body ?? {};
+  const userId = _uid;
+  if (!assignment) return res.status(200).json({ nudge: null, reason: "missing fields" });
 
   const sbHeaders = {
     "apikey":        supabaseKey,

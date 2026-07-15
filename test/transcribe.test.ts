@@ -1,4 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("../api/_auth.ts", () => ({
+  requireUser: async (req) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; return id ? { userId: String(id), authId: "test" } : null; },
+  requireUserOr401: async (req, res) => { const id = req?.__internalUserId ?? req?.body?.userId ?? req?.body?.fromUserId ?? req?.query?.userId; if (!id) { res?.status?.(401)?.json?.({ error: "auth required" }); return null; } return String(id); },
+}));
+
 import { makeSupabaseMock, makeRes } from "./helpers";
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: vi.fn() }));
@@ -36,11 +42,11 @@ describe("transcribe: sign", () => {
     expect(res.body.path).toContain("u1/");
   });
 
-  it("400s without userId", async () => {
+  it("401s without a session (auth is the first gate)", async () => {
     const { handler } = await loadTranscribe(() => ({ error: null }));
     const res = makeRes();
     await handler(post("sign", { filename: "x.mp3" }), res);
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(401);
   });
 });
 
@@ -97,7 +103,7 @@ describe("transcribe: status", () => {
     const { handler } = await loadTranscribe((ctx) =>
       ctx.table === "media_jobs" ? { data: { id: "job1", status: "done", document_id: "d1", title: "L1" }, error: null } : { error: null });
     const res = makeRes();
-    await handler(post("status", { jobId: "job1" }), res);
+    await handler(post("status", { jobId: "job1", userId: "u1" }), res);
     expect(res.statusCode).toBe(200);
     expect(res.body.job.status).toBe("done");
   });
@@ -105,7 +111,7 @@ describe("transcribe: status", () => {
   it("400s without jobId", async () => {
     const { handler } = await loadTranscribe(() => ({ error: null }));
     const res = makeRes();
-    await handler(post("status", {}), res);
+    await handler(post("status", { userId: "u1" }), res);
     expect(res.statusCode).toBe(400);
   });
 });
