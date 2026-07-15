@@ -2,9 +2,11 @@
 // gateway (api/_gateway.ts), which owns the retry-on-429 backoff, cost, and tracing.
 // Response shape unchanged for callers: { content }.
 import { callModel } from "./_gateway.js";
+import { rateLimit } from "./_ratelimit.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (!(await rateLimit(req, res, "groq", { anonMax: 20, authMax: 120 }))) return;
 
   const { messages, system, max_tokens } = req.body ?? {};
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages array required" });

@@ -7,6 +7,7 @@ import { makeRes } from "./helpers";
 
 const sent: any[] = [];
 vi.mock("resend", () => ({ Resend: class { emails = { send: vi.fn(async (m: any) => { sent.push(m); return {}; }) }; } }));
+vi.mock("../api/_ratelimit.ts", () => ({ rateLimit: async () => true }));   // no-op limiter in tests (its rpc would add a stray POST)
 
 function R(data: any, opts: { ok?: boolean; status?: number; count?: number } = {}) {
   const { ok = true, status = 200, count } = opts;

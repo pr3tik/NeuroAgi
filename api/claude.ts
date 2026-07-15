@@ -7,6 +7,7 @@
 // Body may carry an optional `task` ("tutor" | "summarize" | "deep" | …) to pick the
 // route; absent → "default" (the tutor/Sonnet route), preserving prior behavior.
 import { callModel, openStream } from "./_gateway.js";
+import { rateLimit } from "./_ratelimit.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -14,6 +15,7 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (!(await rateLimit(req, res, "claude", { anonMax: 20, authMax: 120 }))) return;
 
   const { messages, system, max_tokens, tools, stream, task, model, cache, thinking } = req.body ?? {};
   if (!messages || !Array.isArray(messages))

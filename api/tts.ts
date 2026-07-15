@@ -27,6 +27,8 @@ async function fetchVoiceList(apiKey) {
   return _voiceCache;
 }
 
+import { rateLimit } from "./_ratelimit.js";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -50,6 +52,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (!(await rateLimit(req, res, "tts", { anonMax: 30, authMax: 200 }))) return;
 
   const { text, voiceId, speed, voiceSettings } = req.body ?? {};
   if (!text || typeof text !== "string") return res.status(400).json({ error: "text is required" });
