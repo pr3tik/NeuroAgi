@@ -1,7 +1,5 @@
 // Header.tsx — port of App.tsx's <header className="app-header"> shell: page
-// label, token/tier pill (tappable → leaderboard), notification bell + panel,
-// and the page-dots nav map (web puts these in the header, not a bottom
-// footer — this replaces ScreenWrapper's old bottom PageDots placement).
+// label, token/tier pill (tappable → leaderboard), notification bell + panel.
 
 import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
@@ -10,7 +8,6 @@ import { Bell } from "lucide-react-native";
 import { supabase } from "../services/supabase";
 import { apiGet } from "../services/api";
 import { useUserId } from "../context/AuthContext";
-import PageDots from "./PageDots";
 import NotificationPanel from "./NotificationPanel";
 import { PageKey, LABEL } from "../navigation/navConfig";
 
@@ -72,8 +69,6 @@ export default function Header({ page }: { page: PageKey }) {
             )}
           </TouchableOpacity>
         </View>
-
-        <PageDots current={page} />
       </View>
 
       <NotificationPanel

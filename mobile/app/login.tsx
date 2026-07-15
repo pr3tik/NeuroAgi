@@ -1,11 +1,15 @@
 // login.tsx — email/password sign-in, gating the app for a signed-out (guest)
 // identity. Login-only — account creation happens on web, not here (see
-// context/AuthContext.tsx). Not part of the swipe-nav tab grid (navigation/navConfig.ts) —
+// context/AuthContext.tsx). Not part of the tab bar (navigation/navConfig.ts) —
 // it's a standalone pre-auth screen, so it doesn't use ScreenWrapper/Header.
+//
+// Visual language mirrors web's AuthModal (src/pages/Landing.tsx) in dark mode:
+// same "Welcome back" copy, DARK theme card tokens, and the white "Sign in →"
+// button — so a student who signed up on web meets a familiar screen on mobile.
 
 import { useState, useCallback } from "react";
 import {
-  Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, Image, TextInput, TouchableOpacity, StyleSheet,
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -14,15 +18,14 @@ import { useAuth } from "../context/AuthContext";
 
 const BG = "#0f0f0f";
 
-// Keep in sync with app/identity.tsx's palette.
+// Mirrors src/pages/Landing.tsx's DARK theme tokens (the ones AuthModal uses).
 const C = {
-  textPrimary:   "#F5F5F5",
-  textSecondary: "rgba(255,255,255,0.45)",
-  textTertiary:  "rgba(255,255,255,0.25)",
-  surface:       "rgba(255,255,255,0.05)",
-  border:        "rgba(255,255,255,0.08)",
-  danger:        "rgba(255,105,100,0.9)",
-  teal:          "rgba(0,210,190,0.95)",
+  text:        "#ffffff",
+  textMuted:   "rgba(255,255,255,0.45)",
+  textFaint:   "rgba(255,255,255,0.3)",
+  cardInner:   "#1e1e1e",
+  cardBorder:  "#2a2a2a",
+  danger:      "rgba(255,59,48,0.85)",
 };
 
 export default function LoginScreen() {
@@ -34,9 +37,11 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const canSubmit = email.trim().length > 0 && password.length > 0;
+
   const handleSubmit = useCallback(async () => {
     setError(null);
-    if (!email.trim() || !password) { setError("Enter an email and password."); return; }
+    if (!canSubmit) { setError("Enter an email and password."); return; }
 
     setBusy(true);
     try {
@@ -47,7 +52,7 @@ export default function LoginScreen() {
     } finally {
       setBusy(false);
     }
-  }, [email, password, signIn, router]);
+  }, [canSubmit, email, password, signIn, router]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -56,13 +61,21 @@ export default function LoginScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <Text style={styles.title}>FschoolAI</Text>
-          <Text style={styles.subtitle}>Sign in to continue</Text>
+          <View style={styles.brandRow}>
+            <Image
+              source={require("../assets/images/fschoolai-logo.jpeg")}
+              style={styles.logo}
+              resizeMode="cover"
+            />
+            <Text style={styles.brandName}>FschoolAI</Text>
+          </View>
+          <Text style={styles.title}>Welcome back</Text>
+          <Text style={styles.subtitle}>Enter your email and password to continue.</Text>
 
           <TextInput
             style={styles.input}
             placeholder="Email"
-            placeholderTextColor={C.textTertiary}
+            placeholderTextColor={C.textFaint}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
@@ -73,27 +86,31 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             placeholder="Password"
-            placeholderTextColor={C.textTertiary}
+            placeholderTextColor={C.textFaint}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
             editable={!busy}
+            onSubmitEditing={handleSubmit}
+            returnKeyType="go"
           />
 
           {error && <Text style={styles.error}>{error}</Text>}
 
           <TouchableOpacity
-            style={[styles.primaryBtn, busy && styles.btnDisabled]}
+            style={[styles.primaryBtn, (!canSubmit || busy) && styles.btnDisabled]}
             onPress={handleSubmit}
-            disabled={busy}
+            disabled={!canSubmit || busy}
             activeOpacity={0.85}
           >
             {busy ? (
-              <ActivityIndicator color="#0f0f0f" />
+              <ActivityIndicator color="#000" />
             ) : (
-              <Text style={styles.primaryBtnText}>Sign In</Text>
+              <Text style={styles.primaryBtnText}>Sign in →</Text>
             )}
           </TouchableOpacity>
+
+          <Text style={styles.footer}>Don&apos;t have an account? Sign up on the web.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -102,28 +119,47 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   safe:   { flex: 1, backgroundColor: BG },
-  scroll: { flexGrow: 1, justifyContent: "center", padding: 24 },
+  scroll: { flexGrow: 1, justifyContent: "center", padding: 28 },
+  // Icon badge + wordmark side by side (the version with both, for comparison
+  // against logo-only / text-only).
+  brandRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 10, marginBottom: 28,
+  },
+  logo: {
+    width: 40, height: 40, borderRadius: 10,
+  },
+  brandName: {
+    fontFamily: "Inter_600SemiBold", fontSize: 20, color: C.text, letterSpacing: -0.2,
+  },
+  // Matches web AuthModal's <h2>: 22px / 600 / -0.3 tracking.
   title: {
-    fontFamily: "Fraunces_300Light_Italic", fontSize: 34, color: C.textPrimary,
-    textAlign: "center", marginBottom: 6,
+    fontFamily: "Inter_600SemiBold", fontSize: 22, color: C.text,
+    letterSpacing: -0.3, textAlign: "center", marginBottom: 6,
   },
   subtitle: {
-    fontFamily: "Inter_400Regular", fontSize: 13, color: C.textSecondary,
-    textAlign: "center", marginBottom: 32,
+    fontFamily: "Inter_400Regular", fontSize: 14, color: C.textMuted,
+    textAlign: "center", lineHeight: 22, marginBottom: 26,
   },
+  // Matches web AuthModal's inputs: cardInner bg, cardBorder, radius 10.
   input: {
-    fontFamily: "Inter_400Regular", fontSize: 15, color: C.textPrimary,
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 12,
+    fontFamily: "Inter_400Regular", fontSize: 14, color: C.text,
+    backgroundColor: C.cardInner, borderWidth: 1, borderColor: C.cardBorder,
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 13, marginBottom: 10,
   },
   error: {
-    fontFamily: "Inter_400Regular", fontSize: 13, color: C.danger,
-    marginBottom: 12, textAlign: "center",
+    fontFamily: "Inter_400Regular", fontSize: 12, color: C.danger,
+    marginBottom: 10, textAlign: "center",
   },
+  // Matches web AuthModal's submit: white fill, dark text, radius 12.
   primaryBtn: {
-    backgroundColor: C.teal, borderRadius: 12, paddingVertical: 15,
+    backgroundColor: C.text, borderRadius: 12, paddingVertical: 15,
     alignItems: "center", marginTop: 8,
   },
-  primaryBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#0f0f0f" },
-  btnDisabled: { opacity: 0.6 },
+  primaryBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#000" },
+  btnDisabled: { opacity: 0.4 },
+  footer: {
+    fontFamily: "Inter_400Regular", fontSize: 12, color: C.textFaint,
+    textAlign: "center", marginTop: 12,
+  },
 });

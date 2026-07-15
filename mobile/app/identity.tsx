@@ -175,10 +175,6 @@ export default function IdentityScreen() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput]     = useState("");
 
-  // Navigation preference — visual parity with web; not wired to mobile nav yet.
-  // TODO: persist once the mobile app has a tab-bar nav mode.
-  const [navMode, setNavMode] = useState<"swipe" | "tabs">("swipe");
-
   useEffect(() => {
     let cancelled = false;
 
@@ -511,35 +507,6 @@ export default function IdentityScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── Navigation preference ── */}
-        <View style={{ marginBottom: 32 }}>
-          <View style={{ marginBottom: 12 }}>
-            <SectionLabel>Navigation</SectionLabel>
-          </View>
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            {([
-              { mode: "swipe" as const, title: "Swipe",   desc: "Gesture between pages" },
-              { mode: "tabs"  as const, title: "Tab bar", desc: "Tap a bottom bar" },
-            ]).map(opt => {
-              const active = navMode === opt.mode;
-              return (
-                <TouchableOpacity
-                  key={opt.mode}
-                  onPress={() => setNavMode(opt.mode)}
-                  activeOpacity={0.7}
-                  style={[styles.navCard, active && styles.navCardActive]}
-                >
-                  <View style={styles.navCardTop}>
-                    <Text style={[styles.navTitle, active && { color: C.teal }]}>{opt.title}</Text>
-                    {active && <Check size={15} color={C.teal} />}
-                  </View>
-                  <Text style={styles.navDesc}>{opt.desc}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
         {/* ── Friends ── */}
         <FriendsSection userId={userId} ownName={name} />
 
@@ -604,11 +571,6 @@ const styles = StyleSheet.create({
   discordInvite:        { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: "rgba(88,101,242,0.18)", borderRadius: 16 },
   discordInviteText:    { fontFamily: "Inter_400Regular", fontSize: 13, color: "rgba(166,176,255,0.75)" },
 
-  navCard:       { flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 16 },
-  navCardActive: { backgroundColor: "rgba(0,210,190,0.08)", borderColor: "rgba(0,210,190,0.35)" },
-  navCardTop:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
-  navTitle:      { fontFamily: "Inter_600SemiBold", fontSize: 14, color: C.textPrimary },
-  navDesc:       { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textSecondary },
 
   emptyTitle:    { fontFamily: "Inter_600SemiBold", fontSize: 18, color: "#E3E2E2" },
   emptySubtitle: { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(200,197,203,0.6)" },

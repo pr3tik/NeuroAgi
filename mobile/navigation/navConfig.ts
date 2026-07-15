@@ -3,31 +3,16 @@ export type PageKey =
   | "spaces" | "canvas" | "rooms" | "toolkit"
   | "identity" | "leaderboard";
 
-export type Direction = "left" | "right" | "up" | "down";
-
-export const NAV: Record<PageKey, Partial<Record<Direction, PageKey>>> = {
-  work:        { right: "assignment", left: "canvas",      up: "identity",    down: "toolkit"  },
-  assignment:  { left: "work",        down: "study"                                            },
-  study:       { up: "assignment",    left: "rooms"                                            },
-  files:       { right: "identity",   down: "spaces"                                           },
-  spaces:      { up: "files"                                                                   },
-  canvas:      { right: "work",       down: "rooms"                                            },
-  rooms:       { up: "canvas",        right: "toolkit"                                         },
-  toolkit:     { up: "work",          left: "rooms"                                            },
-  identity:    { down: "work",        right: "leaderboard", left: "files"                      },
-  leaderboard: { left: "identity"                                                              },
-};
-
-export const DOT_GRID: (PageKey | null)[][] = [
-  ["files",  "identity", "leaderboard"],
-  ["canvas", "work",     "assignment" ],
-  ["rooms",  "toolkit",  "study"      ],
-];
+// Tab bar only (no swipe nav — matches web's BottomNav.tsx, which never had
+// a swipe mode either). PRIMARY are the always-visible tabs; MORE lives
+// behind the "More" sheet. Same split web uses for its own primary/secondary.
+export const PRIMARY: PageKey[] = ["work", "canvas", "study", "leaderboard", "identity"];
+export const MORE: PageKey[] = ["assignment", "toolkit", "files", "rooms", "spaces"];
 
 export const LABEL: Record<PageKey, string> = {
   work:        "Work",
   canvas:      "Canvas",
-  assignment:  "Assignments",
+  assignment:  "Assignment",
   study:       "Study",
   files:       "Files",
   rooms:       "Rooms",
@@ -35,4 +20,11 @@ export const LABEL: Record<PageKey, string> = {
   identity:    "Identity",
   leaderboard: "Leaderboard",
   spaces:      "Spaces",
+};
+
+// Compact labels for the bottom bar's tight cells — mirrors web's BottomNav.tsx
+// ITEMS[].short fallback. Only the primary tabs need one; falls back to LABEL.
+export const SHORT_LABEL: Partial<Record<PageKey, string>> = {
+  leaderboard: "Ranks",
+  identity:    "You",
 };
