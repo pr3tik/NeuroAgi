@@ -1,3 +1,10 @@
+// Must be the very first import: Hermes (RN's JS engine) has no native Web
+// Crypto API, so `crypto.getRandomValues` is undefined until this polyfills it.
+// supabase-js's PKCE OAuth flow (Google sign-in) calls it to build the code
+// verifier — without this, that call throws "crypto.getRandomValues is not a
+// function" before the OAuth flow ever starts.
+import "react-native-get-random-values";
+
 import { registerGlobals } from "@livekit/react-native";
 // Must run before any LiveKit/WebRTC API is touched — installs RTCPeerConnection
 // and friends onto global. This file is the earliest app code Metro loads
