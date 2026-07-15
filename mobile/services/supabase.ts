@@ -10,8 +10,6 @@ import { AppState, Platform } from "react-native";
 const isBrowser = typeof window !== "undefined";
 
 // Same Supabase project as the web app — see src/api/supabase.ts.
-// flowType: 'pkce' matches web and is required for the mobile Google OAuth
-// deep-link exchange (services/auth.ts completeOAuthLogin()).
 export const supabase = createClient(
   process.env.EXPO_PUBLIC_SUPABASE_URL!,
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
@@ -22,7 +20,6 @@ export const supabase = createClient(
       autoRefreshToken: isBrowser,
       persistSession: isBrowser,
       detectSessionInUrl: false,
-      flowType: "pkce",
     },
   }
 );

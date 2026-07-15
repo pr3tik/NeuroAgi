@@ -17,7 +17,6 @@ import { getOrCreateUserId } from "../services/identity";
 import {
   currentProfile, pendingMerges, adoptIdentity,
   signIn as authSignIn, signOut as authSignOut,
-  signInWithGoogle as authSignInWithGoogle, completeOAuthLogin,
   Profile,
 } from "../services/auth";
 
@@ -28,7 +27,6 @@ type AuthContextValue = {
   profile: Profile | null;
   status: Status;
   signIn: (email: string, password: string) => Promise<Profile>;
-  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -83,15 +81,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return p;
   }, [userId]);
 
-  const signInWithGoogle = useCallback(async () => {
-    await authSignInWithGoogle();              // opens the in-app browser, exchanges the code
-    const result = await completeOAuthLogin();  // provisions + merges + persists (mirrors web)
-    if (!result) throw new Error("Sign-in did not complete.");
-    setUserIdState(result.userId);
-    setProfile({ id: result.userId, name: result.name });
-    setStatus("authed");
-  }, []);
-
   const signOut = useCallback(async () => {
     await authSignOut();
     const freshGuestId = await getOrCreateUserId(); // re-provision — see App.tsx's fschool_uid comment
@@ -109,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ userId, profile, status, signIn, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ userId, profile, status, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

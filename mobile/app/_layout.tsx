@@ -1,8 +1,7 @@
 // Must be the very first import: Hermes (RN's JS engine) has no native Web
 // Crypto API, so `crypto.getRandomValues` is undefined until this polyfills it.
-// supabase-js's PKCE OAuth flow (Google sign-in) calls it to build the code
-// verifier — without this, that call throws "crypto.getRandomValues is not a
-// function" before the OAuth flow ever starts.
+// supabase-js's auth internals touch it during sign-in — without this, that
+// throws "crypto.getRandomValues is not a function".
 import "react-native-get-random-values";
 
 import { registerGlobals } from "@livekit/react-native";
