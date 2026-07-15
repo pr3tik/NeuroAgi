@@ -9,14 +9,14 @@ import { useRouter } from "expo-router";
 import { Bell } from "lucide-react-native";
 import { supabase } from "../services/supabase";
 import { apiGet } from "../services/api";
+import { useUserId } from "../context/AuthContext";
 import PageDots from "./PageDots";
 import NotificationPanel from "./NotificationPanel";
 import { PageKey, LABEL } from "../navigation/navConfig";
 
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
-
 export default function Header({ page }: { page: PageKey }) {
   const router = useRouter();
+  const userId = useUserId();
   const [tokenSummary, setTokenSummary] = useState<{ points: number; tier: string } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -26,17 +26,17 @@ export default function Header({ page }: { page: PageKey }) {
 
     // Same /api/token-engine?action=summary endpoint src/api/tokens.ts hits —
     // best-effort, the pill just doesn't render if it fails.
-    apiGet(`/api/token-engine?action=summary&userId=${encodeURIComponent(TEST_USER_ID)}`)
+    apiGet(`/api/token-engine?action=summary&userId=${encodeURIComponent(userId)}`)
       .then(s => { if (!cancelled && s) setTokenSummary({ points: s.points ?? 0, tier: s.tier ?? "Basic" }); })
       .catch(() => {});
 
     supabase.from("notifications")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", TEST_USER_ID).eq("read", false)
+      .eq("user_id", userId).eq("read", false)
       .then(({ count }) => { if (!cancelled) setUnreadCount(count ?? 0); });
 
     return () => { cancelled = true; };
-  }, [page]);
+  }, [page, userId]);
 
   return (
     <>

@@ -11,8 +11,7 @@ import {
   UserPlus, Check, MessageCircle, DoorOpen, ClipboardList, Trophy, TrendingUp, Brain, Bell, X,
 } from "lucide-react-native";
 import { supabase } from "../services/supabase";
-
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 type AppNotification = {
   id: string;
@@ -49,6 +48,7 @@ export default function NotificationPanel({
   onClose: () => void;
   onUnreadChange: (n: number) => void;
 }) {
+  const userId = useUserId();
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -58,7 +58,7 @@ export default function NotificationPanel({
     setLoading(true);
     supabase.from("notifications")
       .select("id, type, title, body, read, created_at")
-      .eq("user_id", TEST_USER_ID)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(30)
       .then(({ data }) => {
@@ -67,7 +67,7 @@ export default function NotificationPanel({
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [visible]);
+  }, [visible, userId]);
 
   async function markRead(id: string) {
     setItems(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));

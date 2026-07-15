@@ -14,9 +14,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle } from "react-native-svg";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
-
-// TODO: replace with the real signed-in user once identity.tsx (mobile login) is built.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 const MAX_POPULATION = 2000; // same cap as api/leaderboard.ts
 const TOP_N = 50;            // same visible top-N as the web page
@@ -280,6 +278,7 @@ function BoardRow({ row, rank, isMe, sort, sublabel, maxVal, myTier }: {
 // ── main screen ───────────────────────────────────────────────────────────────
 
 export default function LeaderboardScreen() {
+  const userId = useUserId();
   const [tab,  setTab]  = useState<Tab>("University");
   const [sort, setSort] = useState<Sort>("Tokens");
 
@@ -339,7 +338,7 @@ export default function LeaderboardScreen() {
   }, []);
 
   // My row (for scope derivation, "You" pinned card, and tier badge on non-token sorts)
-  const meRow = useMemo(() => rows.find(r => r.userId === TEST_USER_ID) ?? null, [rows]);
+  const meRow = useMemo(() => rows.find(r => r.userId === userId) ?? null, [rows, userId]);
 
   const scopeValue = useMemo(() => {
     if (tab === "Global") return null;
@@ -354,8 +353,8 @@ export default function LeaderboardScreen() {
   const visible = ranked.slice(0, TOP_N);
   const maxVal  = Math.max(visible[0]?.value ?? 1, 1);
 
-  const me        = ranked.find(r => r.userId === TEST_USER_ID) ?? null;
-  const meVisible = me != null && visible.some(r => r.userId === TEST_USER_ID);
+  const me        = ranked.find(r => r.userId === userId) ?? null;
+  const meVisible = me != null && visible.some(r => r.userId === userId);
 
   const scopeLabel = (tab === "Global" || !scopeValue) ? "Global" : `${tab}: ${scopeValue}`;
   const myPoints   = meRow?.points ?? null;
@@ -462,7 +461,7 @@ export default function LeaderboardScreen() {
                   key={row.userId}
                   row={row}
                   rank={rank}
-                  isMe={row.userId === TEST_USER_ID}
+                  isMe={row.userId === userId}
                   sort={sort}
                   sublabel={TAB_SUBLABEL[tab](row)}
                   maxVal={maxVal}

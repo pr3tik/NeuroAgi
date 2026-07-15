@@ -8,20 +8,17 @@ import {
   StyleSheet, ActivityIndicator, Linking,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import {
   LogIn, RefreshCw, Layers, CircleDot, Sparkles, Check, Hexagon,
   ArrowUp, Star, ChevronUp, ChevronDown, ArrowUpRight,
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
+import { useAuth } from "../context/AuthContext";
 import GradeGraph, { GradeGraphCourse, GradeGraphAssignment } from "../components/GradeGraph";
 import WritingTracker from "../components/WritingTracker";
 import FriendsSection from "../components/FriendsSection";
-
-// TODO: replace with the real signed-in user once mobile auth exists.
-// Mirrors work.tsx / assignment.tsx — Sarim Khan's real TMU account on the
-// same Supabase project.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
 
 const DISCORD_INVITE_URL = "https://discord.gg/SpFXzPZxBX";
 
@@ -159,6 +156,8 @@ function TokenEventRow({ e, last }: { e: TokenEvent; last: boolean }) {
 // ── main screen ───────────────────────────────────────────────────────────────
 
 export default function IdentityScreen() {
+  const { userId, signOut } = useAuth();
+  const router = useRouter();
   const [loading, setLoading]   = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [user, setUser]         = useState<any>(null);
@@ -202,23 +201,23 @@ export default function IdentityScreen() {
           // gracefully instead of blocking the whole profile screen.
           supabase.from("users")
             .select("name, school, gpa, streak, study_time")
-            .eq("id", TEST_USER_ID).maybeSingle(),
+            .eq("id", userId).maybeSingle(),
           supabase.from("courses")
             .select("id, name, course_code, current_score, final_score")
-            .eq("user_id", TEST_USER_ID),
+            .eq("user_id", userId),
           supabase.from("assignments")
             .select("id", { count: "exact", head: true })
-            .eq("user_id", TEST_USER_ID).not("submitted_at", "is", null),
+            .eq("user_id", userId).not("submitted_at", "is", null),
           supabase.from("token_events")
-            .select("tokens").eq("user_id", TEST_USER_ID).eq("awarded_on", todayStr),
+            .select("tokens").eq("user_id", userId).eq("awarded_on", todayStr),
           supabase.from("token_events")
             .select("action, tokens, created_at")
-            .eq("user_id", TEST_USER_ID).order("created_at", { ascending: false }).limit(10),
+            .eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
           // GradeGraph needs full rows (course_id/due_at/points_possible/score),
           // not just the summary fields the rest of this screen uses.
           supabase.from("assignments")
             .select("id, course_id, due_at, points_possible, score")
-            .eq("user_id", TEST_USER_ID),
+            .eq("user_id", userId),
         ]);
         if (cancelled) return;
         if (uErr) { setLoadError(true); setLoading(false); return; }
@@ -230,7 +229,7 @@ export default function IdentityScreen() {
         try {
           const { data: e } = await supabase.from("users")
             .select("school_city, school_country, points, discord_user_id")
-            .eq("id", TEST_USER_ID).maybeSingle();
+            .eq("id", userId).maybeSingle();
           if (e) enhanced = e;
         } catch {}
 
@@ -268,18 +267,23 @@ export default function IdentityScreen() {
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   const commitName = useCallback(() => {
     setEditingName(false);
     const trimmed = nameInput.trim();
     if (!trimmed || trimmed === name) return;
-    setName(trimmed);
-    // TODO: persist via supabase once mobile auth exists (web writes users.name).
-  }, [nameInput, name]);
+    setName(trimmed); // optimistic — matches this screen's other best-effort writes
+    supabase.from("users").update({ name: trimmed }).eq("id", userId).then(({ error }) => {
+      if (error) setName(name); // revert on failure
+    });
+  }, [nameInput, name, userId]);
 
+  // Stack.Protected already redirects to /login the instant status flips to
+  // "guest" (see app/_layout.tsx) — the explicit replace() just avoids a beat
+  // of stale content on this screen while that re-render lands.
   function handleSignOut() {
-    // TODO: wire up once mobile auth exists (web clears session + fschool_uid).
+    signOut().then(() => router.replace("/login"));
   }
 
   function handleConnectDiscord() {
@@ -537,7 +541,7 @@ export default function IdentityScreen() {
         </View>
 
         {/* ── Friends ── */}
-        <FriendsSection userId={TEST_USER_ID} ownName={name} />
+        <FriendsSection userId={userId} ownName={name} />
 
         {/* ShareCard intentionally not ported here — it depends on html2canvas +
             navigator.share, both browser-only APIs with no direct RN equivalent

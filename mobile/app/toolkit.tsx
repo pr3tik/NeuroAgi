@@ -18,9 +18,7 @@ import {
 import ScreenWrapper from "../components/ScreenWrapper";
 import { supabase } from "../services/supabase";
 import { apiFetch } from "../services/api";
-
-// TODO: replace with real signed-in user once mobile auth exists.
-const TEST_USER_ID = "26179287-a074-44cf-94a1-c57a8c70cb51";
+import { useUserId } from "../context/AuthContext";
 
 // tokens.css values
 const T = {
@@ -538,6 +536,7 @@ function RecordingsTab({ courses }: { courses: Course[] }) {
 // ── Lecture Digest tab ────────────────────────────────────────────────────────
 
 function LectureDigestTab() {
+  const userId = useUserId();
   const [digests,  setDigests]  = useState<any[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -546,11 +545,11 @@ function LectureDigestTab() {
     let cancelled = false;
     supabase.from("lecture_digests")
       .select("id, title, status, summary, key_points, created_at")
-      .eq("user_id", TEST_USER_ID).eq("status", "done")
+      .eq("user_id", userId).eq("status", "done")
       .order("created_at", { ascending: false }).limit(20)
       .then(({ data }) => { if (!cancelled) { setDigests(data ?? []); setLoading(false); } });
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   return (
     <View style={{ gap: 14 }}>
@@ -770,6 +769,7 @@ const TABS = [
 ];
 
 export default function ToolkitScreen() {
+  const userId = useUserId();
   const [activeTab,   setActiveTab]   = useState("notes");
   const [courses,     setCourses]     = useState<Course[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -779,11 +779,11 @@ export default function ToolkitScreen() {
     let cancelled = false;
     (async () => {
       const [{ data: courseRows }, { data: aRows }, { data: user }] = await Promise.all([
-        supabase.from("courses").select("id, name, course_code").eq("user_id", TEST_USER_ID),
+        supabase.from("courses").select("id, name, course_code").eq("user_id", userId),
         supabase.from("assignments")
           .select("id, title, course_id, due_at, points_possible, score, submitted_at, courses(name, course_code)")
-          .eq("user_id", TEST_USER_ID),
-        supabase.from("users").select("name").eq("id", TEST_USER_ID).maybeSingle(),
+          .eq("user_id", userId),
+        supabase.from("users").select("name").eq("id", userId).maybeSingle(),
       ]);
       if (cancelled) return;
       setCourses((courseRows ?? []).map((c: any) => ({ id: c.id, name: c.name, courseCode: c.course_code })));
@@ -796,7 +796,7 @@ export default function ToolkitScreen() {
       setUserName(user?.name ?? "");
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   return (
     <ScreenWrapper page="toolkit">
