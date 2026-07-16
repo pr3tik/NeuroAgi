@@ -13,7 +13,8 @@ export type AccessFilters = {
   course?: boolean;
 };
 
-export type JoinStatus = "joined" | "requested" | "denied" | "not_found";
+// "rate_limited": the join-code brute-force guard in join_room tripped (10 attempts / 5 min).
+export type JoinStatus = "joined" | "requested" | "denied" | "not_found" | "rate_limited";
 
 /** Active rooms the user is eligible to see (server-filtered). Returns full rows. */
 export async function listAccessibleRooms(userId: string) {

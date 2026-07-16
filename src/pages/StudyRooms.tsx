@@ -496,19 +496,21 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
     if (code.length < 6) return;
     setCodeLookingUp(true);
     setCodeError("");
-    const { data: room } = await supabase
-      .from("study_rooms")
-      .select()
-      .eq("join_code", code)
-      .eq("is_active", true)
-      .maybeSingle();
+    // RLS hides rooms you haven't joined, so a direct study_rooms read finds nothing for
+    // exactly the people join-by-code exists for. find_room_by_code is a SECURITY DEFINER
+    // lookup (rate-limited server-side; empty result when over budget).
+    const { data: found, error: lookupErr } = await supabase.rpc("find_room_by_code", { p_code: code });
     setCodeLookingUp(false);
-    if (!room) { setCodeError("No active room found with that code."); return; }
-    // A valid code bypasses room type + access filters (server-side).
+    const hit = Array.isArray(found) ? found[0] : found;
+    if (lookupErr || !hit) { setCodeError("No active room found with that code."); return; }
+    // A valid code bypasses room type + access filters (server-side re-verified).
     try {
-      const status = await joinRoom(userId, room.id, code);
-      if (status === "joined") { setCodeInput(""); onJoin(room); }
-      else { setCodeError("Couldn't join this room."); }
+      const status = await joinRoom(userId, hit.id, code);
+      if (status !== "joined") { setCodeError(status === "rate_limited" ? "Too many attempts — try again in a few minutes." : "Couldn't join this room."); return; }
+      // Now a member → the room row is visible; fetch the full row for onJoin.
+      const { data: room } = await supabase.from("study_rooms").select().eq("id", hit.id).maybeSingle();
+      if (room) { setCodeInput(""); onJoin(room); }
+      else { setCodeError("Joined — refresh to see the room."); }
     } catch (err) {
       console.error("[rooms] join by code:", (err as any)?.message);
       setCodeError("Couldn't join this room.");
