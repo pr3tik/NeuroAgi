@@ -75,7 +75,7 @@ async function prep(body, supabaseUrl, supabaseKey, anthropicKey) {
   // ── Course material context: course_content (professor's language) + files (ingested transcripts) ──
   let courseSnippets = [], fileSnippets = [];
   try {
-    const cRes = await fetch(`${supabaseUrl}/rest/v1/courses?id=eq.${courseId}&select=canvas_course_id,name,course_code`, { headers });
+    const cRes = await fetch(`${supabaseUrl}/rest/v1/courses?id=eq.${encodeURIComponent(courseId)}&user_id=eq.${encodeURIComponent(userId)}&select=canvas_course_id,name,course_code`, { headers });
     const course = cRes.ok ? (await cRes.json())?.[0] : null;
     if (course?.canvas_course_id) {
       const ccRes = await fetch(

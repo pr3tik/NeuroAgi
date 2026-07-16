@@ -41,6 +41,9 @@ export default async function handler(req, res) {
 
   const _uid = await requireUserOr401(req, res); if (!_uid) return;
   if (req.body && typeof req.body === "object") req.body.userId = _uid;
+  // Forward the caller's session JWT to internal endpoints that now enforce auth (brain-*).
+  const fwd: Record<string, string> = { "Content-Type": "application/json" };
+  if (req.headers?.authorization) fwd.Authorization = String(req.headers.authorization);
   const { userId, text, title } = req.body ?? {};
   if (!userId) return res.status(400).json({ error: "userId required" });
   if (!text || String(text).trim().length < 40) {
@@ -78,7 +81,7 @@ export default async function handler(req, res) {
       'improve. Respond with ONLY JSON: {"assessment": string, "tip": string}. One or two sentences each.';
     const user = `Student writing${title ? ` (titled "${title}")` : ""}:\n\n${content.slice(0, 4000)}`;
     const llm = await fetch(`${base}/api/claude`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: fwd,
       body: JSON.stringify({ messages: [{ role: "user", content: user }], system, max_tokens: 400 }),
     }).then(r => r.ok ? r.json() : null).catch(() => null);
     ({ assessment, tip } = parseFeedback(llm?.content ?? ""));
@@ -103,13 +106,13 @@ export default async function handler(req, res) {
   // ── Best-effort brain signal (additive 'writing_metrics' type, AWAITED) ────
   try {
     const link = await fetch(`${base}/api/brain-person-link`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: fwd,
       body: JSON.stringify({ userId }),
     }).then(r => r.ok ? r.json() : null).catch(() => null);
     const brainPersonId = link?.brain_person_id;
     if (brainPersonId) {
       await fetch(`${base}/api/brain-signal`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: fwd,
         body: JSON.stringify({
           brainPersonId, signalType: "academic", source: "writing_tracker",
           payload: { type: "writing_metrics", title: title ?? null, metrics },

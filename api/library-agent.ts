@@ -16,6 +16,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { requireUserOr401 } from "./_auth.js";
 
 // Lazy client — module-load createClient crashes the Node-20 CI suite (supabase-js
 // realtime needs WebSocket) and breaks import-safety for Reggie's in-process tool calls.
@@ -218,6 +219,8 @@ export async function queryLibrary({ userId, message, courseIds = [], activeCour
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  const _uid = await requireUserOr401(req, res); if (!_uid) return;
+  if (req.body && typeof req.body === "object") req.body.userId = _uid;
   const { userId, message, courseIds, activeCourseId, force } = req.body;
   if (!userId || !message) return res.status(400).json({ error: "userId and message required" });
 

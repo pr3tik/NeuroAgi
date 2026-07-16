@@ -61,7 +61,7 @@ export default async function handler(req, res) {
     }
 
     const r = await fetch(
-      `${supabaseUrl}/rest/v1/flashcards_v2?user_id=eq.${userId}&course_id=eq.${courseId}&order=created_at.desc&select=id,question,answer,created_at`,
+      `${supabaseUrl}/rest/v1/flashcards_v2?user_id=eq.${userId}&course_id=eq.${encodeURIComponent(courseId)}&order=created_at.desc&select=id,question,answer,created_at`,
       { headers: { ...sbHeaders, "Prefer": "return=representation" } }
     );
 
@@ -81,7 +81,7 @@ export default async function handler(req, res) {
     }
 
     const r = await fetch(
-      `${supabaseUrl}/rest/v1/flashcards_v2?id=eq.${cardId}&user_id=eq.${userId}`,
+      `${supabaseUrl}/rest/v1/flashcards_v2?id=eq.${encodeURIComponent(cardId)}&user_id=eq.${userId}`,
       { method: "DELETE", headers: sbHeaders }
     );
 

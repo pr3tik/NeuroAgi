@@ -464,6 +464,13 @@ export default async function handler(req: any, res: any) {
     if (!userId || !downloadUrl) {
       return res.status(400).json({ error: "userId and downloadUrl required" });
     }
+    // SSRF guard: only fetch Microsoft-hosted download URLs (Graph pre-authorized links live on
+    // sharepoint/onedrive/1drv/svc.ms), never an arbitrary client-supplied host.
+    try {
+      const host = new URL(downloadUrl).hostname.toLowerCase();
+      if (!/(^|\.)(microsoft\.com|sharepoint\.com|onedrive\.live\.com|1drv\.(ms|com)|svc\.ms|office\.com)$/.test(host))
+        return res.status(400).json({ error: "downloadUrl host not allowed" });
+    } catch { return res.status(400).json({ error: "invalid downloadUrl" }); }
 
     let accessToken: string;
     try { accessToken = await getAccessToken(userId); }

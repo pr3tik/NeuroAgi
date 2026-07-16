@@ -224,6 +224,8 @@ Return ONLY JSON, no markdown fences:
 async function start(body) {
   const { userId, storagePath, title = "Lecture", courseId = null, language = "en" } = body ?? {};
   if (!userId || !storagePath) return { status: 400, json: { error: "userId and storagePath required" } };
+  // Only the caller's own upload namespace `<userId>/...` — never another user's media.
+  if (!String(storagePath).startsWith(userId + "/") || String(storagePath).includes("..")) return { status: 403, json: { error: "forbidden storage path" } };
   if (!elevenKey()) return { status: 500, json: { error: "ELEVENLABS_API_KEY not configured" } };
   if (!anthropicKey()) return { status: 500, json: { error: "ANTHROPIC_API_KEY not configured" } };
 
@@ -330,12 +332,14 @@ async function start(body) {
 
 // ── status: poll fallback ────────────────────────────────────────────────────
 async function status(body) {
-  const { jobId } = body ?? {};
+  const { jobId, userId } = body ?? {};
   if (!jobId) return { status: 400, json: { error: "jobId required" } };
-  const { data } = await supabase
-    .from("lecture_digests")
+  // Scope to the caller (verified userId) so a digest can't be read cross-user by its job id.
+  let q = supabase.from("lecture_digests")
     .select("id, status, error, title, summary, key_points, glossary, quiz_questions, emphasis, document_id")
-    .eq("id", jobId).maybeSingle();
+    .eq("id", jobId);
+  if (userId) q = q.eq("user_id", userId);
+  const { data } = await q.maybeSingle();
   return { status: 200, json: { job: data || null } };
 }
 
