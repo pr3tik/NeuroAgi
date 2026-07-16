@@ -3095,7 +3095,7 @@ const FAQ_DATA = [
   { q: "What's the Founding Card?", a: "A physical NFC titanium card for the first 1,000 members. It holds your AI identity, student number, and lifetime Pro access. See the Card page." },
 ];
 
-export default function Landing({ onEnter, initialAuthMode = null, onTryDemo, onLearnMore }: { onEnter: (args: any) => Promise<void>; initialAuthMode?: "login" | "signup" | null; onTryDemo?: () => void; onLearnMore?: () => void }) {
+export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: { onEnter: (args: any) => Promise<void>; initialAuthMode?: "login" | "signup" | null; onTryDemo?: () => void }) {
   // Light-primary — no toggle. DARK tokens used directly in the card-preview section.
   const t = LIGHT;
   const [authMode, setAuthMode] = useState<"login"|"signup"|null>(initialAuthMode);
@@ -3264,16 +3264,6 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo, on
           Founding Card
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => onLearnMore?.()} style={{
-            borderRadius: 980, border: "none",
-            padding: "7px 17px", fontSize: 13, fontWeight: 400,
-            color: "#fff", background: "#0071e3", cursor: "pointer", fontFamily: FONT,
-            display: "inline-flex", alignItems: "center",
-            transition: "opacity 0.15s",
-          }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = "0.84"; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
-          >Learn more</button>
           <button onClick={() => setWaitlistOpen(true)} style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
             padding: "7px 17px", fontSize: 13, fontWeight: 400,
@@ -3409,17 +3399,6 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo, on
                 <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Join the waitlist</span>
                 <HeroBtnCountdown />
               </button>
-              <button
-                onClick={() => onLearnMore?.()}
-                style={{
-                  background: "transparent", border: "none", padding: 0, cursor: "pointer",
-                  color: "#0066cc", fontSize: 17, fontWeight: 400,
-                  display: "inline-flex", alignItems: "center",
-                  fontFamily: FONT, transition: "color 0.15s",
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#004c99"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "#0066cc"; }}
-              >Learn more <span style={{ fontSize: 15 }}>›</span></button>
             </div>
 
             {/* Subtle stat pills */}
