@@ -69,18 +69,44 @@ const PLAN_SNAP = {
   group_strategy: { default_explanation: "visual_then_stepwise", peer_teaching_pairs: [{ explainer: "Priya", listener: "Marcus" }], avoid: ["cold-calling Marcus"] },
 };
 
-function routes({ member = [{ user_id: "priya" }] as any[], session = { id: SESSION, config_version: 3 } as any, cfg = { persona: "challenger", intervention_intensity: "active" } as any, snap = PLAN_SNAP as any } = {}) {
-  stubDb(u => {
+// Marcus's private Brain + thread. Neither may ever surface on Priya's turn.
+const MARCUS_BRAIN = "# Learning profile — Marcus\n## Working on\n- dynamic programming (confidence 30%)";
+const PRIYA_BRAIN = "# Learning profile — Priya\n## Working on\n- recurrences (confidence 40%)";
+
+type Calls = { url: string; method: string; body?: any }[];
+function routes({
+  member = [{ user_id: "priya" }] as any[],
+  session = { id: SESSION, config_version: 3 } as any,
+  cfg = { persona: "challenger", intervention_intensity: "active" } as any,
+  snap = PLAN_SNAP as any,
+  brain = { active_version_id: "ver-priya" } as any,
+  version = { profile: null, markdown: PRIYA_BRAIN } as any,
+  thread = { id: "thread-priya" } as any,
+  history = [] as any[],
+} = {}) {
+  const calls: Calls = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: any, init: any = {}) => {
+    const u = String(url);
+    const method = String(init.method ?? "GET").toUpperCase();
+    calls.push({ url: u, method, body: typeof init.body === "string" ? JSON.parse(init.body) : undefined });
     if (u.includes("room_members?")) return R(member);
     if (u.includes("room_ai_sessions?")) return R(session ? [session] : []);
     if (u.includes("room_configs?")) return R(cfg ? [cfg] : []);
     if (u.includes("room_brain_snapshots?")) return R(snap ? [snap] : []);
-    return undefined;
-  });
+    if (u.includes("student_brains?")) return R(brain ? [brain] : []);
+    if (u.includes("brain_versions?")) return R(version ? [version] : []);
+    if (u.includes("private_threads?") && method === "GET") return R(thread ? [thread] : []);
+    if (u.includes("private_threads") && method === "POST") return R([{ id: "thread-new" }]);
+    if (u.includes("private_messages?") && method === "GET") return R(history);
+    if (u.includes("private_messages") && method === "POST") return R([]);
+    return R([]);
+  }));
+  return calls;
 }
 
 let mod: any;
 const post = (body: any) => ({ method: "POST", query: { action: "group" }, headers: {}, body });
+const postPrivate = (body: any) => ({ method: "POST", query: { action: "private" }, headers: {}, body });
 
 beforeEach(async () => {
   process.env.SUPABASE_URL = "http://localhost";
@@ -266,7 +292,199 @@ describe("BE-12 telemetry + failure", () => {
   it("rejects an unknown action", async () => {
     routes();
     const res = makeRes();
-    await mod.default({ method: "POST", query: { action: "private" }, headers: {}, body: {} }, res);
+    await mod.default({ method: "POST", query: { action: "bogus" }, headers: {}, body: {} }, res);
     expect(res.statusCode).toBe(400);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI-05 — private turn. STUDYROOM_ARCHITECTURE.md §7 lists "Private-thread leakage"
+// as a release-gate threat and the plan puts AI-05 isolation on the never-cut list.
+// Ryan adversarially tests this, so these are written as the attacks he'd run.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("AI-05 private — ISOLATION (the attacks)", () => {
+  it("NEVER puts the room plan in a private prompt — a 1:1 turn must not carry group pedagogy", async () => {
+    // The plan names Marcus and his gap. In a private turn with Priya, that is a
+    // cross-student leak, so buildRoomSystemPrompt is contractually passed null.
+    routes();
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "I'm stuck" }), res);
+
+    expect(gw.calls[0].system).not.toContain("ROOM TEACHING PLAN");
+    expect(gw.calls[0].system).not.toContain("Marcus");
+    expect(gw.calls[0].system).not.toContain("dynamic programming");
+    expect(res.body.grounded.planVersion).toBeNull();
+  });
+
+  it("reads the CALLER'S Brain and only the caller's — never a peer's", async () => {
+    const calls = routes({ version: { profile: null, markdown: PRIYA_BRAIN } });
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "help" }), res);
+
+    expect(gw.calls[0].system).toContain("Priya");
+    expect(gw.calls[0].system).not.toContain(MARCUS_BRAIN);
+    // Both Brain reads must be keyed by the caller — no addressable path to a peer's.
+    expect(calls.find(c => c.url.includes("student_brains?"))!.url).toContain("user_id=eq.priya");
+    expect(calls.find(c => c.url.includes("brain_versions?"))!.url).toContain("user_id=eq.priya");
+  });
+
+  it("ignores a userId in the body — the JWT identity is the only one that counts", async () => {
+    // The IDOR: ask as Priya, claim to be Marcus, hope to get Marcus's Brain.
+    const calls = routes();
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "help", userId: "marcus" }), res);
+
+    for (const frag of ["student_brains?", "brain_versions?", "private_threads?"]) {
+      const c = calls.find(x => x.url.includes(frag));
+      expect(c!.url).toContain("priya");
+      expect(c!.url).not.toContain("marcus");
+    }
+  });
+
+  it("scopes the thread lookup to the caller, so a peer's thread is not addressable", async () => {
+    const calls = routes();
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "help" }), res);
+
+    const t = calls.find(c => c.url.includes("private_threads?"))!;
+    expect(t.url).toContain("user_id=eq.priya");
+    expect(t.url).toContain(`session_id=eq.${SESSION}`);
+  });
+
+  it("403s a non-member before touching any Brain", async () => {
+    const calls = routes({ member: [] });
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "help" }), res);
+
+    expect(res.statusCode).toBe(403);
+    expect(calls.find(c => c.url.includes("student_brains?"))).toBeUndefined();
+    expect(gw.calls).toHaveLength(0);
+  });
+
+  it("401s an anonymous caller", async () => {
+    authState.userId = null;
+    routes();
+    const res = makeRes();
+    await mod.default(postPrivate({ roomId: ROOM, message: "help" }), res);
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("AI-05 private — behaviour", () => {
+  it("builds a private-scope prompt", async () => {
+    routes();
+    const res = makeRes();
+    await mod.default(postPrivate({ roomId: ROOM, message: "help" }), res);
+    expect(gw.calls[0].system).toContain("SCOPE (private turn)");
+    expect(res.body.scope).toBe("private");
+  });
+
+  it("still grounds in the SHARED sources and board — those are not private", async () => {
+    boardState.ctx = { revision: 12, extract: { revision: 12, texts: [{ text: "board note" }], images: [], ink_stroke_count: 0, shape_counts: {} }, digest: "d", render_path: null, created_at: "t" };
+    routes();
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "explain this" }), res);
+
+    expect(res.body.grounded.sources).toEqual([{ documentId: "doc-a", title: "Lecture 07.pdf" }]);
+    expect(res.body.grounded.boardRevision).toBe(12);
+  });
+
+  it("reuses the caller's open thread instead of opening a second one", async () => {
+    const calls = routes({ thread: { id: "thread-priya" } });
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "again" }), res);
+
+    expect(res.body.threadId).toBe("thread-priya");
+    expect(calls.filter(c => c.method === "POST" && c.url.includes("private_threads"))).toHaveLength(0);
+  });
+
+  it("opens a thread on the first ask", async () => {
+    const calls = routes({ thread: null });
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "first time" }), res);
+
+    expect(res.body.threadId).toBe("thread-new");
+    const created = calls.find(c => c.method === "POST" && c.url.includes("private_threads"))!;
+    expect(created.body).toMatchObject({ user_id: "priya", room_id: ROOM, session_id: SESSION, status: "open" });
+  });
+
+  it("feeds the caller's own history back as conversation context", async () => {
+    routes({ history: [{ author_type: "ai", body: "earlier answer" }, { author_type: "user", body: "earlier question" }] });
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "follow up" }), res);
+
+    // Stored newest-first, replayed oldest-first, with the new turn last.
+    expect(gw.calls[0].messages).toEqual([
+      { role: "user", content: "earlier question" },
+      { role: "assistant", content: "earlier answer" },
+      { role: "user", content: "follow up" },
+    ]);
+  });
+
+  it("persists both turns after a successful answer", async () => {
+    const calls = routes();
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "my question" }), res);
+
+    const saved = calls.find(c => c.method === "POST" && c.url.includes("private_messages"))!;
+    expect(saved.body).toEqual([
+      { thread_id: "thread-priya", author_type: "user", body: "my question" },
+      { thread_id: "thread-priya", author_type: "ai", body: "Because greedy lacks the greedy-choice property." },
+    ]);
+  });
+
+  it("saves NOTHING when the model call fails — a dangling user turn would replay as context", async () => {
+    gw.result = { ok: false, status: 503, content: "", error: "upstream down", trace_id: "t" };
+    const calls = routes();
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "q" }), res);
+
+    expect(res.statusCode).toBe(503);
+    expect(calls.filter(c => c.method === "POST" && c.url.includes("private_messages"))).toHaveLength(0);
+  });
+
+  it("still helps a student who has no Brain yet, just un-personalised", async () => {
+    routes({ brain: null });
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "help" }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(gw.calls[0].system).not.toContain("STUDENT LEARNING PROFILE");
+  });
+
+  it("falls back to the canonical profile when the markdown projection is missing", async () => {
+    routes({
+      version: { markdown: null, profile: {
+        identity: { display_name: "Priya" }, strengths: [], gaps: [{ topic: "recurrences", confidence: 0.4 }],
+        teaching_preferences: [], known_examples: [], mastery_evidence: [],
+        interaction_preferences: { invite_style: "open_invite", private_first: false },
+        accessibility: [], do_not_use: [],
+      } },
+    });
+    const res = makeRes();
+
+    await mod.default(postPrivate({ roomId: ROOM, message: "help" }), res);
+
+    expect(gw.calls[0].system).toContain("Priya");
+    expect(gw.calls[0].system).toContain("recurrences");
+  });
+
+  it("tags telemetry as private scope", async () => {
+    routes();
+    const res = makeRes();
+    await mod.default(postPrivate({ roomId: ROOM, message: "q" }), res);
+    expect(gw.calls[0].metadata).toMatchObject({ scope: "private", user_id: "priya", session_id: SESSION });
   });
 });
