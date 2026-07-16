@@ -53,6 +53,7 @@ describe("waitlist join", () => {
     expect(sent[0].to).toBe("stu@school.edu");                                     // lowercased
     expect(sent[0].subject).toMatch(/confirm/i);
     expect(sent[0].html).toContain("action=verify&token=w1.");                     // signed verify link for this row
+    expect(sent[0].text).toContain("action=verify&token=w1.");                     // plain-text part (deliverability) carries the same link
   });
 
   it("stamps location from Vercel geo headers onto the insert (city URI-decoded)", async () => {
@@ -174,6 +175,7 @@ describe("waitlist verify", () => {
     expect(patches[0].u).toContain("verified_at=is.null");                         // only-if-null (idempotent)
     expect(patches[0].body).toHaveProperty("verified_at");
     expect(sent.some(m => /#5/.test(m.subject))).toBe(true);                       // position confirmation
+    expect(sent.every(m => typeof m.text === "string" && m.text.length > 0)).toBe(true); // every send carries a plain-text part
     expect(sent.some(m => m.to === "vincent@fschoolai.com")).toBe(true);           // internal notify (verified only)
   });
 
@@ -253,31 +255,55 @@ describe("waitlist stats + invites", () => {
     }));
     const h = await load(); const res = makeRes();
     await h({ method: "POST", query: { action: "verify-blast" }, headers: { authorization: "Bearer cron-secret", host: "fschoolai.com" } }, res);
-    expect(res.body).toMatchObject({ ok: true, sent: 2, remaining: 0 });
+    expect(res.body).toMatchObject({ ok: true, mode: "initial", sent: 2, remaining: 0 });
     expect(sent).toHaveLength(2);
     expect(sent.every(m => /confirm/i.test(m.subject))).toBe(true);
     expect(sent[0].html).toContain("action=verify&token=w1.");
-    expect(sent.some(m => /removed from the list/i.test(m.html))).toBe(true);   // the warning copy
-    expect(patches.every(p => "verification_sent_at" in p.body)).toBe(true);    // clock stamped after send
+    expect(sent.every(m => !/removed/i.test(m.html) && !/removed/i.test(m.text))).toBe(true); // no removal threat — signups are never purged
+    expect(sent.every(m => typeof m.text === "string" && m.text.includes("Confirm my spot:"))).toBe(true); // plain-text part
+    expect(patches.every(p => "verification_sent_at" in p.body)).toBe(true);    // send bookkeeping stamped after send
     expect(patches).toHaveLength(2);
   });
 
-  it("purge-unverified is fail-closed + issues ONE filtered DELETE (verified null, sent, past window)", async () => {
-    let delUrl = "";
+  it("verify-blast ?resend=1 re-mails ALREADY-emailed unverified rows, oldest signups first", async () => {
+    const reads: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
-      if (init?.method === "DELETE") { delUrl = String(url); return R([{ id: "old1" }, { id: "old2" }]); }
-      return R([]);
+      const u = String(url);
+      if (init?.method === "PATCH") return R([]);
+      if (u.includes("select=id,email,name")) { reads.push(u); return R([{ id: "w1", email: "a@x.edu", name: "A" }]); }
+      return R([], { count: 0 });
     }));
-    const h1 = await load(); const res1 = makeRes();
-    await h1({ method: "POST", query: { action: "purge-unverified" }, headers: {} }, res1);
-    expect(res1.statusCode).toBe(401);                                          // fail-closed
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "verify-blast", resend: "1", limit: "40" }, headers: { authorization: "Bearer cron-secret", host: "fschoolai.com" } }, res);
+    expect(res.body).toMatchObject({ ok: true, mode: "resend", matched: 1, sent: 1 });
+    expect(reads[0]).toContain("verified_at=is.null");                          // still only unverified people
+    expect(reads[0]).not.toContain("verification_sent_at=is.null&");            // already-emailed rows are included...
+    expect(reads[0]).toMatch(/or=\(verification_sent_at\.is\.null,verification_sent_at\.lt\./); // ...unless emailed in the last 24h (double-run guard)
+    expect(reads[0]).toContain("order=created_at.asc");                         // first signups first
+    expect(reads[0]).toContain("limit=40");
+    expect(sent).toHaveLength(1);
+  });
 
+  it("emails collapse newlines in an attacker-chosen name (no paragraph injection into the text part)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.includes("email=eq.")) return R([]);
+      if (init?.method === "POST") return R([{ id: "w1", created_at: "2026-07-10T00:00:00Z" }]);
+      return R([], { count: 0 });
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "join" }, body: { email: "stu@school.edu", name: "Bob\n\nURGENT: go to http://evil.example" }, headers: {} }, res);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).not.toMatch(/\n\s*URGENT/);                            // injected lines flattened to one
+    expect(sent[0].text).toContain("Bob URGENT: go to http://evil.example");
+  });
+
+  it("purge-unverified was removed — signups are never deleted, even with the admin secret", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => R([])));
     const h = await load(); const res = makeRes();
     await h({ method: "POST", query: { action: "purge-unverified" }, headers: { authorization: "Bearer cron-secret" } }, res);
-    expect(res.body).toMatchObject({ ok: true, removed: 2 });
-    expect(delUrl).toContain("verified_at=is.null");
-    expect(delUrl).toContain("verification_sent_at=not.is.null");
-    expect(delUrl).toContain("verification_sent_at=lt.");                       // only past the window
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toMatch(/unknown action/i);
   });
 
   it("invite is fail-closed: 401 without the secret", async () => {
