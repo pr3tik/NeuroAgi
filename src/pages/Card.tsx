@@ -144,7 +144,7 @@ const useCountdown = (target) => {
   const [time, setTime] = useState({ d: 0, h: 0, m: 0, s: 0 });
   useEffect(() => {
     const tick = () => {
-      const diff = new Date(target) - Date.now();
+      const diff = +new Date(target) - Date.now();
       if (diff <= 0) return;
       setTime({ d: Math.floor(diff/86400000), h: Math.floor((diff%86400000)/3600000), m: Math.floor((diff%3600000)/60000), s: Math.floor((diff%60000)/1000) });
     };
@@ -162,10 +162,10 @@ const useInView = (threshold = 0.15) => {
     if (ref.current) obs.observe(ref.current);
     return () => obs.disconnect();
   }, [threshold]);
-  return [ref, visible];
+  return [ref, visible] as const;
 };
 
-const Reveal = ({ children, delay = 0, style = {} }) => {
+const Reveal = ({ children, delay = 0, style = {} }: { children?: any; delay?: number; style?: any }) => {
   const [ref, visible] = useInView();
   return (
     <div ref={ref} style={{ opacity: visible?1:0, transform: visible?"translateY(0)":"translateY(28px)", transition: `opacity 0.7s ease ${delay}s, transform 0.7s ease ${delay}s`, ...style }}>
@@ -202,7 +202,7 @@ const ThemeToggle = ({ dark, onToggle, t }) => (
 );
 
 // ── Icon set (plain inline SVG — no icon library dependency) ──────────────────
-const iconProps = (size = 26) => ({ width: size, height: size, viewBox: "0 0 24 24", fill: "none", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" });
+const iconProps = (size = 26) => ({ width: size, height: size, viewBox: "0 0 24 24", fill: "none", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const });
 
 const IconBrain = ({ color, size }) => (
   <svg {...iconProps(size)} stroke={color}>
