@@ -21,28 +21,16 @@ How access control works across the FschoolAI backend, and what is deliberately 
    INSTEAD of any `userId` in the request body/query. This closes the IDOR where anyone could pass
    another user's id.
 
-   **Enforced (26):** agent-manager, canvas-reads, grade-weights, exam, flashcards, deck-profile,
+   **Enforced (24):** agent-manager, canvas-reads, grade-weights, exam, flashcards, deck-profile,
    digest-lecture, tutor-context, tutor-impression, monitor-agent, office-hours, self-write,
    token-engine, transcribe, writing-tracker, university-brain, content-connector, file-url
    (path-ownership), brain-person-link, brain-signal, nudge, drive-auth + lms-microsoft (data
-   actions only), **room-session** (membership-checked per action; proposals owner-only), and
-   **daily-room** (was fully unauthenticated — now requires a joined room member; Daily rooms are
-   created private with server-minted tokens and profile-locked display names).
+   actions only).
 
 4. **Rate limiting** (`supabase-rate-limit-migration.sql`, `api/_ratelimit.ts`) — public
    unauthenticated endpoints (cost/abuse vectors) are fixed-window limited: by session-token hash
-   when present (generous), by IP otherwise (strict; `ipOnly` forces IP-keying on fully-public
-   endpoints so rotated Bearer tokens can't mint buckets). Applied to claude, groq, tts, stt,
-   summarize, extract, guest-demo, waitlist-join (ipOnly + per-IP daily cap + honeypot),
-   room-session, daily-room. Join-code brute force is limited inside the `join_room` RPC
-   (10 attempts / 5 min / user). Fails open.
-
-5. **Study-room sprint tables** (`supabase-studyroom-sprint-migration.sql`) — all 17 new tables
-   (sessions, sources, brains, private threads, jobs, prompt_runs, …) are RLS-on with ZERO client
-   policies + privilege revokes: the anon/authenticated keys cannot touch them at all; only
-   `/api/room-session` (and future room-AI endpoints) reach them via the service key.
-   Realtime private-channel policies gate `room:{id}` / `wb-{id}` / `private:{thread}` topics by
-   membership once clients opt into `{ private: true }`. Verifier: `scripts/rls-verify-studyroom.mjs`.
+   when present (generous), by IP otherwise (strict). Applied to claude, groq, tts, stt,
+   summarize, extract, guest-demo, waitlist-join. Fails open.
 
 ## Deliberately NOT enforced (and why)
 

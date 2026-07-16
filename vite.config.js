@@ -521,12 +521,9 @@ const dailyRoomProxyPlugin = {
     server.middlewares.use("/api/daily-room", async (req, res) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
       if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
       injectEnv("DAILY_API_KEY");
-      // Hardened endpoint now verifies the caller + room membership via Supabase.
-      injectEnv("SUPABASE_URL");
-      injectEnv("SUPABASE_SERVICE_KEY");
       let body = "";
       req.on("data", c => { body += c; });
       req.on("end", async () => {
@@ -674,7 +671,6 @@ export default defineConfig({
     handlerProxy("/api/agent-manager",    () => import("./api/agent-manager.js"), [...HANDLER_ENV, "OPENAI_API_KEY", "GROQ_KEY"]),
     handlerProxy("/api/library-agent",    () => import("./api/library-agent.js")),
     handlerProxy("/api/university-brain", () => import("./api/university-brain.js"), [...HANDLER_ENV, "GROQ_KEY"]),
-    handlerProxy("/api/room-session",     () => import("./api/room-session.js")),
     handlerProxy("/api/waitlist",         () => import("./api/waitlist.js"),        [...HANDLER_ENV, "RESEND_API_KEY", "CRON_SECRET"]),
     handlerProxy("/api/nudge",            () => import("./api/nudge.js"),         [...HANDLER_ENV, "RESEND_API_KEY"]),
     handlerProxy("/api/guest-demo",       () => import("./api/guest-demo.js"),    HANDLER_ENV)],

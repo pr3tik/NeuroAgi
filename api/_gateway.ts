@@ -203,24 +203,8 @@ export interface TraceSpan {
 let traceSink: (span: TraceSpan) => void = (span) => {
   try { console.log("[gateway]", JSON.stringify(span)); } catch { /* never throw from tracing */ }
 };
-// An explicit setTraceSink wins over the lazy prompt_runs auto-install below — a caller
-// (or a test) that chose its own sink must never be silently overridden.
-export function setTraceSink(fn: (span: TraceSpan) => void) { traceSink = fn; sinkReady = true; }
-function emit(span: TraceSpan) { try { ensureSink(); traceSink(span); } catch { /* sink must never break a call */ } }
-
-// BE-12: swap in the persistent prompt_runs sink for every gateway consumer at once.
-// The import cycle (_tracesink imports setTraceSink from here) is benign for function
-// bindings, but calling installTraceSink() at MODULE LOAD would hit _tracesink's
-// uninitialized module state if some entrypoint ever imported _tracesink first (TDZ).
-// Installing lazily on the first emitted span removes that ordering hazard entirely.
-// The gateway itself stays DB-free — persistence lives in _tracesink.ts.
-import { installTraceSink } from "./_tracesink.js";
-let sinkReady = false;
-function ensureSink() {
-  if (sinkReady) return;
-  sinkReady = true;
-  try { installTraceSink(); } catch { /* tracing must never break a call */ }
-}
+export function setTraceSink(fn: (span: TraceSpan) => void) { traceSink = fn; }
+function emit(span: TraceSpan) { try { traceSink(span); } catch { /* sink must never break a call */ } }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
