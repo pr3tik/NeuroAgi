@@ -26,13 +26,13 @@ const CARD = "#ffffff";
 
 type DailyPoint = { date: string; count: number; cumulative: number };
 type AdminData = {
-  total: number; invited: number; pending: number; referred: number;
+  total: number;
   last24h: number; last7d: number; last30d: number;
   bySource: { source: string; count: number }[];
   byCountry?: { country: string; count: number }[];
   located?: number;   // rows carrying a location (signups since the geo migration)
   daily: DailyPoint[];
-  recent: { email: string; name: string | null; source: string | null; referred_by: string | null; created_at: string | null; invited: boolean;
+  recent: { email: string; name: string | null; source: string | null; created_at: string | null;
             country?: string | null; region?: string | null; city?: string | null }[];
   generatedAt: string;
 };
@@ -192,9 +192,6 @@ export default function WaitlistDashboard() {
           <Stat label="Total signups" value={data.total} accent />
           <Stat label="Last 24 hours" value={data.last24h} delta />
           <Stat label="Last 7 days" value={data.last7d} delta />
-          <Stat label="Pending" value={data.pending} />
-          <Stat label="Invited" value={data.invited} />
-          <Stat label="Referred" value={data.referred} />
         </div>
 
         {data.total === 0 ? (
@@ -273,7 +270,7 @@ export default function WaitlistDashboard() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ color: DIM, textAlign: "left" }}>
-                      {["Email", "Name", "Location", "Source", "Joined", "Status"].map(h => (
+                      {["Email", "Name", "Location", "Source", "Joined"].map(h => (
                         <th key={h} style={{ padding: "8px 12px", fontWeight: 500, borderBottom: `1px solid ${LINE}`, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
@@ -286,9 +283,6 @@ export default function WaitlistDashboard() {
                         <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}`, color: SUB, whiteSpace: "nowrap" }}>{locationLabel(r)}</td>
                         <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}`, color: SUB }}>{r.source || "—"}</td>
                         <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}`, color: SUB, whiteSpace: "nowrap" }}>{fmtDateTime(r.created_at)}</td>
-                        <td style={{ padding: "9px 12px", borderBottom: `1px solid ${LINE}` }}>
-                          <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: r.invited ? "rgba(52,199,89,0.12)" : "#f0f0f2", color: r.invited ? "#248a3d" : SUB }}>{r.invited ? "invited" : "pending"}</span>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
