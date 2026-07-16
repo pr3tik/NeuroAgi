@@ -521,9 +521,12 @@ const dailyRoomProxyPlugin = {
     server.middlewares.use("/api/daily-room", async (req, res) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
       if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
       injectEnv("DAILY_API_KEY");
+      // Hardened endpoint now verifies the caller + room membership via Supabase.
+      injectEnv("SUPABASE_URL");
+      injectEnv("SUPABASE_SERVICE_KEY");
       let body = "";
       req.on("data", c => { body += c; });
       req.on("end", async () => {
