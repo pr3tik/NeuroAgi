@@ -556,21 +556,18 @@ export default function RoomsScreen() {
     setCodeLookingUp(true);
     setCodeError("");
     try {
-      // RLS hides rooms you haven't joined — a direct study_rooms read returns nothing for
-      // non-members, so the lookup goes through the rate-limited SECURITY DEFINER RPC.
-      const { data: found } = await supabase.rpc("find_room_by_code", { p_code: code });
-      const hit = Array.isArray(found) ? found[0] : found;
-      if (!hit) { setCodeError("No active room found with that code."); setCodeLookingUp(false); return; }
-      // A valid code bypasses room type + access filters (server-side re-verified).
-      const status = await rpcJoinRoom(userId, hit.id, code);
+      const { data: room } = await supabase
+        .from("study_rooms").select("*")
+        .eq("join_code", code)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!room) { setCodeError("No active room found with that code."); setCodeLookingUp(false); return; }
+      // A valid code bypasses room type + access filters (server-side).
+      const status = await rpcJoinRoom(userId, room.id, code);
       if (status === "joined") {
-        // Now a member → the full row is visible.
-        const { data: room } = await supabase.from("study_rooms").select("*").eq("id", hit.id).maybeSingle();
         setCodeInput("");
-        setPendingReqs(p => ({ ...p, [hit.id]: "joined" }));
-        if (room) setActiveRoom(room as Room);
-      } else if (status === "rate_limited") {
-        setCodeError("Too many attempts — try again in a few minutes.");
+        setPendingReqs(p => ({ ...p, [room.id]: "joined" }));
+        setActiveRoom(room as Room);
       } else {
         setCodeError("Couldn't join this room.");
       }
