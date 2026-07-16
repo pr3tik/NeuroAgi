@@ -25,16 +25,20 @@ function hash(s: string): string {
 
 /**
  * Returns true if allowed. On over-limit, sends 429 + returns false → `if (!(await rateLimit(...))) return;`.
+ *
+ * `ipOnly: true` keys the bucket by client IP even when a Bearer token is present. Use it on
+ * fully-public endpoints (e.g. waitlist join): tokens there are never validated, so without it
+ * an abuser mints a fresh `u:<hash>` bucket per rotated random token and the cap is meaningless.
  */
 export async function rateLimit(
   req: any, res: any, bucket: string,
-  opts: { anonMax?: number; authMax?: number; windowSecs?: number } = {},
+  opts: { anonMax?: number; authMax?: number; windowSecs?: number; ipOnly?: boolean } = {},
 ): Promise<boolean> {
-  const { anonMax = 20, authMax = 120, windowSecs = 60 } = opts;
+  const { anonMax = 20, authMax = 120, windowSecs = 60, ipOnly = false } = opts;
   try {
     const sb = svc();
     if (!sb) return true;                                  // not configured → don't block
-    const m = /^Bearer\s+(.+)$/i.exec(String(req?.headers?.authorization ?? ""));
+    const m = ipOnly ? null : /^Bearer\s+(.+)$/i.exec(String(req?.headers?.authorization ?? ""));
     const subject = m ? "u:" + hash(m[1]) : "ip:" + clientIp(req);
     const max = m ? authMax : anonMax;
     const { data, error } = await sb.rpc("check_rate_limit", { p_key: `${bucket}:${subject}`, p_max: max, p_window_secs: windowSecs });

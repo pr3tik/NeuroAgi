@@ -2715,6 +2715,15 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error" | "duplicate" | "verify">("idle");
   const [position, setPosition] = useState(0);
+  // Honeypot: hidden field humans never see; form-stuffing bots fill it and the API quietly
+  // discards the signup. Zero friction for real users.
+  const [website, setWebsite] = useState("");
+  // Set only when arriving from an emailed confirmation link (?verified=1) — instant signups
+  // never confirmed anything, so the success copy must not claim they did.
+  const [viaEmailLink, setViaEmailLink] = useState(false);
+  // Server-provided failure copy (e.g. the per-network daily cap's "try again tomorrow") —
+  // shown instead of the generic error line so a 24h block doesn't look like a transient bug.
+  const [errMsg, setErrMsg] = useState("");
   const [showConfetti, setShowConfetti] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -2727,6 +2736,7 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
       const q = new URLSearchParams(window.location.search);
       if (q.get("verified") === "1") {
         setPosition(parseInt(q.get("pos") || "0", 10) || 0);
+        setViaEmailLink(true);
         setStatus("success");
         setShowConfetti(true);
         setTimeout(() => setShowConfetti(false), 3600);
@@ -2738,6 +2748,7 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
     const q = email.trim();
     if (!q || status === "loading") return;
     setStatus("loading");
+    setErrMsg("");
     // Never spin forever — abort after 12s and surface an error.
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 12000);
@@ -2745,7 +2756,7 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
       const res = await fetch("/api/waitlist?action=join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: q, source: "landing" }),
+        body: JSON.stringify({ email: q, source: "landing", website }),
         signal: ctrl.signal,
       });
       const data = await res.json().catch(() => ({}));
@@ -2759,6 +2770,7 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
         setTimeout(() => setShowConfetti(false), 3600);
       } else {
         console.error("[waitlist] join failed:", data.error || `HTTP ${res.status}`);
+        if (typeof data.error === "string" && data.error) setErrMsg(data.error);
         setStatus("error");
       }
     } catch (e) {
@@ -2860,7 +2872,7 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
                 You're <strong style={{ color: "#1d1d1f", fontWeight: 600 }}>#{position.toLocaleString()}</strong> on the waitlist.
               </p>
               <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.55, marginBottom: 28 }}>
-                Email confirmed — your spot is locked in. We launch{" "}
+                {viaEmailLink ? "Email confirmed — your spot is locked in." : "Your spot is locked in."} We launch{" "}
                 <strong style={{ color: "#0066cc", fontWeight: 500 }}>August 1st, 2026.</strong>
               </p>
 
@@ -2945,6 +2957,12 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
 
               {/* Email input */}
               <div style={{ marginBottom: 12 }}>
+                {/* Honeypot — visually hidden + untabbable; only bots fill it */}
+                <input
+                  type="text" name="website" value={website} onChange={e => setWebsite(e.target.value)}
+                  tabIndex={-1} autoComplete="off" aria-hidden="true"
+                  style={{ position: "absolute", left: -9999, top: -9999, height: 1, width: 1, opacity: 0, pointerEvents: "none" }}
+                />
                 <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "rgba(0,0,0,0.52)", marginBottom: 8, letterSpacing: "0.01em" }}>
                   Email address
                 </label>
@@ -2960,7 +2978,7 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
                   style={status === "error" ? { borderColor: "rgba(255,59,48,0.55)", background: "rgba(255,59,48,0.04)" } : {}}
                 />
                 {status === "error" && (
-                  <p style={{ fontSize: 13, color: "rgba(255,59,48,0.85)", marginTop: 8 }}>Something went wrong. Please try again.</p>
+                  <p style={{ fontSize: 13, color: "rgba(255,59,48,0.85)", marginTop: 8 }}>{errMsg || "Something went wrong. Please try again."}</p>
                 )}
                 {status === "duplicate" && (
                   <p style={{ fontSize: 13, color: "#34c759", marginTop: 8 }}>You're already on the list. See you August 1st.</p>

@@ -1,11 +1,13 @@
 // api/waitlist.ts — launch waitlist: join, position, batch invites.
 //   POST ?action=join   { email, name?, source?, ref? }   (public)
-//     → { ok, position, total, alreadyJoined } + a confirmation email (best-effort).
+//     → instant: { ok, position, total, verified } + a "You're #N" email (best-effort).
+//     Abuse guards (all frictionless): ipOnly rate limit, per-IP daily cap, honeypot field.
 //   GET  ?action=stats                                     (public)
 //     → { total } — social proof for the landing modal.
 //   POST ?action=invite { emails: string[] }               (admin: Bearer CRON_SECRET)
 //     → sets invited_at + sends each person an invite email with a ?invite=<id> link
 //     that bypasses waitlist mode on the landing page and opens real signup.
+// Email verification (double opt-in) exists but is OFF by default — see verificationRequired().
 // Table: public.waitlist (supabase-waitlist-migration.sql) — RLS-on server-only; the
 // browser only ever talks to this endpoint. Emails via lazy Resend (nudge.ts pattern).
 import { Resend } from "resend";
@@ -35,6 +37,27 @@ function verifySession(token: string): boolean {
 // a stateless HMAC token over the row id (an unguessable uuid) + expiry, so no token column
 // is needed and a forged or expired link is rejected.
 const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — an expired link shows a friendly page and re-joining sends a fresh one (unverified rows are kept forever; they're just not counted)
+
+// Email verification is OFF by default (decided 2026-07-15): confirmation emails were landing
+// in spam, so real students never confirmed and the list stalled. Joins are instant —
+// verified_at is stamped at insert and the position email goes out right away. Abuse is handled
+// by frictionless IP-level guards in the join handler instead (ipOnly rate limit, per-IP daily
+// cap, honeypot). Set WAITLIST_REQUIRE_VERIFICATION=1 to bring back double opt-in; the verify /
+// verify-blast actions stay live either way so old emailed links keep working.
+const verificationRequired = () => process.env.WAITLIST_REQUIRE_VERIFICATION === "1";
+
+// Max NEW signups per client IP per rolling 24h. Generous for humans (a dorm/campus NAT is many
+// students, and repeat joins of the same email don't count), restrictive for a spam script.
+const IP_DAILY_MAX = 15;
+
+function clientIp(req: any): string | null {
+  const xff = req.headers?.["x-forwarded-for"];
+  if (xff) return String(xff).split(",")[0].trim() || null;
+  const xr = req.headers?.["x-real-ip"];
+  return xr ? String(xr) : null;
+}
+// Keyed HMAC (not a raw IP) so the stored value can throttle abuse without keeping addresses.
+const ipHash = (ip: string) => createHmac("sha256", dashSecret()).update(`ip:${ip}`).digest("base64url").slice(0, 24);
 function signVerify(id: string, exp: number): string {
   const sig = createHmac("sha256", dashSecret()).update(`${id}.${exp}`).digest("base64url");
   return `${id}.${exp}.${sig}`;
@@ -46,6 +69,28 @@ function readVerify(token: string): string | null {
   const exp = parseInt(expStr, 10);
   if (!id || !Number.isFinite(exp) || Date.now() > exp) return null;
   const expected = createHmac("sha256", dashSecret()).update(`${id}.${expStr}`).digest("base64url");
+  try { return sig.length === expected.length && timingSafeEqual(Buffer.from(sig), Buffer.from(expected)) ? id : null; }
+  catch { return null; }
+}
+
+// ── One-click removal tokens ────────────────────────────────────────────────────
+// With instant joins there's no confirm gate, so every confirmation email carries a signed
+// remove link — an address submitted without its owner's consent can be deleted in one click,
+// which is what makes the "wasn't you?" footer honest. Domain-separated from verify tokens
+// (`rm.` prefix inside the HMAC) so the two are never interchangeable. Long-lived on purpose:
+// the ability to opt out shouldn't expire.
+const REMOVE_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
+function signRemove(id: string, exp: number): string {
+  const sig = createHmac("sha256", dashSecret()).update(`rm.${id}.${exp}`).digest("base64url");
+  return `${id}.${exp}.${sig}`;
+}
+function readRemove(token: string): string | null {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3) return null;
+  const [id, expStr, sig] = parts;
+  const exp = parseInt(expStr, 10);
+  if (!id || !Number.isFinite(exp) || Date.now() > exp) return null;
+  const expected = createHmac("sha256", dashSecret()).update(`rm.${id}.${expStr}`).digest("base64url");
   try { return sig.length === expected.length && timingSafeEqual(Buffer.from(sig), Buffer.from(expected)) ? id : null; }
   catch { return null; }
 }
@@ -103,14 +148,14 @@ async function positionOf(createdAt: string): Promise<{ position: number; total:
 
 // Plain-text alternatives for every outgoing email. HTML-only mail trips a standard spam
 // heuristic (SpamAssassin MIME_HTML_ONLY and friends) — always send text alongside html.
-function confirmationText(name: string | null, position: number) {
+function confirmationText(name: string | null, position: number, removeLink: string) {
   name = safeName(name);
   const who = name ? `, ${name}` : "";
   return `You're on the list${who}.
 
 You're #${position} in line. We're letting students in gradually so every brain gets the attention it deserves — you'll get an invite email the moment your spot opens.
 
-You're receiving this because this address joined the FschoolAI waitlist. If it wasn't you, ignore this email.
+You're receiving this because this address joined the FschoolAI waitlist. Wasn't you? Remove this address in one click and nothing else will ever be sent: ${removeLink}
 
 — FschoolAI`;
 }
@@ -144,7 +189,7 @@ Create my account: ${link}
 — FschoolAI`;
 }
 
-function confirmationHtml(name: string | null, position: number) {
+function confirmationHtml(name: string | null, position: number, removeLink: string) {
   name = safeName(name);
   const who = name ? `, ${esc(name)}` : "";
   return `<!DOCTYPE html><html><body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif">
@@ -154,7 +199,7 @@ function confirmationHtml(name: string | null, position: number) {
 <p style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:rgba(26,24,20,.4);margin:0 0 28px;font-weight:500">FSchoolAI</p>
 <h2 style="font-family:Georgia,serif;font-size:28px;color:#1a1814;margin:0 0 16px">You're on the list${who}.</h2>
 <p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 12px">You're <b>#${position}</b> in line. We're letting students in gradually so every brain gets the attention it deserves — you'll get an invite email the moment your spot opens.</p>
-<p style="color:rgba(26,24,20,.35);font-size:12px;line-height:1.6;border-top:1px solid rgba(26,24,20,.08);padding-top:20px;margin-top:28px">You're receiving this because this address joined the FschoolAI waitlist. If it wasn't you, ignore this email.</p>
+<p style="color:rgba(26,24,20,.35);font-size:12px;line-height:1.6;border-top:1px solid rgba(26,24,20,.08);padding-top:20px;margin-top:28px">You're receiving this because this address joined the FschoolAI waitlist. Wasn't you? <a href="${removeLink}" style="color:inherit;text-decoration:underline">Remove this address</a> — one click, nothing else will ever be sent.</p>
 </td></tr></table></td></tr></table></body></html>`;
 }
 
@@ -188,6 +233,38 @@ function sendVerification(resend: any, base: string, id: string, email: string, 
   }).catch((e: any) => console.error("[waitlist] verification email failed:", e?.message));
 }
 
+// Fire-and-forget the "You're #N" confirmation email, remove link included.
+function sendConfirmation(resend: any, base: string, id: string, email: string, name: string | null, position: number) {
+  const removeLink = `${base}/api/waitlist?action=remove&token=${encodeURIComponent(signRemove(id, Date.now() + REMOVE_TTL_MS))}`;
+  resend.emails.send({
+    from: "FSchoolAI <noreply@fschoolai.com>",
+    to: email,
+    subject: `You're #${position} on the FschoolAI waitlist`,
+    html: confirmationHtml(name, position, removeLink),
+    text: confirmationText(name, position, removeLink),
+  }).catch((e: any) => console.error("[waitlist] confirmation email failed:", e?.message));
+}
+
+// Tiny standalone pages for the one-click remove flow (email click → GET → HTML).
+function removedHtml(base: string) {
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center">
+<div style="max-width:420px;text-align:center;padding:32px">
+<h2 style="font-family:Georgia,serif;color:#1a1814;font-size:26px;margin:0 0 12px">You're off the list.</h2>
+<p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 24px">That address has been removed from the FschoolAI waitlist and won't receive anything else. Changed your mind? You can always join again.</p>
+<a href="${base}/" style="display:inline-block;background:#1a1814;color:#F6F2E9;text-decoration:none;padding:13px 26px;border-radius:10px;font-size:15px;font-weight:600">Back to FschoolAI</a>
+</div></body></html>`;
+}
+function removeErrorHtml(base: string) {
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center">
+<div style="max-width:420px;text-align:center;padding:32px">
+<h2 style="font-family:Georgia,serif;color:#1a1814;font-size:26px;margin:0 0 12px">This link isn't valid.</h2>
+<p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 24px">The removal link is malformed or has expired. Reply to any FschoolAI email and we'll remove you by hand.</p>
+<a href="${base}/" style="display:inline-block;background:#1a1814;color:#F6F2E9;text-decoration:none;padding:13px 26px;border-radius:10px;font-size:15px;font-weight:600">Back to FschoolAI</a>
+</div></body></html>`;
+}
+
 // A tiny standalone HTML page shown when the verify link is bad/expired (success redirects
 // to the app instead). Keeps the failure case from dumping raw JSON on the user.
 function verifyErrorHtml(base: string) {
@@ -195,7 +272,7 @@ function verifyErrorHtml(base: string) {
 <body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center">
 <div style="max-width:420px;text-align:center;padding:32px">
 <h2 style="font-family:Georgia,serif;color:#1a1814;font-size:26px;margin:0 0 12px">This link has expired.</h2>
-<p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 24px">Confirmation links are valid for a week. Head back and join again — we'll send a fresh one.</p>
+<p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 24px">Confirmation links are valid for a week. Head back and enter your email again — we'll take care of the rest.</p>
 <a href="${base}/?waitlist=1" style="display:inline-block;background:#1a1814;color:#F6F2E9;text-decoration:none;padding:13px 26px;border-radius:10px;font-size:15px;font-weight:600">Back to FschoolAI</a>
 </div></body></html>`;
 }
@@ -263,12 +340,7 @@ export default async function handler(req: any, res: any) {
       if (justVerified) {
         const resend = mailer();
         if (resend) {
-          resend.emails.send({
-            from: "FSchoolAI <noreply@fschoolai.com>", to: row.email,
-            subject: `You're #${position} on the FschoolAI waitlist`,
-            html: confirmationHtml(row.name, position),
-            text: confirmationText(row.name, position),
-          }).catch((e: any) => console.error("[waitlist] confirmation email failed:", e?.message));
+          sendConfirmation(resend, base, row.id, row.email, row.name, position);
           resend.emails.send({
             from: "FSchoolAI <noreply@fschoolai.com>", to: "vincent@fschoolai.com",
             subject: `New VERIFIED waitlist signup — ${total} total`,
@@ -281,6 +353,21 @@ export default async function handler(req: any, res: any) {
       res.status(302);
       res.setHeader?.("Location", `${base}/?verified=1&pos=${position}`);
       return res.end();
+    }
+
+    // ── public: one-click removal (the signed link in every confirmation email) ──
+    // GET so it works from an email click. Deleting an already-deleted row shows the same
+    // success page (idempotent); a forged/expired token never touches the DB.
+    if (action === "remove") {
+      const base = appUrl(req);
+      res.setHeader?.("Content-Type", "text/html; charset=utf-8");
+      const id = readRemove(String(req.query?.token ?? ""));
+      if (!id) { res.status(200); return res.end(removeErrorHtml(base)); }
+      const { url, headers } = sb();
+      const del = await fetch(`${url}/rest/v1/waitlist?id=eq.${encodeURIComponent(id)}`, { method: "DELETE", headers }).catch(() => null);
+      if (!del || !del.ok) { res.status(200); return res.end(removeErrorHtml(base)); } // couldn't persist → don't claim removed
+      res.status(200);
+      return res.end(removedHtml(base));
     }
 
     // ── admin: full dashboard data (Bearer CRON_SECRET — exposes emails, so gated) ──
@@ -355,17 +442,24 @@ export default async function handler(req: any, res: any) {
 
     // ── public: join ──────────────────────────────────────────────────────────
     if (action === "join") {
-      // Anonymous + sends email → strict per-IP cap to stop signup/email-bomb spam.
-      if (!(await rateLimit(req, res, "waitlist-join", { anonMax: 5, authMax: 20, windowSecs: 60 }))) return;
+      // Anonymous + sends email → strict per-IP cap. ipOnly: on a public endpoint a rotated
+      // random Bearer token must never buy a fresh rate-limit bucket.
+      if (!(await rateLimit(req, res, "waitlist-join", { anonMax: 5, authMax: 5, windowSecs: 60, ipOnly: true }))) return;
       const email = String(req.body?.email ?? "").trim().toLowerCase();
       const name = safeName(req.body?.name);
       const source = String(req.body?.source ?? "landing").slice(0, 60);
       const ref = String(req.body?.ref ?? "").trim() || null;
+      // Honeypot: the landing form has a hidden "website" field humans never see. If it's
+      // filled, answer success-shaped and store/send NOTHING — don't tip the bot off. The shape
+      // matches the already-joined response so the modal shows "already on the list" rather
+      // than a bogus "#0" position if a human ever trips it.
+      if (String(req.body?.website ?? "").trim()) return res.status(200).json({ ok: true, success: true, already: true, alreadyJoined: true, verified: true });
       if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "A valid email is required." });
 
       const { url, headers } = sb();
       const base = appUrl(req);
       const resend = mailer();
+      const instant = !verificationRequired();
       // select=* (not naming verified_at) so a not-yet-migrated column can't 400 the whole
       // dedup read and block joins — hit.verified_at is simply undefined until the migration runs.
       const existing = await fetch(`${url}/rest/v1/waitlist?email=eq.${encodeURIComponent(email)}&select=*`, { headers });
@@ -377,9 +471,41 @@ export default async function handler(req: any, res: any) {
           const { position, total } = await positionOf(hit.created_at);
           return res.status(200).json({ ok: true, success: true, already: true, alreadyJoined: true, verified: true, invited: !!hit.invited_at, position, total });
         }
-        // Signed up before but never confirmed → re-send the verification link, stay pending.
+        if (instant) {
+          // Signed up during the verification era but never confirmed → count them in now.
+          // Only-if-still-null PATCH keeps the flip (and its emails) idempotent under
+          // concurrent joins — same pattern as the verify action.
+          const patch = await fetch(`${url}/rest/v1/waitlist?id=eq.${encodeURIComponent(hit.id)}&verified_at=is.null`, {
+            method: "PATCH", headers: { ...headers, Prefer: "return=representation" },
+            body: JSON.stringify({ verified_at: new Date().toISOString() }),
+          }).catch(() => null);
+          // Couldn't persist → don't claim success (same rule as the verify action): a 200 here
+          // would strand the row unverified while the UI says they're in.
+          if (!patch || !patch.ok) throw new Error(`waitlist join failed (${patch?.status ?? "network"}) — please try again`);
+          const flipped = (await patch.json().catch(() => [])) as any[];
+          const { position, total } = await positionOf(hit.created_at);
+          if (flipped.length > 0 && resend) sendConfirmation(resend, base, hit.id, email, hit.name ?? name, position);
+          return res.status(200).json({ ok: true, success: true, already: true, alreadyJoined: true, verified: true, position, total });
+        }
+        // Verification mode: re-send the link, stay pending.
         if (resend) sendVerification(resend, base, hit.id, email, name);
         return res.status(200).json({ ok: true, success: true, already: true, alreadyJoined: false, needsVerification: true, pending: true, resent: true, emailSent: !!resend });
+      }
+
+      // Per-IP daily signup cap — instant mode has no email-confirmation gate, so cap how many
+      // NEW rows one network can create per day. Fails OPEN (a cap-infra hiccup, including the
+      // ip_hash column not being migrated yet, must never block real signups).
+      const ip = clientIp(req);
+      const ipH = ip ? ipHash(ip) : null;
+      if (ipH) {
+        try {
+          const since = new Date(Date.now() - 86_400_000).toISOString();
+          const cr = await fetch(`${url}/rest/v1/waitlist?ip_hash=eq.${encodeURIComponent(ipH)}&created_at=gte.${encodeURIComponent(since)}&select=id`, { headers: { ...headers, Prefer: "count=exact", Range: "0-0" } });
+          if (cr.ok) {
+            const n = parseInt((cr.headers.get("content-range") ?? "/0").split("/")[1] || "0", 10);
+            if (n >= IP_DAILY_MAX) return res.status(429).json({ error: "Too many signups from this network today — please try again tomorrow." });
+          }
+        } catch { /* fail open */ }
       }
 
       // Location from Vercel's edge geo headers — free, per-request, no external API.
@@ -395,12 +521,15 @@ export default async function handler(req: any, res: any) {
         city:    geoHdr("x-vercel-ip-city"),
       };
 
-      const baseRow = { email, name, source, referred_by: ref };
-      // Stamp when the verification email goes out — bookkeeping so the verify-blast can tell
-      // who was already emailed. (Unverified signups are never auto-removed; they're just not
-      // counted until they confirm.) Kept in "extras" so the missing-column retry below strips
-      // it too, pre-migration.
-      const extras = { ...geo, verification_sent_at: new Date().toISOString() };
+      // Instant mode: verified_at is stamped at insert — in baseRow (not extras) because being
+      // counted is core behavior, not an optional column, so the missing-column retry keeps it.
+      const baseRow: any = { email, name, source, referred_by: ref };
+      if (instant) baseRow.verified_at = new Date().toISOString();
+      // Optional columns in "extras" so the missing-column retry below strips them: geo,
+      // ip_hash (abuse throttling), and — verification mode only — the sent-at bookkeeping.
+      const extras: any = { ...geo };
+      if (ipH) extras.ip_hash = ipH;
+      if (!instant) extras.verification_sent_at = new Date().toISOString();
       const insert = (body: any) => fetch(`${url}/rest/v1/waitlist`, {
         method: "POST", headers: { ...headers, Prefer: "return=representation" },
         body: JSON.stringify(body),
@@ -408,8 +537,8 @@ export default async function handler(req: any, res: any) {
       let ins = await insert({ ...baseRow, ...extras });
       if (!ins.ok) {
         const errText = (await ins.text()).slice(0, 300);
-        // Optional columns (geo/verification_sent_at) not migrated yet (PGRST204 "column ...
-        // schema cache") → a join must NEVER fail over them: retry with just the core row.
+        // Optional columns (geo/ip_hash/verification_sent_at) not migrated yet (PGRST204
+        // "column ... schema cache") → a join must NEVER fail over them: retry with the core row.
         if (/column|schema cache/i.test(errText)) {
           ins = await insert(baseRow);
           if (!ins.ok) throw new Error(`waitlist insert failed (${ins.status}): ${(await ins.text()).slice(0, 150)}`);
@@ -419,9 +548,24 @@ export default async function handler(req: any, res: any) {
       }
       const row = ((await ins.json()) as any[])[0];
 
-      // NEW signup starts UNVERIFIED — not counted, no position yet. Send the verification
-      // link; the position confirmation + internal notify fire on verify. Fire-and-forget so
-      // a slow Resend call never blocks the response.
+      if (instant) {
+        // Counted immediately — return the real position and send the confirmation + internal
+        // notify now (fire-and-forget so a slow Resend call never blocks the response).
+        const { position, total } = await positionOf(row.created_at);
+        if (resend) {
+          sendConfirmation(resend, base, row.id, email, name, position);
+          resend.emails.send({
+            from: "FSchoolAI <noreply@fschoolai.com>", to: "vincent@fschoolai.com",
+            subject: `New waitlist signup — ${total} total`,
+            html: `<p>New FschoolAI waitlist signup: <b>${esc(email)}</b>${name ? ` (${esc(name)})` : ""}.</p><p>The waitlist now has <b>${total}</b> ${total === 1 ? "member" : "members"}.</p>`,
+            text: `New FschoolAI waitlist signup: ${email}${name ? ` (${name})` : ""}. The waitlist now has ${total} ${total === 1 ? "member" : "members"}.`,
+          }).catch((e: any) => console.error("[waitlist] signup notify failed:", e?.message));
+        }
+        return res.status(200).json({ ok: true, success: true, already: false, alreadyJoined: false, verified: true, position, total, emailSent: !!resend });
+      }
+
+      // Verification mode: NEW signup starts UNVERIFIED — not counted, no position yet. Send
+      // the verification link; the position confirmation + internal notify fire on verify.
       if (resend) sendVerification(resend, base, row.id, email, name);
       return res.status(200).json({ ok: true, success: true, already: false, alreadyJoined: false, needsVerification: true, pending: true, emailSent: !!resend });
     }
@@ -537,7 +681,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true, mode: resendMode ? "resend" : "initial", matched: rows.length, sent, remaining, stillUnverified, errors: errors.slice(0, 20) });
     }
 
-    return res.status(400).json({ error: "Unknown action. Use join, verify, stats, invite, or verify-blast." });
+    return res.status(400).json({ error: "Unknown action. Use join, verify, remove, stats, invite, or verify-blast." });
   } catch (e: any) {
     return res.status(502).json({ error: e?.message ?? "waitlist failed" });
   }
