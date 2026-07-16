@@ -2891,8 +2891,11 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
                 We sent a confirmation link to<br />
                 <strong style={{ color: "#1d1d1f", fontWeight: 600, wordBreak: "break-all" }}>{email.trim().toLowerCase()}</strong>.
               </p>
-              <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.55, marginBottom: 28 }}>
-                Click it to lock in your spot — you're not officially on the list until you confirm. The link expires in 24 hours.
+              <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.55, marginBottom: 14 }}>
+                Click it to lock in your spot — you're not officially on the list until you confirm. The link is valid for 7 days.
+              </p>
+              <p style={{ fontSize: 14, color: "#6e6e73", lineHeight: 1.55, marginBottom: 28, background: "rgba(196,154,60,0.10)", border: "1px solid rgba(196,154,60,0.25)", borderRadius: 10, padding: "10px 14px" }}>
+                Don't see it? <strong style={{ color: "#1d1d1f", fontWeight: 600 }}>Check your spam folder</strong> — and if it's there, mark it "Not spam" so your invite reaches your inbox later.
               </p>
               <button className="wl-btn-primary" onClick={submit} style={{ marginBottom: 10 }}>
                 Resend link

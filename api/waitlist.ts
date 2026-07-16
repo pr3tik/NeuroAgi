@@ -34,7 +34,7 @@ function verifySession(token: string): boolean {
 // is verified — this stops bots/typos/spam from inflating the list. The verify link carries
 // a stateless HMAC token over the row id (an unguessable uuid) + expiry, so no token column
 // is needed and a forged or expired link is rejected.
-const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — matches the auto-purge window so a link is always clickable for the full week
+const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — an expired link shows a friendly page and re-joining sends a fresh one (unverified rows are kept forever; they're just not counted)
 function signVerify(id: string, exp: number): string {
   const sig = createHmac("sha256", dashSecret()).update(`${id}.${exp}`).digest("base64url");
   return `${id}.${exp}.${sig}`;
@@ -66,6 +66,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 // Escape user-controlled text before interpolating into email HTML.
 const esc = (s: any) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 
+// Collapse whitespace/newlines in a user-supplied name before it goes into an email body.
+// Plain-text parts have no esc() equivalent — an embedded newline would let an attacker-chosen
+// name inject whole paragraphs into a FschoolAI-branded email. Applied in the builders (not
+// just at join) so names stored before this guard existed are cleaned too.
+const safeName = (s: any): string | null => {
+  const clean = String(s ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+  return clean || null;
+};
+
 function appUrl(req: any) {
   const host = String(req.headers?.["x-forwarded-host"] || req.headers?.host || "");
   const PROD = ["fschoolai.com", "fschool-ai.vercel.app"];
@@ -92,7 +101,51 @@ async function positionOf(createdAt: string): Promise<{ position: number; total:
   return { position: count(posRes), total: count(totalRes) };
 }
 
+// Plain-text alternatives for every outgoing email. HTML-only mail trips a standard spam
+// heuristic (SpamAssassin MIME_HTML_ONLY and friends) — always send text alongside html.
+function confirmationText(name: string | null, position: number) {
+  name = safeName(name);
+  const who = name ? `, ${name}` : "";
+  return `You're on the list${who}.
+
+You're #${position} in line. We're letting students in gradually so every brain gets the attention it deserves — you'll get an invite email the moment your spot opens.
+
+You're receiving this because this address joined the FschoolAI waitlist. If it wasn't you, ignore this email.
+
+— FschoolAI`;
+}
+
+function verificationText(name: string | null, link: string, warn = false) {
+  name = safeName(name);
+  const who = name ? `, ${name}` : "";
+  const body = warn
+    ? `Quick reminder — you joined the FschoolAI waitlist but haven't confirmed your email yet. Confirm below to lock in your spot and get your place in line.`
+    : `One tap to lock in your spot on the FschoolAI waitlist. You're not counted until you confirm — so we know every name on the list is a real student.`;
+  return `Confirm your email${who}.
+
+${body}
+
+Confirm my spot: ${link}
+
+This link is valid for 7 days — if it expires, just join again at https://fschoolai.com and we'll send a fresh one.
+
+If you didn't request this, just ignore this email — you won't be on the list unless you confirm.
+
+— FschoolAI`;
+}
+
+function inviteText(link: string) {
+  return `Your spot is ready.
+
+You're off the waitlist — create your account and your AI tutor starts learning how you learn from the first session.
+
+Create my account: ${link}
+
+— FschoolAI`;
+}
+
 function confirmationHtml(name: string | null, position: number) {
+  name = safeName(name);
   const who = name ? `, ${esc(name)}` : "";
   return `<!DOCTYPE html><html><body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:48px 24px">
@@ -106,9 +159,10 @@ function confirmationHtml(name: string | null, position: number) {
 }
 
 function verificationHtml(name: string | null, link: string, warn = false) {
+  name = safeName(name);
   const who = name ? `, ${esc(name)}` : "";
   const body = warn
-    ? `We're keeping the FschoolAI waitlist to real students only. Tap below to confirm your spot — <b>if you don't confirm within a week, you'll be removed from the list.</b>`
+    ? `Quick reminder — you joined the FschoolAI waitlist but haven't confirmed your email yet. Tap below to lock in your spot and get your place in line. This link is valid for 7 days.`
     : `One tap to lock in your spot on the FschoolAI waitlist. You're not counted until you confirm — so we know every name on the list is a real student. This link is valid for 7 days.`;
   return `<!DOCTYPE html><html><body style="margin:0;background:#FDFAF4;font-family:-apple-system,Helvetica,Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:48px 24px">
@@ -118,7 +172,7 @@ function verificationHtml(name: string | null, link: string, warn = false) {
 <h2 style="font-family:Georgia,serif;font-size:28px;color:#1a1814;margin:0 0 16px">Confirm your email${who}.</h2>
 <p style="color:rgba(26,24,20,.55);line-height:1.7;font-size:15px;margin:0 0 28px">${body}</p>
 <a href="${link}" style="display:inline-block;background:#1a1814;color:#F6F2E9;text-decoration:none;padding:14px 28px;border-radius:10px;font-size:15px;font-weight:600">Confirm my spot &rarr;</a>
-<p style="color:rgba(26,24,20,.35);font-size:12px;line-height:1.6;border-top:1px solid rgba(26,24,20,.08);padding-top:20px;margin-top:32px">If you didn't request this, just ignore this email — nothing was added.</p>
+<p style="color:rgba(26,24,20,.35);font-size:12px;line-height:1.6;border-top:1px solid rgba(26,24,20,.08);padding-top:20px;margin-top:32px">If you didn't request this, just ignore this email — you won't be on the list unless you confirm.</p>
 </td></tr></table></td></tr></table></body></html>`;
 }
 
@@ -130,6 +184,7 @@ function sendVerification(resend: any, base: string, id: string, email: string, 
     to: email,
     subject: "Confirm your email to join the FschoolAI waitlist",
     html: verificationHtml(name, link),
+    text: verificationText(name, link),
   }).catch((e: any) => console.error("[waitlist] verification email failed:", e?.message));
 }
 
@@ -212,11 +267,13 @@ export default async function handler(req: any, res: any) {
             from: "FSchoolAI <noreply@fschoolai.com>", to: row.email,
             subject: `You're #${position} on the FschoolAI waitlist`,
             html: confirmationHtml(row.name, position),
+            text: confirmationText(row.name, position),
           }).catch((e: any) => console.error("[waitlist] confirmation email failed:", e?.message));
           resend.emails.send({
             from: "FSchoolAI <noreply@fschoolai.com>", to: "vincent@fschoolai.com",
             subject: `New VERIFIED waitlist signup — ${total} total`,
-            html: `<p>Verified FschoolAI waitlist signup: <b>${esc(row.email)}</b>${row.name ? ` (${esc(row.name)})` : ""}.</p><p>The waitlist now has <b>${total}</b> verified ${total === 1 ? "member" : "members"}.</p>`,
+            html: `<p>Verified FschoolAI waitlist signup: <b>${esc(row.email)}</b>${safeName(row.name) ? ` (${esc(safeName(row.name))})` : ""}.</p><p>The waitlist now has <b>${total}</b> verified ${total === 1 ? "member" : "members"}.</p>`,
+            text: `Verified FschoolAI waitlist signup: ${row.email}${safeName(row.name) ? ` (${safeName(row.name)})` : ""}. The waitlist now has ${total} verified ${total === 1 ? "member" : "members"}.`,
           }).catch((e: any) => console.error("[waitlist] verified notify failed:", e?.message));
         }
       }
@@ -301,7 +358,7 @@ export default async function handler(req: any, res: any) {
       // Anonymous + sends email → strict per-IP cap to stop signup/email-bomb spam.
       if (!(await rateLimit(req, res, "waitlist-join", { anonMax: 5, authMax: 20, windowSecs: 60 }))) return;
       const email = String(req.body?.email ?? "").trim().toLowerCase();
-      const name = (String(req.body?.name ?? "").trim().slice(0, 80)) || null;
+      const name = safeName(req.body?.name);
       const source = String(req.body?.source ?? "landing").slice(0, 60);
       const ref = String(req.body?.ref ?? "").trim() || null;
       if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "A valid email is required." });
@@ -339,9 +396,10 @@ export default async function handler(req: any, res: any) {
       };
 
       const baseRow = { email, name, source, referred_by: ref };
-      // Stamp when the verification email goes out so the 7-day auto-purge clock starts now for
-      // this signup (same as the batch verify-blast). Kept in "extras" so the missing-column
-      // retry below strips it too, pre-migration.
+      // Stamp when the verification email goes out — bookkeeping so the verify-blast can tell
+      // who was already emailed. (Unverified signups are never auto-removed; they're just not
+      // counted until they confirm.) Kept in "extras" so the missing-column retry below strips
+      // it too, pre-migration.
       const extras = { ...geo, verification_sent_at: new Date().toISOString() };
       const insert = (body: any) => fetch(`${url}/rest/v1/waitlist`, {
         method: "POST", headers: { ...headers, Prefer: "return=representation" },
@@ -397,6 +455,7 @@ export default async function handler(req: any, res: any) {
             to: email,
             subject: "Your FschoolAI invite is here",
             html: inviteHtml(`${base}/?invite=${row.id}`),
+            text: inviteText(`${base}/?invite=${row.id}`),
           });
           await fetch(`${url}/rest/v1/waitlist?id=eq.${row.id}`, {
             method: "PATCH", headers, body: JSON.stringify({ invited_at: new Date().toISOString() }),
@@ -409,12 +468,18 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true, invited: results.filter((x) => x.ok).length, results });
     }
 
-    // ── admin: one-time catch-up blast — verify existing signups (Bearer CRON_SECRET) ──
-    // Sends a verification link to every signup that was never asked to confirm
-    // (verified_at IS NULL AND verification_sent_at IS NULL — i.e. rows created before the
-    // verification feature). Stamps verification_sent_at ONLY after a successful send, which
-    // starts that signup's 7-day purge clock. Idempotent + resumable: re-running skips
-    // already-sent rows and retries failures. `limit` (default 200, max 1000) batches large lists.
+    // ── admin: verification blast (Bearer CRON_SECRET) ──
+    // Default: catch-up — sends a first verification link to every signup that was never asked
+    // to confirm (verified_at IS NULL AND verification_sent_at IS NULL). With `?resend=1`:
+    // RE-sends to still-unverified signups even if they were already emailed — oldest first, so
+    // `resend=1&limit=40` re-mails the first 40 signups still pending. Resend mode skips anyone
+    // emailed within the last 24h (accidental double-run guard; a manual blast is deliberate,
+    // back-to-back duplicates are not). Stamps verification_sent_at after each successful send
+    // (bookkeeping only — unverified signups are NEVER auto-removed; decided 2026-07-15).
+    // Idempotent + resumable: re-running the default mode skips already-sent rows and retries
+    // failures. `limit` (default 200, max 1000) batches large lists. Response includes
+    // `matched` (rows this run targeted — if matched < limit you've covered everyone eligible)
+    // and `stillUnverified` (total pending, for coverage math in resend mode).
     if (action === "verify-blast") {
       const secret = process.env.CRON_SECRET;
       if (!secret) return res.status(500).json({ error: "CRON_SECRET not configured" });
@@ -425,7 +490,15 @@ export default async function handler(req: any, res: any) {
       const { url, headers } = sb();
       const base = appUrl(req);
       const limit = Math.min(parseInt(String(req.query?.limit ?? "200"), 10) || 200, 1000);
-      const r = await fetch(`${url}/rest/v1/waitlist?verified_at=is.null&verification_sent_at=is.null&select=id,email,name&order=created_at.asc&limit=${limit}`, { headers });
+      const resendMode = ["1", "true", "yes"].includes(String(req.query?.resend ?? "").toLowerCase());
+      // Resend mode still targets ONLY unverified rows, but includes already-emailed ones —
+      // except anyone emailed in the last 24h (or= keeps never-emailed rows in scope, since a
+      // plain lt. filter would drop NULLs).
+      const cooldownCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const filter = resendMode
+        ? `verified_at=is.null&or=(verification_sent_at.is.null,verification_sent_at.lt.${cooldownCutoff})`
+        : "verified_at=is.null&verification_sent_at=is.null";
+      const r = await fetch(`${url}/rest/v1/waitlist?${filter}&select=id,email,name&order=created_at.asc&limit=${limit}`, { headers });
       if (!r.ok) return res.status(502).json({ error: `waitlist read failed (${r.status})` });
       const rows = (await r.json()) as any[];
 
@@ -437,11 +510,12 @@ export default async function handler(req: any, res: any) {
             const link = `${base}/api/waitlist?action=verify&token=${encodeURIComponent(signVerify(row.id, Date.now() + VERIFY_TTL_MS))}`;
             await resend.emails.send({
               from: "FSchoolAI <noreply@fschoolai.com>", to: row.email,
-              subject: "Confirm your email to stay on the FschoolAI waitlist",
+              subject: "Confirm your email to lock in your FschoolAI waitlist spot",
               html: verificationHtml(row.name, link, true),
+              text: verificationText(row.name, link, true),
             });
-            // Stamp ONLY after a successful send: unsent rows stay null → safe from the purge
-            // and retried on the next run.
+            // Stamp ONLY after a successful send: unsent rows stay null → retried on the next
+            // default-mode run.
             await fetch(`${url}/rest/v1/waitlist?id=eq.${row.id}`, {
               method: "PATCH", headers, body: JSON.stringify({ verification_sent_at: new Date().toISOString() }),
             });
@@ -450,32 +524,20 @@ export default async function handler(req: any, res: any) {
         }));
       }
 
-      const remRes = await fetch(`${url}/rest/v1/waitlist?verified_at=is.null&verification_sent_at=is.null&select=id`, { headers: { ...headers, Prefer: "count=exact", Range: "0-0" } });
-      const remaining = parseInt((remRes.headers.get("content-range") ?? "/0").split("/")[1] || "0", 10);
-      return res.status(200).json({ ok: true, sent, remaining, errors: errors.slice(0, 20) });
+      // `remaining` = never-emailed backlog; `stillUnverified` = all pending rows (the resend-
+      // mode coverage number — `remaining` is ~always 0 there since join stamps on insert).
+      const countOf = async (f: string) => {
+        const cr = await fetch(`${url}/rest/v1/waitlist?${f}&select=id`, { headers: { ...headers, Prefer: "count=exact", Range: "0-0" } });
+        return parseInt((cr.headers.get("content-range") ?? "/0").split("/")[1] || "0", 10);
+      };
+      const [remaining, stillUnverified] = await Promise.all([
+        countOf("verified_at=is.null&verification_sent_at=is.null"),
+        countOf("verified_at=is.null"),
+      ]);
+      return res.status(200).json({ ok: true, mode: resendMode ? "resend" : "initial", matched: rows.length, sent, remaining, stillUnverified, errors: errors.slice(0, 20) });
     }
 
-    // ── admin: purge unverified after the 7-day window (Bearer CRON_SECRET) ──
-    // Mirrors the pg_cron job so it can be run/tested on demand. ONE filtered DELETE (not a
-    // REST loop). Only rows that were actually emailed (verification_sent_at IS NOT NULL) and
-    // are past the window are removed — never an un-emailed row.
-    if (action === "purge-unverified") {
-      const secret = process.env.CRON_SECRET;
-      if (!secret) return res.status(500).json({ error: "CRON_SECRET not configured" });
-      const auth = req.headers?.authorization ?? "";
-      if (auth !== `Bearer ${secret}`) return res.status(401).json({ error: "Unauthorized" });
-      const days = Math.min(Math.max(parseInt(String(req.query?.days ?? "7"), 10) || 7, 1), 60);
-      const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-      const { url, headers } = sb();
-      const del = await fetch(`${url}/rest/v1/waitlist?verified_at=is.null&verification_sent_at=not.is.null&verification_sent_at=lt.${encodeURIComponent(cutoff)}`, {
-        method: "DELETE", headers: { ...headers, Prefer: "return=representation" },
-      });
-      if (!del.ok) return res.status(502).json({ error: `purge failed (${del.status})` });
-      const removed = ((await del.json().catch(() => [])) as any[]).length;
-      return res.status(200).json({ ok: true, removed, cutoff });
-    }
-
-    return res.status(400).json({ error: "Unknown action. Use join, verify, stats, invite, verify-blast, or purge-unverified." });
+    return res.status(400).json({ error: "Unknown action. Use join, verify, stats, invite, or verify-blast." });
   } catch (e: any) {
     return res.status(502).json({ error: e?.message ?? "waitlist failed" });
   }
