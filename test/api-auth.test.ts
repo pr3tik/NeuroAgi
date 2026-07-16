@@ -4,12 +4,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 let getUserImpl: (t: string) => any;
-let usersRows: any[];
+let authRows: any[];      // rows for the .eq("auth_id",…) lookup
+let emailRows: any[];     // rows for the .ilike("email",…) lazy-link lookup
+let updates: any[];       // captured .update().eq() writes (the lazy-link)
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     auth: { getUser: (t: string) => getUserImpl(t) },
-    from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: usersRows }) }) }) }),
+    from: () => {
+      const st: any = { op: "select" };
+      const chain: any = {
+        select: () => chain,
+        update: (v: any) => { st.op = "update"; st.val = v; return chain; },
+        eq: (_c: string, v: any) => { if (st.op === "update") { updates.push({ val: st.val, id: v }); return Promise.resolve({ error: null }); } return chain; },
+        ilike: () => { st.ilike = true; return chain; },
+        limit: async () => (st.ilike ? { data: emailRows } : { data: authRows }),
+      };
+      return chain;
+    },
   }),
 }));
 
@@ -17,7 +29,7 @@ beforeEach(() => {
   process.env.SUPABASE_URL = "http://localhost";
   process.env.SUPABASE_SERVICE_KEY = "svc";
   getUserImpl = async () => ({ data: { user: null }, error: { message: "no session" } });
-  usersRows = [];
+  authRows = []; emailRows = []; updates = [];
 });
 afterEach(() => { vi.resetModules(); });
 
@@ -37,16 +49,34 @@ describe("requireUser", () => {
 
   it("resolves a valid token to the caller's profile id", async () => {
     getUserImpl = async () => ({ data: { user: { id: "auth-123" } }, error: null });
-    usersRows = [{ id: "profile-abc" }];
+    authRows = [{ id: "profile-abc" }];
     const { requireUser } = await load();
     expect(await requireUser({ headers: { authorization: "Bearer good" } })).toEqual({ userId: "profile-abc", authId: "auth-123" });
   });
 
-  it("null when the verified auth user has no linked profile", async () => {
+  it("null when the verified auth user has no linked profile (and no email to link by)", async () => {
     getUserImpl = async () => ({ data: { user: { id: "auth-x" } }, error: null });
-    usersRows = [];
+    authRows = [];
     const { requireUser } = await load();
     expect(await requireUser({ headers: { authorization: "Bearer good" } })).toBeNull();
+  });
+
+  it("lazy-links a legacy account (valid JWT, unlinked email row) and returns its id", async () => {
+    getUserImpl = async () => ({ data: { user: { id: "auth-new", email: "legacy@school.edu" } }, error: null });
+    authRows = [];                                            // nothing linked to auth-new yet
+    emailRows = [{ id: "legacy-profile", auth_id: null }];    // an unlinked row for that email
+    const { requireUser } = await load();
+    expect(await requireUser({ headers: { authorization: "Bearer good" } })).toEqual({ userId: "legacy-profile", authId: "auth-new" });
+    expect(updates).toEqual([{ val: { auth_id: "auth-new" }, id: "legacy-profile" }]);   // it linked
+  });
+
+  it("does NOT steal an email row already linked to a DIFFERENT auth_id (no takeover)", async () => {
+    getUserImpl = async () => ({ data: { user: { id: "auth-attacker", email: "victim@school.edu" } }, error: null });
+    authRows = [];
+    emailRows = [{ id: "victim-profile", auth_id: "auth-victim" }];   // belongs to someone else
+    const { requireUser } = await load();
+    expect(await requireUser({ headers: { authorization: "Bearer good" } })).toBeNull();  // refused
+    expect(updates).toEqual([]);                                                          // no write
   });
 
   it("requireUserOr401 sends 401 when unauthenticated", async () => {
