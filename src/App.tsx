@@ -39,7 +39,6 @@ const Onboarding   = lazy(() => import("./pages/Onboarding"));
 const Spaces       = lazy(() => import("./pages/Spaces"));
 const Connections  = lazy(() => import("./pages/Connections"));
 const StudyAssistant = lazy(() => import("./pages/StudyAssistant"));
-const Card            = lazy(() => import("./pages/Card")); // logged-out-only Founding Card page, reached via Landing's "Learn more"
 
 const PAGES = {
   work:        Work,
@@ -146,7 +145,6 @@ export default function App() {
   // left mid-demo — or arrived in a fresh/incognito browser — got the demo "instead of
   // the landing page" on the next visit. That forced interstitial is removed.)
   const [showPreSignupDemo, setShowPreSignupDemo] = useState(false);
-  const [showFoundingCard, setShowFoundingCard] = useState(false);
   const [showOnboarding,      setShowOnboarding]     = useState(false);
   const [onboardingEmail,     setOnboardingEmail]    = useState("");
   const [onboardingInitName,  setOnboardingInitName] = useState("");
@@ -789,12 +787,8 @@ export default function App() {
     return (<>{overlays}{oauthToast}<PreSignupDemo onEnter={handleEnter} /></>);
   }
 
-  if (!isLoggedIn && showFoundingCard) {
-    return (<>{overlays}{oauthToast}<Suspense fallback={<PageLoader />}><Card onBack={() => setShowFoundingCard(false)} /></Suspense></>);
-  }
-
   if (!isLoggedIn) {
-    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} onTryDemo={() => setShowPreSignupDemo(true)} onLearnMore={() => setShowFoundingCard(true)} /><SiteGuide /></>);
+    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} onTryDemo={() => setShowPreSignupDemo(true)} /><SiteGuide /></>);
   }
 
   // ── Email verification gate ───────────────────────────────────────────────
