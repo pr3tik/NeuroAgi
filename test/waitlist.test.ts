@@ -24,6 +24,7 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_KEY = "svc";
   process.env.RESEND_API_KEY = "re_test";
   process.env.CRON_SECRET = "cron-secret";
+  delete process.env.WAITLIST_REQUIRE_VERIFICATION;   // default = instant joins (no double opt-in)
   sent.length = 0;
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
@@ -37,7 +38,65 @@ describe("waitlist join", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("inserts UNVERIFIED and sends a verification email (no position, not counted yet)", async () => {
+  it("INSTANT (default): inserts VERIFIED, returns the position, sends the #position email", async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.includes("email=eq.")) return R([]);                                   // no dedup hit
+      if (init?.method === "POST") { bodies.push(JSON.parse(init.body)); return R([{ id: "w1", created_at: "2026-07-10T00:00:00Z" }]); }
+      if (u.includes("created_at=lte.")) return R([], { count: 12 });
+      return R([], { count: 12 });
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "join" }, body: { email: "Stu@School.EDU", name: "Stu" }, headers: { "x-forwarded-for": "1.2.3.4" } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, alreadyJoined: false, verified: true, position: 12, total: 12, emailSent: true });
+    expect(res.body.needsVerification).toBeUndefined();                            // no confirm step
+    expect(bodies[0].verified_at).toBeTruthy();                                    // counted at insert
+    expect(typeof bodies[0].ip_hash).toBe("string");                               // keyed IP hash stamped for the daily cap
+    expect(bodies[0].ip_hash).not.toContain("1.2.3.4");                            // never the raw address
+    expect(sent).toHaveLength(2);                                                  // position email + internal notify
+    expect(sent[0].to).toBe("stu@school.edu");
+    expect(sent[0].subject).toMatch(/#12/);
+    expect(sent[0].text).toBeTruthy();
+    expect(sent[0].html).toContain("action=remove&token=w1.");                     // one-click opt-out link (no confirm gate anymore)
+    expect(sent[0].text).toContain("action=remove&token=w1.");
+    expect(sent.every(m => !m.html?.includes("action=verify"))).toBe(true);        // no verification link anywhere
+    expect(sent[1].to).toBe("vincent@fschoolai.com");
+  });
+
+  it("honeypot field filled → success-shaped response, nothing stored, nothing sent", async () => {
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      if (init?.method === "POST") posts.push(String(url));
+      return R([]);
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "join" }, body: { email: "stu@school.edu", website: "http://spam.example" }, headers: {} }, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, success: true, alreadyJoined: true, verified: true }); // duplicate-shaped: modal shows "already on the list", never "#0"
+    expect(posts).toHaveLength(0);                                                 // no insert
+    expect(sent).toHaveLength(0);                                                  // no email
+  });
+
+  it("per-IP daily cap: 15 signups from one network in 24h → 429, no insert", async () => {
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (init?.method === "POST") posts.push(u);
+      if (u.includes("email=eq.")) return R([]);
+      if (u.includes("ip_hash=eq.")) return R([], { count: 15 });                  // network already at the cap
+      return R([], { count: 0 });
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "join" }, body: { email: "bot99@spam.example" }, headers: { "x-forwarded-for": "6.6.6.6" } }, res);
+    expect(res.statusCode).toBe(429);
+    expect(posts).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("VERIFICATION MODE (flag): inserts UNVERIFIED and sends a verification email", async () => {
+    process.env.WAITLIST_REQUIRE_VERIFICATION = "1";
     vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
       const u = String(url);
       if (u.includes("email=eq.")) return R([]);                                   // no dedup hit
@@ -103,6 +162,7 @@ describe("waitlist join", () => {
   });
 
   it("ignores a forged x-forwarded-host in the verification link (no branded-email open redirect)", async () => {
+    process.env.WAITLIST_REQUIRE_VERIFICATION = "1";                               // link only exists in verification mode
     vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
       const u = String(url);
       if (u.includes("email=eq.")) return R([]);
@@ -131,7 +191,40 @@ describe("waitlist join", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("duplicate UNVERIFIED email → re-sends the verification link, stays pending, no insert", async () => {
+  it("duplicate UNVERIFIED email, INSTANT mode → auto-verifies the old row, returns position, no insert", async () => {
+    const posts: string[] = []; const patches: any[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (init?.method === "POST") posts.push(u);
+      if (init?.method === "PATCH") { patches.push(u); return R([{ id: "w9" }]); }  // we flipped it
+      if (u.includes("email=eq.")) return R([{ id: "w9", created_at: "2026-07-01T00:00:00Z", invited_at: null, verified_at: null }]);
+      if (u.includes("created_at=lte.")) return R([], { count: 3 });
+      return R([], { count: 40 });
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "join" }, body: { email: "stu@school.edu" }, headers: {} }, res);
+    expect(res.body).toMatchObject({ ok: true, alreadyJoined: true, verified: true, position: 3, total: 40 });
+    expect(posts).toHaveLength(0);                                   // no new row
+    expect(patches[0]).toContain("verified_at=is.null");             // idempotent flip
+    expect(sent).toHaveLength(1);                                    // their #position email (never got one)
+    expect(sent[0].subject).toMatch(/#3/);
+  });
+
+  it("duplicate UNVERIFIED email, INSTANT mode: failed verify-flip PATCH → error, never a fake success", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (init?.method === "PATCH") return R({ message: "boom" }, { ok: false, status: 503 });   // flip couldn't persist
+      if (u.includes("email=eq.")) return R([{ id: "w9", created_at: "2026-07-01T00:00:00Z", invited_at: null, verified_at: null }]);
+      return R([], { count: 0 });
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "join" }, body: { email: "stu@school.edu" }, headers: {} }, res);
+    expect(res.statusCode).toBe(502);                                // surfaced, not a lying 200 verified:true
+    expect(sent).toHaveLength(0);
+  });
+
+  it("duplicate UNVERIFIED email, VERIFICATION MODE → re-sends the verification link, stays pending, no insert", async () => {
+    process.env.WAITLIST_REQUIRE_VERIFICATION = "1";
     const posts: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
       const u = String(url);
@@ -223,6 +316,37 @@ describe("waitlist verify", () => {
   });
 });
 
+describe("waitlist remove (one-click opt-out)", () => {
+  const rmToken = (id: string, exp: number) => `${id}.${exp}.${createHmac("sha256", "svc").update(`rm.${id}.${exp}`).digest("base64url")}`;
+
+  it("valid token deletes the row and shows the off-the-list page", async () => {
+    const deletes: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      if (init?.method === "DELETE") { deletes.push(String(url)); return R([]); }
+      return R([]);
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "GET", query: { action: "remove", token: rmToken("w1", Date.now() + 60000) }, headers: { host: "fschoolai.com" } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(String(res.body)).toMatch(/off the list/i);
+    expect(deletes[0]).toContain("id=eq.w1");
+  });
+
+  it("forged or verify-domain token never deletes (domain-separated HMAC)", async () => {
+    const exp = Date.now() + 60000;
+    const verifyToken = `w1.${exp}.${createHmac("sha256", "svc").update(`w1.${exp}`).digest("base64url")}`; // valid VERIFY token
+    const deletes: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any, init: any) => {
+      if (init?.method === "DELETE") { deletes.push(String(url)); return R([]); }
+      return R([]);
+    }));
+    const h = await load(); const res = makeRes();
+    await h({ method: "GET", query: { action: "remove", token: verifyToken }, headers: { host: "fschoolai.com" } }, res);
+    expect(String(res.body)).toMatch(/isn't valid/i);
+    expect(deletes).toHaveLength(0);
+  });
+});
+
 describe("waitlist stats + invites", () => {
   it("stats counts VERIFIED members only", async () => {
     const urls: string[] = [];
@@ -293,8 +417,8 @@ describe("waitlist stats + invites", () => {
     }));
     const h = await load(); const res = makeRes();
     await h({ method: "POST", query: { action: "join" }, body: { email: "stu@school.edu", name: "Bob\n\nURGENT: go to http://evil.example" }, headers: {} }, res);
-    expect(sent).toHaveLength(1);
-    expect(sent[0].text).not.toMatch(/\n\s*URGENT/);                            // injected lines flattened to one
+    expect(sent).toHaveLength(2);                                               // position email + internal notify
+    expect(sent.every(m => !/\n\s*URGENT/.test(m.text))).toBe(true);            // injected lines flattened everywhere
     expect(sent[0].text).toContain("Bob URGENT: go to http://evil.example");
   });
 
