@@ -45,7 +45,22 @@ export async function requireUser(req: any): Promise<{ userId: string; authId: s
   if (error || !data?.user) return null;
   const authId = data.user.id as string;
   const { data: rows } = await sb.from("users").select("id").eq("auth_id", authId).limit(1);
-  const userId = rows?.[0]?.id ?? null;
+  let userId = rows?.[0]?.id ?? null;
+
+  // Lazy-link a legacy account: the JWT is valid but no users row is linked to this auth_id yet
+  // (pre-migration accounts whose auth_id was never backfilled). Link by the JWT's VERIFIED email
+  // so their first authenticated API call self-heals instead of hard-failing every enforced
+  // endpoint. Only link a row that is unlinked (or already this authId) — never steal a row that
+  // belongs to a different auth_id.
+  if (!userId && data.user.email) {
+    const { data: byEmail } = await sb.from("users").select("id, auth_id").ilike("email", data.user.email).limit(1);
+    const cand = byEmail?.[0];
+    if (cand && (!cand.auth_id || cand.auth_id === authId)) {
+      if (!cand.auth_id) await sb.from("users").update({ auth_id: authId }).eq("id", cand.id);
+      userId = cand.id;
+    }
+  }
+
   if (!userId) return null;
   return { userId, authId };
 }

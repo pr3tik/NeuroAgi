@@ -17,9 +17,29 @@
 
 import { createClient } from "@supabase/supabase-js";
 import nacl from "tweetnacl";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { requireUser } from "./_auth.js";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 const DISCORD_API = "https://discord.com/api/v10";
+
+// Signed OAuth `state` — binds the account-link flow to the authenticated initiator so the
+// callback can't be tricked into linking a Discord account to a victim's profile (the old flow
+// took a plaintext uid from an unauthenticated navigation → account-linking CSRF).
+function stateSecret() { return process.env.SUPABASE_SERVICE_KEY || process.env.CRON_SECRET || "discord-state-dev"; }
+function signState(uid: string, exp: number) {
+  return `${uid}.${exp}.${createHmac("sha256", stateSecret()).update(`${uid}.${exp}`).digest("base64url")}`;
+}
+function readState(state: string): string | null {
+  const p = String(state || "").split(".");
+  if (p.length !== 3) return null;
+  const [uid, expStr, sig] = p;
+  const exp = parseInt(expStr, 10);
+  if (!uid || !Number.isFinite(exp) || Date.now() > exp) return null;
+  const expected = createHmac("sha256", stateSecret()).update(`${uid}.${expStr}`).digest("base64url");
+  try { return sig.length === expected.length && timingSafeEqual(Buffer.from(sig), Buffer.from(expected)) ? uid : null; }
+  catch { return null; }
+}
 
 // Vercel: disable automatic body parsing — raw bytes required for Ed25519 verify.
 export const config = { api: { bodyParser: false } };
@@ -141,25 +161,31 @@ export default async function handler(req, res) {
   const action = req.query.action;
 
   // ── GET ?action=login ─────────────────────────────────────────────────────
+  // Fetched (not navigated) by the client so it carries the caller's JWT; we derive the uid from
+  // the verified session and sign it into `state`, then return the OAuth URL for the client to
+  // navigate to. The uid is NEVER taken from the query (that was the CSRF).
   if (action === "login") {
-    const uid = req.query.uid;
-    if (!uid) return res.status(400).send("Missing uid");
+    const authed = await requireUser(req);
+    if (!authed) return res.status(401).json({ error: "Authentication required." });
+    const state = signState(authed.userId, Date.now() + 10 * 60 * 1000);   // 10 min to complete
     const params = new URLSearchParams({
       client_id:     process.env.DISCORD_CLIENT_ID,
       redirect_uri:  process.env.DISCORD_REDIRECT_URI,
       response_type: "code",
       scope:         "identify guilds.join",
-      state:         uid,
+      state,
       prompt:        "consent",
     });
-    res.writeHead(302, { Location: `https://discord.com/oauth2/authorize?${params}` });
-    return res.end();
+    return res.status(200).json({ url: `https://discord.com/oauth2/authorize?${params}` });
   }
 
   // ── GET ?action=callback ──────────────────────────────────────────────────
   if (action === "callback") {
-    const { code, state: uid } = req.query;
+    const { code, state } = req.query;
     const appBase = process.env.APP_BASE_URL || "https://fschoolai.com";
+    // Derive the uid from the SIGNED state (proves the flow was started by that authenticated
+    // user) — never trust a plaintext state.
+    const uid = readState(String(state ?? ""));
     if (!code || !uid) return res.writeHead(302, { Location: `${appBase}/?discord=error` }).end();
 
     try {

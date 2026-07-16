@@ -418,7 +418,18 @@ export default function Identity() {
             </div>
           ) : (
             <a
-              href={userId ? `/api/discord?action=login&uid=${userId}` : "#"}
+              href="#"
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!userId) return;
+                // Fetch (so the JWT is attached) → server derives the uid from the session +
+                // signs it into the OAuth state → navigate. Never passes uid in the URL.
+                try {
+                  const r = await fetch("/api/discord?action=login");
+                  const d = await r.json().catch(() => null);
+                  if (d?.url) window.location.href = d.url;
+                } catch { /* ignore */ }
+              }}
               style={{
                 display: "flex", alignItems: "center", gap: "12px",
                 padding: "14px 16px",
