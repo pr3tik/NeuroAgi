@@ -967,6 +967,10 @@ function AccessSettingsModal({ initial, hasCourse, onSave, onClose }: {
 }
 
 const CURSOR_COLORS = ["#60a5fa","#f472b6","#34d399","#fbbf24","#a78bfa","#fb923c","#22d3ee","#e879f9"];
+// Quiet period before the board is snapshotted for the AI (AI-06). Long enough that a
+// normal writing burst produces one snapshot rather than one per stroke.
+const WB_SNAPSHOT_QUIET_MS = 4000;
+
 function cursorColor(uid: string) {
   let h = 0;
   for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0;
@@ -1034,6 +1038,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const yjsProviderRef  = useRef<SupabaseBroadcastProvider | null>(null);
   const yjsStrokesRef   = useRef<Y.Array<any> | null>(null);
   const yjsMetaRef      = useRef<Y.Map<any> | null>(null);
+  const wbSnapTimerRef    = useRef<any>(null);
+  const wbSnapInFlightRef = useRef(false);
 
   const channelRef          = useRef(null);
   const reqChRef            = useRef(null);
@@ -1612,6 +1618,43 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     setCanUndo(true);
     setCanRedo(false);
   }
+
+  // ── AI-06 / BE-07: push an AI-readable board snapshot once the board goes quiet ──────
+  // The live board is a Yjs doc in browser memory and is never written to Postgres, so the
+  // server cannot read it — the client holding the doc has to push. whiteboard_snapshots is
+  // therefore the ONLY durable record of a board, and without this the room AI has no board
+  // context to cite (api/_board.ts explains the model in full).
+  //
+  // Every member emits: the board has no leader to elect, and electing one would stop
+  // snapshots dead the moment that member left. That is safe because the server dedupes on
+  // a content digest — the first push of a given board state writes the row and the rest are
+  // no-ops. `revision` is deliberately NOT sent: with concurrent editors no client can know
+  // the current revision, so the server assigns it.
+  useEffect(() => {
+    if (!room?.id || !strokes.length) return;
+    clearTimeout(wbSnapTimerRef.current);
+    wbSnapTimerRef.current = setTimeout(async () => {
+      if (wbSnapInFlightRef.current) return;   // never queue behind a slow push
+      wbSnapInFlightRef.current = true;
+      try {
+        // Read from Yjs, not React state: the doc is the source of truth and may have
+        // advanced since this effect was scheduled.
+        const current = (yjsStrokesRef.current?.toArray() as Stroke[]) ?? strokes;
+        if (!current.length) return;
+        await fetch("/api/room-board?action=snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },   // JWT added by installApiAuth
+          body: JSON.stringify({ roomId: room.id, strokes: current }),
+        });
+      } catch {
+        // Non-fatal by design: a dropped snapshot costs nothing a later milestone cannot
+        // recover, and a failed background push must never surface in a study session.
+      } finally {
+        wbSnapInFlightRef.current = false;
+      }
+    }, WB_SNAPSHOT_QUIET_MS);
+    return () => clearTimeout(wbSnapTimerRef.current);
+  }, [strokes, room?.id]);
 
   function handleEraseStroke(strokeId: string) {
     const arr = yjsStrokesRef.current;

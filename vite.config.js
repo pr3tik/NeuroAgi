@@ -675,6 +675,14 @@ export default defineConfig({
     handlerProxy("/api/library-agent",    () => import("./api/library-agent.js")),
     handlerProxy("/api/university-brain", () => import("./api/university-brain.js"), [...HANDLER_ENV, "GROQ_KEY"]),
     handlerProxy("/api/room-session",     () => import("./api/room-session.js")),
+    // Jobs worker (BE-08). No local cron — drive a tick by hand in dev:
+    //   curl.exe -X POST "http://localhost:5173/api/jobs?action=run" -H "x-cron-secret: $CRON_SECRET"
+    // OPENAI_API_KEY is needed because the AI-10 summary handler retrieves sources.
+    handlerProxy("/api/jobs",             () => import("./api/jobs.js"),          [...HANDLER_ENV, "CRON_SECRET", "OPENAI_API_KEY"]),
+    handlerProxy("/api/room-board",       () => import("./api/room-board.js")),
+    // Group AI turn (AI-04): OPENAI_API_KEY for the retrieval embed, GROQ_KEY for the
+    // gateway's cross-provider fallback.
+    handlerProxy("/api/room-ai",          () => import("./api/room-ai.js"),       [...HANDLER_ENV, "OPENAI_API_KEY", "GROQ_KEY", "ANTHROPIC_MODEL"]),
     handlerProxy("/api/waitlist",         () => import("./api/waitlist.js"),        [...HANDLER_ENV, "RESEND_API_KEY", "CRON_SECRET"]),
     handlerProxy("/api/nudge",            () => import("./api/nudge.js"),         [...HANDLER_ENV, "RESEND_API_KEY"]),
     handlerProxy("/api/guest-demo",       () => import("./api/guest-demo.js"),    HANDLER_ENV)],
