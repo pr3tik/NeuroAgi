@@ -103,21 +103,23 @@ export default async function handler(req, res) {
       .from("users").select("email, name").eq("id", toUserId).maybeSingle();
 
     if (recipient?.email) {
-      const who  = fromName || "A friend";
-      const room = roomName ? `“${roomName}”` : "a study room";
+      const esc = (s: any) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+      const whoRaw = fromName || "A friend";                       // plaintext (subject)
+      const who  = esc(whoRaw);                                    // escaped (HTML body)
+      const room = roomName ? `“${esc(roomName)}”` : "a study room";
       const appUrl = getBaseUrl(req);
       try {
         await resend.emails.send({
           from:    "FSchoolAI <noreply@fschoolai.com>",
           to:      recipient.email,
-          subject: `${who} wants you to study`,
+          subject: `${whoRaw} wants you to study`,
           html: "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>body{margin:0;padding:0;background:#FDFAF4}</style></head><body>"
             + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background:#FDFAF4\">"
             + "<tr><td align=\"center\" style=\"padding:48px 24px\">"
             + "<table width=\"480\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:480px;width:100%;background:#FDFAF4;border-top:3px solid #C49A3C\">"
             + "<tr><td style=\"padding:40px 40px 0 40px\">"
             + "<p style=\"font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:rgba(26,24,20,0.4);margin:0 0 28px 0;font-weight:500\">FSchoolAI · Study Rooms</p>"
-            + "<h2 style=\"font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:700;color:#1a1814;margin:0 0 16px 0;line-height:1.2\">" + who + " is studying" + (recipient.name ? ", " + recipient.name : "") + ".</h2>"
+            + "<h2 style=\"font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:700;color:#1a1814;margin:0 0 16px 0;line-height:1.2\">" + who + " is studying" + (recipient.name ? ", " + esc(recipient.name) : "") + ".</h2>"
             + "<p style=\"font-family:-apple-system,Helvetica,Arial,sans-serif;color:rgba(26,24,20,0.55);margin:0 0 32px 0;line-height:1.7;font-size:15px\">They invited you to join " + room + " on FSchoolAI. Hop in and study together.</p>"
             + "<table cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"border-radius:10px;background:#1a1814\">"
             + "<a href=\"" + appUrl + "\" style=\"display:inline-block;background:#1a1814;color:#F6F2E9;text-decoration:none;padding:14px 28px;border-radius:10px;font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600\">Join the room &rarr;</a>"

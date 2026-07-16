@@ -22,9 +22,11 @@ export default async function handler(req, res) {
   const _uid = await requireUserOr401(req, res); if (!_uid) return;
   const { path, expiresIn = 3600 } = req.body ?? {};
   if (!path || typeof path !== "string") return res.status(400).json({ error: "path required" });
-  // Storage layout is `<userId>/...` — a caller may only sign their OWN files, otherwise anyone
-  // could download another student's private docs by guessing/knowing their path.
-  if (String(path).split("/")[0] !== _uid) return res.status(403).json({ error: "forbidden" });
+  // Storage layout is `<userId>/...` — a caller may only sign their OWN files. Reject anything
+  // whose first segment isn't the caller, plus any `..`/empty segment (a naive first-segment
+  // check is defeated by `<myId>/../<victimId>/secret.pdf`).
+  const _seg = String(path).split("/");
+  if (_seg[0] !== _uid || _seg.some(p => p === "" || p === "..")) return res.status(403).json({ error: "forbidden" });
 
   try {
     const r = await fetch(`${supabaseUrl}/storage/v1/object/sign/course-files/${path}`, {

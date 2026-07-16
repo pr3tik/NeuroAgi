@@ -42,6 +42,9 @@ async function sign(body) {
 async function start(body) {
   const { userId, storagePath, title = "Recording", courseId = null, kind = "audio" } = body ?? {};
   if (!userId || !storagePath) return { status: 400, json: { error: "userId and storagePath required" } };
+  // Uploads live under `<userId>/...`; reject any path outside the caller's namespace so a
+  // client can't have us download/transcribe/delete another user's media by its path.
+  if (!String(storagePath).startsWith(userId + "/") || String(storagePath).includes("..")) return { status: 403, json: { error: "forbidden storage path" } };
   if (!elevenKey()) return { status: 500, json: { error: "ELEVENLABS_API_KEY not configured" } };
 
   const jobId = randomUUID();
@@ -94,12 +97,13 @@ async function start(body) {
 
 // ── status: return the job row (Scribe is sync, so this is just a fallback) ──────
 async function status(body) {
-  const { jobId } = body ?? {};
+  const { jobId, userId } = body ?? {};
   if (!jobId) return { status: 400, json: { error: "jobId required" } };
-  const { data } = await supabase
-    .from("media_jobs")
-    .select("id, status, error, document_id, title")
-    .eq("id", jobId).maybeSingle();
+  // Scope to the caller (userId is the verified id set by the handler) so a job can't be read
+  // cross-user by its id.
+  let q = supabase.from("media_jobs").select("id, status, error, document_id, title").eq("id", jobId);
+  if (userId) q = q.eq("user_id", userId);
+  const { data } = await q.maybeSingle();
   return { status: 200, json: { job: data || null } };
 }
 

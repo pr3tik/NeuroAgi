@@ -51,15 +51,15 @@ DECLARE
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.room_members
-    WHERE room_id = p_room AND user_id = p_user AND status = 'joined'
+    WHERE room_id = p_room AND user_id = public.current_profile_id() AND status = 'joined'
   ) THEN
     RAISE EXCEPTION 'not a joined member';
   END IF;
 
-  SELECT name INTO uname FROM public.users WHERE id = p_user;
+  SELECT name INTO uname FROM public.users WHERE id = public.current_profile_id();
 
   INSERT INTO public.whiteboard_strokes(room_id, user_id, name, mode, style, color, width, points)
-  VALUES (p_room, p_user, COALESCE(uname, 'Anonymous'), p_mode, p_style, p_color, p_width, p_points)
+  VALUES (p_room, public.current_profile_id(), COALESCE(uname, 'Anonymous'), p_mode, p_style, p_color, p_width, p_points)
   RETURNING * INTO stroke;
 
   RETURN stroke;
@@ -75,7 +75,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.room_members
-    WHERE room_id = p_room AND user_id = p_user AND status = 'joined'
+    WHERE room_id = p_room AND user_id = public.current_profile_id() AND status = 'joined'
   ) THEN
     RAISE EXCEPTION 'not a joined member';
   END IF;
@@ -96,7 +96,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.room_members
-    WHERE room_id = p_room AND user_id = p_user AND status = 'joined'
+    WHERE room_id = p_room AND user_id = public.current_profile_id() AND status = 'joined'
   ) THEN
     RAISE EXCEPTION 'not a joined member';
   END IF;
@@ -114,7 +114,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.room_members
-    WHERE room_id = p_room AND user_id = p_user AND status = 'joined'
+    WHERE room_id = p_room AND user_id = public.current_profile_id() AND status = 'joined'
   ) THEN
     RAISE EXCEPTION 'not a joined member';
   END IF;
@@ -132,7 +132,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.room_members
-    WHERE room_id = p_room AND user_id = p_user AND status = 'joined'
+    WHERE room_id = p_room AND user_id = public.current_profile_id() AND status = 'joined'
   ) THEN
     RAISE EXCEPTION 'not a joined member';
   END IF;
@@ -143,10 +143,19 @@ END;
 $$;
 
 -- ── 7. Grants + lockdown ──────────────────────────────────────────────────────
-GRANT EXECUTE ON FUNCTION public.add_whiteboard_stroke(text, uuid, text, text, text, int, jsonb) TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.load_whiteboard(text, uuid)                                      TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.delete_whiteboard_stroke(text, uuid, uuid)                       TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.set_whiteboard_bg(text, uuid, text)                              TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.clear_whiteboard(text, uuid)                                     TO anon, authenticated;
+-- The acting user is derived from current_profile_id() (the JWT), NOT the p_user param, so a
+-- session is required — revoke EXECUTE from PUBLIC (anon inherits it) + anon, grant only to
+-- authenticated + service_role. (p_user stays in the signature but is ignored by the bodies.)
+REVOKE EXECUTE ON FUNCTION public.add_whiteboard_stroke(text, uuid, text, text, text, int, jsonb) FROM public, anon;
+REVOKE EXECUTE ON FUNCTION public.load_whiteboard(text, uuid)                                      FROM public, anon;
+REVOKE EXECUTE ON FUNCTION public.delete_whiteboard_stroke(text, uuid, uuid)                       FROM public, anon;
+REVOKE EXECUTE ON FUNCTION public.set_whiteboard_bg(text, uuid, text)                              FROM public, anon;
+REVOKE EXECUTE ON FUNCTION public.clear_whiteboard(text, uuid)                                     FROM public, anon;
+
+GRANT EXECUTE ON FUNCTION public.add_whiteboard_stroke(text, uuid, text, text, text, int, jsonb) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.load_whiteboard(text, uuid)                                      TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_whiteboard_stroke(text, uuid, uuid)                       TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.set_whiteboard_bg(text, uuid, text)                              TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.clear_whiteboard(text, uuid)                                     TO authenticated, service_role;
 
 REVOKE INSERT, UPDATE, DELETE, SELECT ON public.whiteboard_strokes FROM anon, authenticated;

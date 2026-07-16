@@ -119,9 +119,9 @@ export default async function handler(req, res) {
 
           // Build course filter
           const courseFilter = activeCourseId
-            ? `course_id=eq.${activeCourseId}`
+            ? `course_id=eq.${encodeURIComponent(activeCourseId)}`
             : courseIds.length > 0
-              ? `course_id=in.(${courseIds.join(",")})`
+              ? `course_id=in.(${courseIds.map(c => encodeURIComponent(String(c))).join(",")})`
               : null;
 
           if (!courseFilter) return null;

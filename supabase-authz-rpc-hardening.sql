@@ -285,3 +285,11 @@ revoke execute on function
 from public, anon, authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ── Re-sweep follow-up (applied live via Management API) ──────────────────────────
+-- check_room_access(text,uuid) trusted its p_user param (an authenticated "can user X access
+-- room Y" oracle). Hardened to override p_user := current_profile_id() at the top of the body
+-- (so it only ever evaluates the CALLER's access; internal callers already pass that), and
+-- EXECUTE revoked from public/anon, granted to authenticated/service_role.
+-- (The rewrite is done by fetching pg_get_functiondef and injecting the override — see
+-- scratchpad/fix-check-room-access.js — because the body is large; recorded here for the log.)

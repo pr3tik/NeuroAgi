@@ -25,6 +25,14 @@ async function fetchPage(url: string): Promise<{ title: string; text: string }> 
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 8000);
   try {
+    // SSRF guard: http(s) only, and never internal/link-local/private hosts or cloud metadata.
+    const u = new URL(url);
+    if (!/^https?:$/.test(u.protocol)) { clearTimeout(t); return { title: "", text: "" }; }
+    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (h === "localhost" || h === "::1" || h.endsWith(".internal") || h === "metadata.google.internal" ||
+        /^(127\.|0\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|fd|fe80:)/.test(h)) {
+      clearTimeout(t); return { title: "", text: "" };
+    }
     const r = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0 (FschoolAI ContentConnector)" } });
     if (!r.ok) return { title: "", text: "" };
     const html = (await r.text()).slice(0, 400_000);

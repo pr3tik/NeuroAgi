@@ -101,6 +101,16 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: "userId, url, and filename are required" });
   }
 
+  // SSRF guard: this relays a credentialed fetch, so block non-http(s) and internal/link-local/
+  // private/metadata hosts (an LMS file is always a public/institutional host).
+  try {
+    const _u = new URL(url);
+    const _h = _u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (!/^https?:$/.test(_u.protocol) || _h === "localhost" || _h === "::1" || _h.endsWith(".internal") ||
+        _h === "metadata.google.internal" || /^(127\.|0\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|fd|fe80:)/.test(_h))
+      return res.status(400).json({ error: "url host not allowed" });
+  } catch { return res.status(400).json({ error: "invalid url" }); }
+
   // Verify the user exists
   const { data: user, error: userErr } = await sb()
     .from("users")
