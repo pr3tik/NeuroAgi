@@ -142,3 +142,72 @@ persisted** — deliberate (threat: sensitive logs). Known gap: legacy direct-An
 4. **Consent defaults ON** (`consent_room_pedagogy`, `consent_updates`) with per-student
    opt-out columns already in place — surfacing the toggle is a UI task (Pratik, Session
    Review screen).
+
+## 9. The linkage rule (BR-01) — GATE
+
+**Status: SIGNED 2026-07-17.** Owner: Vivek. Gates BR-03, BR-04, BR-05.
+A private, per-person layer is being connected to a cross-account layer. This rule exists
+*before* the code that could leak, per the v3.0 build spec §8.1.
+
+### 9.1 The rule — the arrow points one way
+
+```
+Course Brain  ──►  room grounding  ──►  context for Reggie      ALLOWED
+Derived person-level signals  ──►  NeuroAGI kernel              ALLOWED (source-stamped 'fschoolai')
+Person brain data  ──►  Course Brain, or any shared subject     NEVER — no write path exists
+```
+
+**The Course Brain holds facts about the COURSE, never facts about STUDENTS.** If the arrow
+points one direction only, cross-account leakage cannot happen by construction — there is
+nothing to guard, because there is nothing to reach.
+
+"No write path" means **absent, not guarded**. A guarded path is a path someone later
+un-guards. See §9.4 for the two places this is not yet true.
+
+### 9.2 The boundary, by example
+
+| Fact | Verdict | Why |
+|---|---|---|
+| "The 2025 midterm asked about the Krebs cycle." | ALLOWED | Course fact. Exactly what the Course Brain is for. |
+| "Late submissions lose 10%/day." | ALLOWED | Mechanical policy. Already extracted by `university-brain.ts`. |
+| "Students find the Krebs cycle difficult." | BLOCKED this sprint | Aggregate. Requires k-anon ≥10 on a cohort subject [PRD §18.4]; Cohort is out of scope. |
+| "Aisha finds the Krebs cycle difficult." | **CATASTROPHIC** | Student fact in a cross-account store. No code path may write this. |
+
+### 9.3 Why one-way, and not an ACL
+
+| Source | Says |
+|---|---|
+| [PRD §18.1] | Hard rule — "Education objects (`knowledge_gaps`, `courses`, `assignments`) are *product data*, not brain schema. The brain stores person-level abstractions only." |
+| [PRD §12.3] | "Raw domain data stays in FschoolAI; only learned abstractions enter the Brain." |
+| [PRD §19.9] | "Course-material RAG = product (`rag.*` over the student's uploads); global/profile retrieval = brain (`recall`). Raw course content never enters the brain — only derived signals." |
+| [CORE2] honest-verdict | The kernel's own authors: shared-space writes have **no authorization**; `subject` is **self-reported**; shares **cannot be revoked**; sharing is "undefended against malicious callers." |
+
+The last row is decisive. **We cannot buy isolation with an ACL on a store whose own authors
+say the ACL is undefended and un-revocable.** Keeping course facts in FschoolAI's `course_content`
+— where RLS, `requireUserOr401` and the service-key boundary already work — sidesteps all four
+gaps. The [PRD §18.1] product-data rule and the [CORE2] security reality point at the same
+architecture; this rule is that architecture written down.
+
+### 9.4 Conformance — verified 2026-07-17
+
+| Path | Rule holds? | Evidence |
+|---|---|---|
+| `api/brain.ts` — person brain read/write | **YES, by construction** | `subject` is derived from the verified session (`:38-43`: `requireUserOr401` → `resolveFschoolPerson` → `` subject = `person:${personId}` ``). It is **never read from the body** — there is no parameter with which to name another subject. `recall` reads `[subject]` only; `forget`/`reinforce` are ownership-guarded (`:63`, `:71`). This closes the [CORE2] "subject is self-reported" gap for our kernel. |
+| `api/university-brain.ts` — Course Brain write | **YES** | `requireUserOr401` (`:168`) and a server-side `userId` override (`:169`) — a caller cannot contribute as someone else. Input is professor-published Canvas artifacts fetched server-side with the contributor's own token; the extraction prompt (`:69`) forbids opinions and difficulty judgments. |
+| `api/extension-content.ts` — Course Brain write | **NO — OPEN** | **P0. No `requireUserOr401`.** CORS `*`; `userId` taken from the body and presence-checked only (`:110`); `text` inserted verbatim into `course_content` (`:173-189`). Verified against production 2026-07-17: `POST` with `{}` → **400** (validation), where `university-brain` on the same table → **401** (auth). The `content_type` CHECK blocks the *label* `inbox`/`grade`, not the *content* — `lecture` accepts arbitrary text. §9.2's catastrophic row is writable today by an unauthenticated caller. |
+| `api/brain.ts` — `audience` field | **LATENT** | `audience` is accepted from the request body unvalidated (`:46`, `:48`) and stored. **No read path honors it today** — `bySubjects()` filters on `subject` only — so it leaks nothing now. It becomes a client-controlled ACL the moment audience-based recall is built. Derive it server-side or reject it from the body before that happens. |
+
+**The rule is signed. It is not yet true.** Row 3 must close before any BR-03/BR-05 grounding
+work ships; row 4 must close before any sharing read path is built. BR-06 proves both at the
+service boundary — RLS cannot, because RLS does not reach a second project and does not
+adjudicate `subject` strings inside one table.
+
+### 9.5 Note — §8.1 is stale as of 2026-07-17
+
+§8.1 states the NeuroAGI signals/context_window system "is untouched." PR1–PR9 (2026-07-17)
+introduced `neuro_memory`/`neuro_person`/`neuro_person_link` in the product DB and began
+migrating producers onto it: `brain-signal.ts` now writes only to the kernel, `session-close.ts`
+dual-writes, and `tutor-context.ts:106` marks the old `context_window` read as "a fallback until
+PR7." Six files still reach the separate Brain DB. **Open question for the kernel owner: the
+schedulers synthesize `brain.context_window` from `brain.signals`, which `brain-signal.ts` no
+longer writes — what feeds them during the migration?**

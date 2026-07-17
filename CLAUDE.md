@@ -30,8 +30,15 @@ After any non-trivial change, run **typecheck + build + test** before claiming i
 - **Backend:** Vercel serverless functions in **`api/*.ts`** (one file per endpoint). Several are
   action-routed (`?action=…`) to stay under Vercel's function count limit — e.g. `rag.ts`
   (`ingest|embed|query`), `transcribe.ts` (`sign|start|status`).
-- **Data:** Supabase — Postgres + **pgvector** + Storage. Auth is mostly **not** Supabase Auth;
-  most tables have **RLS disabled** and are accessed with the anon key (client) / service key (server).
+- **Data:** Supabase — Postgres + **pgvector** + Storage. Web auth **is** Supabase Auth (GoTrue);
+  the browser attaches a session JWT to every `/api/*` call. **RLS is ON** for `public.*` user-data
+  tables (as of 2026-07-14): server-only tables are RLS-on deny-all (reached via the service key,
+  which bypasses RLS); user tables are owner-scoped on `current_profile_id()`. The known exception is
+  the **extension-written Canvas tables** (`courses`, `assignments`, `canvas_data`, `files`), left
+  **RLS-off** until the extension sends a verified token (enabling it now denies the extension's
+  anon writes → breaks Canvas sync). The shared `course_content` library is extension-written too and
+  its live RLS state is **unverified here** — check the DB before relying on it. `API-SECURITY.md` is
+  the source of truth for the per-endpoint/per-table posture.
 
 ### Dev-proxy pattern (important)
 
@@ -66,8 +73,12 @@ To test a specific model locally: `ANTHROPIC_MODEL_OCR=claude-sonnet-4-6 npm run
 - **api/ imports use `.js` extensions** even from `.ts` files (e.g. `import { ingest } from "./rag.js"`)
   — ESM resolution on Vercel/Node. Keep this style.
 - **Lenient tsconfig** (`strict: false`, `noImplicitAny: false`). `: any` params are common and fine.
-- **RLS-off + key split:** new tables follow the same pattern — `alter table … disable row level
-  security;` and rely on the service key server-side. Don't add RLS policies unless asked.
+- **New tables ship RLS-ON.** Enable RLS on every new `public.*` table. If the browser reads it,
+  add an owner-scoped policy (`using (user_id = current_profile_id())`); if only the server touches
+  it, RLS-on with **no** policy = deny-all to client keys (the service key still bypasses). Do **not**
+  ship a new table RLS-off — that was the pre-2026-07-14 pattern and it caused a real prod data-exposure
+  window. (Enabling RLS on an *existing* client-read table can break it — see the join-by-code incident
+  — so migrate those deliberately; but new tables start locked.)
 - **PostgREST schema cache:** after a migration adds a table/column, if you hit `PGRST204/PGRST205`,
   run `notify pgrst, 'reload schema';`.
 - **Changing a Postgres function's return type:** `CREATE OR REPLACE FUNCTION` cannot change an
