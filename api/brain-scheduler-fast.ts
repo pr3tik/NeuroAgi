@@ -16,16 +16,13 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const fschool = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
-
-const brain = createClient(
-  process.env.BRAIN_SUPABASE_URL,
-  process.env.BRAIN_SUPABASE_KEY,
-  { db: { schema: "brain" } }   // signals + context_window live in brain schema
-);
+// Supabase clients are ASSIGNED inside the handler, never constructed at module load. Constructing
+// a client with an undefined URL throws "supabaseUrl is required" synchronously — as a module-load
+// `const` that crashed this */5 cron with a 500 on EVERY invocation whenever BRAIN_SUPABASE_* was
+// unset (the prod reality). These stay module-scoped (the helper below reads `brain`) but are only
+// built after a guard, turning the unconfigured case into a clean no-op like the sibling endpoints.
+let fschool: any = null;
+let brain: any = null;
 
 export default async function handler(req, res) {
   // Auth check — FAIL CLOSED: reject if CRON_SECRET is missing or wrong.
@@ -35,6 +32,13 @@ export default async function handler(req, res) {
   if (auth !== `Bearer ${cronSecret}` && auth !== cronSecret) {
     return res.status(401).json({ error: "Unauthorized" });
   }
+
+  // Graceful no-op if env is missing — never crash the cron at construction time.
+  const brainUrl = process.env.BRAIN_SUPABASE_URL, brainKey = process.env.BRAIN_SUPABASE_KEY;
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) return res.status(200).json({ ok: false, reason: "missing fschool env" });
+  if (!brainUrl || !brainKey) return res.status(200).json({ ok: false, reason: "brain db not configured" });
+  fschool = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  brain = createClient(brainUrl, brainKey, { db: { schema: "brain" } });
 
   const startTime = Date.now();
 
