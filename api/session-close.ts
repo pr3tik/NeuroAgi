@@ -32,6 +32,7 @@ import { embed } from "./rag.js";
 import { awardTechniqueTypeIfEligible } from "./_achievements.js";
 import { postgrestStore, remember } from "./_brain/kernel.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
+import { runHypothesisPass } from "./_brain/hypothesis.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -221,6 +222,9 @@ RULES:
             body: { summary: String(mindDoc).slice(0, 2000) },
           });
         }
+        // Reflection: mine recent signals into hypotheses/focus the tutor will surface next time.
+        // Pure derived layer — writes memories only, delivers nothing to the user.
+        await runHypothesisPass(store, subject).catch(() => {});
       }
     } catch (e: any) { console.error("[session-close] kernel write failed:", e?.message); }
 
