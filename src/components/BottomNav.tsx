@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from "react";
 
-const ACCENT   = "rgba(0,210,190,0.95)";
+const ACCENT   = "rgba(var(--teal-rgb), 0.95)";
 const INACTIVE = "rgba(255,255,255,0.42)";
 const RAIL_W   = 232;
 
@@ -75,8 +75,8 @@ function SideItem({ pageKey, active, collapsed, onClick }) {
         display: "flex", alignItems: "center", gap: collapsed ? 0 : "12px",
         justifyContent: collapsed ? "center" : "flex-start",
         width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit",
-        background: active ? "rgba(0,210,190,0.1)" : "transparent",
-        border: "1px solid " + (active ? "rgba(0,210,190,0.28)" : "transparent"),
+        background: active ? "rgba(var(--teal-rgb), 0.1)" : "transparent",
+        border: "1px solid " + (active ? "rgba(var(--teal-rgb), 0.28)" : "transparent"),
         borderRadius: "12px", padding: collapsed ? "11px 0" : "11px 13px",
         color: active ? ACCENT : INACTIVE,
         transition: "background 0.15s, color 0.15s, border-color 0.15s",

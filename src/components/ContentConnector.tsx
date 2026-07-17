@@ -17,12 +17,12 @@ interface FeedRow {
 function ConnectionCard({ c }: { c: Connection }) {
   return (
     <div style={{
-      background: "rgba(196,154,60,0.05)", border: "1px solid rgba(196,154,60,0.16)",
+      background: "rgba(var(--gold-rgb), 0.05)", border: "1px solid rgba(var(--gold-rgb), 0.16)",
       borderRadius: "10px", padding: "10px 12px",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-        <BookOpen size={13} style={{ color: "#C49A3C", flexShrink: 0 }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#C49A3C" }}>
+        <BookOpen size={13} style={{ color: "var(--gold)", flexShrink: 0 }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--gold)" }}>
           {c.concept}{c.course ? ` · ${c.course}` : ""}
         </span>
       </div>
@@ -86,7 +86,7 @@ export default function ContentConnector() {
       padding: "20px", marginBottom: "24px",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-        <Link2 size={16} style={{ color: "#C49A3C" }} />
+        <Link2 size={16} style={{ color: "var(--gold)" }} />
         <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>Connect it to your courses</p>
       </div>
       <p style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 14 }}>
@@ -113,9 +113,9 @@ export default function ContentConnector() {
           disabled={loading || !input.trim()}
           style={{
             padding: "9px 14px", borderRadius: "var(--radius-btn)",
-            background: loading || !input.trim() ? "rgba(255,255,255,0.06)" : "rgba(196,154,60,0.14)",
-            border:     loading || !input.trim() ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(196,154,60,0.3)",
-            color:      loading || !input.trim() ? "var(--text-dim)" : "#C49A3C",
+            background: loading || !input.trim() ? "rgba(255,255,255,0.06)" : "rgba(var(--gold-rgb), 0.14)",
+            border:     loading || !input.trim() ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(var(--gold-rgb), 0.3)",
+            color:      loading || !input.trim() ? "var(--text-dim)" : "var(--gold)",
             fontSize: 13, fontWeight: 600, cursor: loading || !input.trim() ? "default" : "pointer",
             fontFamily: "inherit", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6,
           }}

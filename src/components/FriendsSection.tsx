@@ -315,7 +315,7 @@ export default function FriendsSection({ userId, ownName }: { userId: string; ow
             style={{
               width: "100%", boxSizing: "border-box",
               background: "rgba(255,255,255,0.05)",
-              border: `1.5px solid ${inputFocus ? "rgba(196,154,60,0.55)" : "rgba(255,255,255,0.10)"}`,
+              border: `1.5px solid ${inputFocus ? "rgba(var(--gold-rgb), 0.55)" : "rgba(255,255,255,0.10)"}`,
               borderRadius: "12px",
               padding: "13px 44px 13px 40px",
               color: "var(--text-primary)", fontSize: "14px",

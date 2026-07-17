@@ -100,11 +100,11 @@ function HighlightedText({
           <mark
             key={i}
             style={{
-              background: "rgba(196,154,60,0.2)",
+              background: "rgba(var(--gold-rgb), 0.2)",
               color: "rgba(245,245,245,0.95)",
               borderRadius: "3px",
               padding: "0 1px",
-              boxShadow: "inset 0 -1.5px 0 rgba(196,154,60,0.5)",
+              boxShadow: "inset 0 -1.5px 0 rgba(var(--gold-rgb), 0.5)",
               // No transition — marks are stable after render
             }}
           >
@@ -299,8 +299,8 @@ export default function DocReader({ file, onBack, onNavigate }: Props) {
         <span style={{
           fontSize: "10px", fontWeight: "700", letterSpacing: "0.6px",
           textTransform: "uppercase", padding: "3px 8px", borderRadius: "5px",
-          background: "rgba(196,154,60,0.1)", color: "#C49A3C",
-          border: "1px solid rgba(196,154,60,0.22)", flexShrink: 0,
+          background: "rgba(var(--gold-rgb), 0.1)", color: "var(--gold)",
+          border: "1px solid rgba(var(--gold-rgb), 0.22)", flexShrink: 0,
         }}>
           {fileExt}
         </span>
@@ -311,13 +311,13 @@ export default function DocReader({ file, onBack, onNavigate }: Props) {
         <section style={{ marginBottom: "28px" }}>
           <p style={{
             fontSize: "11px", fontWeight: "700", letterSpacing: "0.6px",
-            textTransform: "uppercase", color: "#C49A3C",
+            textTransform: "uppercase", color: "var(--gold)",
             margin: "0 0 10px",
           }}>
             AI Summary
           </p>
           <div style={{
-            borderLeft: "2px solid rgba(196,154,60,0.4)",
+            borderLeft: "2px solid rgba(var(--gold-rgb), 0.4)",
             paddingLeft: "16px",
           }}>
             <p style={{
@@ -346,7 +346,7 @@ export default function DocReader({ file, onBack, onNavigate }: Props) {
               <li key={i} style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
                 <span style={{
                   width: 5, height: 5, borderRadius: "50%",
-                  background: "#C49A3C", flexShrink: 0, marginTop: "8px",
+                  background: "var(--gold)", flexShrink: 0, marginTop: "8px",
                 }} />
                 <p style={{
                   fontSize: "13px", lineHeight: "1.65",
@@ -387,7 +387,7 @@ export default function DocReader({ file, onBack, onNavigate }: Props) {
             <span style={{
               width: 16, height: 16, borderRadius: "50%",
               border: "2px solid rgba(255,255,255,0.1)",
-              borderTopColor: "#C49A3C",
+              borderTopColor: "var(--gold)",
               animation: "docSpin 0.7s linear infinite",
               display: "inline-block", flexShrink: 0,
             }} />
@@ -405,7 +405,7 @@ export default function DocReader({ file, onBack, onNavigate }: Props) {
           }}>
             <span style={{ flex: 1 }}>{error}</span>
             <button onClick={fetchContent} style={{
-              background: "none", border: "none", color: "#C49A3C",
+              background: "none", border: "none", color: "var(--gold)",
               cursor: "pointer", fontSize: "13px", fontFamily: "inherit",
               textDecoration: "underline", flexShrink: 0,
             }}>

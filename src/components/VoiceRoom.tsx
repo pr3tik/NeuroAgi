@@ -342,8 +342,8 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
               onClick={onToggleHand}
               title={handRaised ? "Lower hand" : "Raise hand"}
               style={{
-                background: handRaised ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.06)",
-                border: `1px solid ${handRaised ? "rgba(196,154,60,0.5)" : "rgba(255,255,255,0.12)"}`,
+                background: handRaised ? "rgba(var(--gold-rgb), 0.18)" : "rgba(255,255,255,0.06)",
+                border: `1px solid ${handRaised ? "rgba(var(--gold-rgb), 0.5)" : "rgba(255,255,255,0.12)"}`,
                 borderRadius: "6px",
                 color: handRaised ? "#c49a3c" : "var(--text-dim)",
                 fontSize: "11px",

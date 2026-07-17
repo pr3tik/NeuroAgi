@@ -181,8 +181,8 @@ export default function ArtifactPanel({ code, type = "viz", onClose }) {
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div style={{
               width: 8, height: 8, borderRadius: "50%",
-              background: "#C49A3C",
-              boxShadow: "0 0 8px rgba(196,154,60,0.5)",
+              background: "var(--gold)",
+              boxShadow: "0 0 8px rgba(var(--gold-rgb), 0.5)",
             }} />
             <span style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: "600" }}>
               {PANEL_HEADERS[type] ?? "Visualization"}

@@ -17,9 +17,9 @@ export const COURSE_COLORS = [
   "rgba(255,105,100,0.85)",  // coral
   "rgba(60,220,200,0.75)",   // mint
   "rgba(255,145,180,0.85)",  // rose
-  "rgba(255,215,80,0.85)",   // gold
+  "rgba(var(--gold-bright-rgb), 0.85)",   // gold
 ];
-const GPA_COLOR = "rgba(0,210,190,0.85)"; // teal highlight
+const GPA_COLOR = "rgba(var(--teal-rgb), 0.85)"; // teal highlight
 
 // ── Placeholder data (shown when Canvas is not connected) ────────────────────
 const PLACEHOLDER_COURSES = ["PSYC 302", "CS 355", "BUS 410", "MATH 241"];
@@ -263,7 +263,7 @@ export default function GradeGraph({ courses = [], assignments = [], connected =
           ))}
           <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
             <div style={{ width: 16, height: 2, background: GPA_COLOR, borderRadius: 1 }} />
-            <span style={{ fontSize: "10px", color: "rgba(0,210,190,0.7)" }}>Overall GPA</span>
+            <span style={{ fontSize: "10px", color: "rgba(var(--teal-rgb), 0.7)" }}>Overall GPA</span>
           </div>
         </div>
       </div>

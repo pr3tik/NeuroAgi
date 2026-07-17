@@ -11,7 +11,7 @@ import { useApp } from "../context/AppContext";
  */
 
 const AVATAR_HUE = [
-  "rgba(0,210,190,0.7)",
+  "rgba(var(--teal-rgb), 0.7)",
   "rgba(100,150,255,0.7)",
   "rgba(255,130,100,0.7)",
   "rgba(175,130,255,0.7)",
@@ -234,10 +234,10 @@ export default function ShareCard() {
             // Fallback for legacy plain-text entries
             <div style={{
               width: 40, height: 40, borderRadius: "8px", flexShrink: 0,
-              background: "rgba(0,210,190,0.12)",
+              background: "rgba(var(--teal-rgb), 0.12)",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
-              <Music size={18} style={{ color: "rgba(0,210,190,0.9)" }} />
+              <Music size={18} style={{ color: "rgba(var(--teal-rgb), 0.9)" }} />
             </div>
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -309,7 +309,7 @@ export default function ShareCard() {
           {loading && (
             <span style={{
               position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-              fontSize: "11px", opacity: 0.4, color: "rgba(0,210,190,0.8)",
+              fontSize: "11px", opacity: 0.4, color: "rgba(var(--teal-rgb), 0.8)",
             }}>
               ···
             </span>
@@ -417,7 +417,7 @@ export default function ShareCard() {
         {/* Teal accent stripe */}
         <div style={{
           position: "absolute", top: 0, left: 0, right: 0, height: "2px",
-          background: "linear-gradient(90deg, rgba(0,210,190,0.7) 0%, rgba(0,210,190,0.1) 60%, transparent 100%)",
+          background: "linear-gradient(90deg, rgba(var(--teal-rgb), 0.7) 0%, rgba(var(--teal-rgb), 0.1) 60%, transparent 100%)",
           borderRadius: "20px 20px 0 0",
           pointerEvents: "none",
         }} />
@@ -425,7 +425,7 @@ export default function ShareCard() {
         {/* Ambient glow */}
         <div style={{
           position: "absolute", top: -40, right: -40, width: 180, height: 180,
-          background: "radial-gradient(circle, rgba(0,210,190,0.06) 0%, transparent 70%)",
+          background: "radial-gradient(circle, rgba(var(--teal-rgb), 0.06) 0%, transparent 70%)",
           pointerEvents: "none",
         }} />
 
@@ -497,12 +497,12 @@ export default function ShareCard() {
                 onClick={() => setSearching(true)}
                 style={{
                   background: "none", border: "none", padding: "2px 6px",
-                  color: "rgba(0,210,190,0.5)", fontSize: "11px", cursor: "pointer",
+                  color: "rgba(var(--teal-rgb), 0.5)", fontSize: "11px", cursor: "pointer",
                   fontFamily: "inherit", borderRadius: "4px",
                   transition: "color 0.15s",
                 }}
-                onMouseEnter={e => e.currentTarget.style.color = "rgba(0,210,190,0.85)"}
-                onMouseLeave={e => e.currentTarget.style.color = "rgba(0,210,190,0.5)"}
+                onMouseEnter={e => e.currentTarget.style.color = "rgba(var(--teal-rgb), 0.85)"}
+                onMouseLeave={e => e.currentTarget.style.color = "rgba(var(--teal-rgb), 0.5)"}
               >
                 + Add
               </button>
@@ -541,7 +541,7 @@ export default function ShareCard() {
             onClick={handleOptInToggle}
             style={{
               width: 44, height: 26, borderRadius: 13, border: "none", cursor: "pointer",
-              background: optIn ? "rgba(0,210,190,0.7)" : "rgba(255,255,255,0.12)",
+              background: optIn ? "rgba(var(--teal-rgb), 0.7)" : "rgba(255,255,255,0.12)",
               position: "relative", flexShrink: 0,
               transition: "background 0.2s",
             }}
@@ -561,11 +561,11 @@ export default function ShareCard() {
           onClick={handleShare}
           style={{
             width: "100%",
-            background: copied ? "rgba(0,210,190,0.15)" : "rgba(255,255,255,0.07)",
-            border: `1px solid ${copied ? "rgba(0,210,190,0.3)" : "rgba(255,255,255,0.1)"}`,
+            background: copied ? "rgba(var(--teal-rgb), 0.15)" : "rgba(255,255,255,0.07)",
+            border: `1px solid ${copied ? "rgba(var(--teal-rgb), 0.3)" : "rgba(255,255,255,0.1)"}`,
             borderRadius: "12px",
             padding: "12px",
-            color: copied ? "rgba(0,210,190,0.9)" : "var(--text-primary)",
+            color: copied ? "rgba(var(--teal-rgb), 0.9)" : "var(--text-primary)",
             fontSize: "14px",
             fontWeight: "500",
             cursor: "pointer",

@@ -300,7 +300,7 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
               <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, marginLeft: "12px" }}>
                 <button
                   onClick={e => handleUploadClick(cid, e)}
-                  style={{ background: "rgba(0,210,190,0.12)", border: "1px solid rgba(0,210,190,0.25)", borderRadius: "8px", color: "rgba(0,210,190,0.8)", fontSize: "11px", padding: "5px 10px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
+                  style={{ background: "rgba(var(--teal-rgb), 0.12)", border: "1px solid rgba(var(--teal-rgb), 0.25)", borderRadius: "8px", color: "rgba(var(--teal-rgb), 0.8)", fontSize: "11px", padding: "5px 10px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
                 >
                   + Upload
                 </button>
@@ -512,7 +512,7 @@ function RecordingsTab() {
                 />
                 <button
                   onClick={() => addTranscript(cid)}
-                  style={{ marginTop: "8px", background: "rgba(0,210,190,0.1)", border: "1px solid rgba(0,210,190,0.2)", borderRadius: "8px", color: "rgba(0,210,190,0.8)", fontSize: "11px", padding: "6px 14px", cursor: "pointer", fontFamily: "inherit" }}
+                  style={{ marginTop: "8px", background: "rgba(var(--teal-rgb), 0.1)", border: "1px solid rgba(var(--teal-rgb), 0.2)", borderRadius: "8px", color: "rgba(var(--teal-rgb), 0.8)", fontSize: "11px", padding: "6px 14px", cursor: "pointer", fontFamily: "inherit" }}
                 >
                   + Add Transcript
                 </button>
@@ -604,7 +604,7 @@ function TwilioTab() {
           />
           <button
             onClick={savePhone}
-            style={{ background: saved ? "rgba(100,220,155,0.12)" : "rgba(0,210,190,0.12)", border: `1px solid ${saved ? "rgba(100,220,155,0.25)" : "rgba(0,210,190,0.25)"}`, borderRadius: "8px", color: saved ? "rgba(100,220,155,0.8)" : "rgba(0,210,190,0.8)", fontSize: "11px", padding: "9px 14px", cursor: "pointer", fontFamily: "inherit" }}
+            style={{ background: saved ? "rgba(100,220,155,0.12)" : "rgba(var(--teal-rgb), 0.12)", border: `1px solid ${saved ? "rgba(100,220,155,0.25)" : "rgba(var(--teal-rgb), 0.25)"}`, borderRadius: "8px", color: saved ? "rgba(100,220,155,0.8)" : "rgba(var(--teal-rgb), 0.8)", fontSize: "11px", padding: "9px 14px", cursor: "pointer", fontFamily: "inherit" }}
           >
             {saved ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>Saved<Check size={12} /></span> : "Save"}
           </button>
@@ -760,7 +760,7 @@ function LectureDigestTab() {
                 <DigestPanel digest={d} />
                 <button
                   onClick={() => setPendingNav({ page: "study" })}
-                  style={{ marginTop: "8px", background: "rgba(0,210,190,0.1)", border: "1px solid rgba(0,210,190,0.2)", borderRadius: "8px", color: "rgba(0,210,190,0.8)", fontSize: "11px", padding: "8px 14px", cursor: "pointer", fontFamily: "inherit" }}
+                  style={{ marginTop: "8px", background: "rgba(var(--teal-rgb), 0.1)", border: "1px solid rgba(var(--teal-rgb), 0.2)", borderRadius: "8px", color: "rgba(var(--teal-rgb), 0.8)", fontSize: "11px", padding: "8px 14px", cursor: "pointer", fontFamily: "inherit" }}
                 >
                   Study these flashcards →
                 </button>

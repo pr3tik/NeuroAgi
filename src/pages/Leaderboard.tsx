@@ -7,9 +7,10 @@
 
 import { useState, useEffect } from "react";
 import { useApp }              from "../context/AppContext";
+import { GOLD, goldAlpha }     from "../lib/theme";
 
 const TIER_COLORS = {
-  "Brain Owner": "rgba(196,154,60,0.9)",
+  "Brain Owner": "rgba(var(--gold-rgb), 0.9)",
   Mastermind:    "rgba(175,130,255,0.85)",
   Scholar:       "rgba(100,220,180,0.85)",
 };
@@ -82,9 +83,9 @@ function TierRing({ points, tier, size }) {
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}
       style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
       <circle cx={size/2} cy={size/2} r={r} fill="none"
-        stroke="rgba(196,154,60,0.12)" strokeWidth="2.5" />
+        stroke={goldAlpha(0.12)} strokeWidth="2.5" />
       <circle cx={size/2} cy={size/2} r={r} fill="none"
-        stroke="#C49A3C" strokeWidth="2.5"
+        stroke={GOLD} strokeWidth="2.5"
         strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
         transform={`rotate(-90 ${size/2} ${size/2})`}
         style={{ transition: "stroke-dasharray 0.6s ease-out" }} />
@@ -101,14 +102,14 @@ const DEFAULT_LOCATION = {
 
 // ── Medal palette ─────────────────────────────────────────────────────────────
 const MEDAL = [
-  { ring: "rgba(0,210,190,0.65)",    bg: "rgba(0,210,190,0.12)",    text: "rgba(0,210,190,0.95)",    rowBg: "rgba(0,210,190,0.06)",    rowBorder: "rgba(0,210,190,0.22)" },
+  { ring: "rgba(var(--teal-rgb), 0.65)",    bg: "rgba(var(--teal-rgb), 0.12)",    text: "rgba(var(--teal-rgb), 0.95)",    rowBg: "rgba(var(--teal-rgb), 0.06)",    rowBorder: "rgba(var(--teal-rgb), 0.22)" },
   { ring: "rgba(185,200,215,0.55)",  bg: "rgba(185,200,215,0.08)",  text: "rgba(195,210,225,0.9)",   rowBg: "rgba(255,255,255,0.03)",  rowBorder: "rgba(185,200,215,0.14)" },
   { ring: "rgba(205,165,75,0.55)",   bg: "rgba(205,165,75,0.1)",    text: "rgba(215,175,85,0.9)",    rowBg: "rgba(205,165,75,0.04)",   rowBorder: "rgba(205,165,75,0.16)" },
 ];
 
 // ── Avatar colours ────────────────────────────────────────────────────────────
 const AVATAR_HUE = [
-  "rgba(0,210,190,0.65)",
+  "rgba(var(--teal-rgb), 0.65)",
   "rgba(100,150,255,0.65)",
   "rgba(255,130,100,0.65)",
   "rgba(175,130,255,0.65)",
@@ -226,11 +227,11 @@ export default function Leaderboard() {
               key={s}
               onClick={() => setSort(s)}
               style={{
-                background: sort === s ? "rgba(0,210,190,0.1)" : "transparent",
-                border: `1px solid ${sort === s ? "rgba(0,210,190,0.3)" : "rgba(255,255,255,0.08)"}`,
+                background: sort === s ? "rgba(var(--teal-rgb), 0.1)" : "transparent",
+                border: `1px solid ${sort === s ? "rgba(var(--teal-rgb), 0.3)" : "rgba(255,255,255,0.08)"}`,
                 borderRadius: "20px",
                 padding: "5px 14px",
-                color: sort === s ? "rgba(0,210,190,0.9)" : "var(--text-dim)",
+                color: sort === s ? "rgba(var(--teal-rgb), 0.9)" : "var(--text-dim)",
                 fontSize: "12px",
                 fontWeight: sort === s ? "600" : "400",
                 cursor: "pointer",
@@ -247,15 +248,15 @@ export default function Leaderboard() {
       {/* Pinned "You" card — always visible on Tokens tab */}
       {sort === "Tokens" && tokenSummary && (
         <div style={{
-          background: "rgba(196,154,60,0.06)", border: "1px solid rgba(196,154,60,0.25)",
+          background: "rgba(var(--gold-rgb), 0.06)", border: "1px solid rgba(var(--gold-rgb), 0.25)",
           borderRadius: "var(--radius-card)", padding: "14px 16px", marginBottom: "14px",
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
             <div>
-              <span style={{ color: "#C49A3C", fontSize: "13px", fontWeight: "700" }}>{userData?.name ?? "You"}</span>
+              <span style={{ color: "var(--gold)", fontSize: "13px", fontWeight: "700" }}>{userData?.name ?? "You"}</span>
               <TierBadge tier={tokenSummary.tier} />
             </div>
-            <span style={{ color: "#C49A3C", fontSize: "18px", fontWeight: "700", letterSpacing: "-0.5px" }}>
+            <span style={{ color: "var(--gold)", fontSize: "18px", fontWeight: "700", letterSpacing: "-0.5px" }}>
               {tokenSummary.points} pts
             </span>
           </div>
@@ -263,13 +264,13 @@ export default function Leaderboard() {
             const { pct, label, nextTier } = tierProgress(tokenSummary.points, tokenSummary.tier);
             return nextTier ? (
               <>
-                <div style={{ height: "3px", background: "rgba(196,154,60,0.12)", borderRadius: "2px", marginBottom: "5px" }}>
-                  <div style={{ height: "100%", background: "#C49A3C", borderRadius: "2px", width: `${pct * 100}%`, transition: "width 0.6s ease" }} />
+                <div style={{ height: "3px", background: "rgba(var(--gold-rgb), 0.12)", borderRadius: "2px", marginBottom: "5px" }}>
+                  <div style={{ height: "100%", background: "var(--gold)", borderRadius: "2px", width: `${pct * 100}%`, transition: "width 0.6s ease" }} />
                 </div>
-                <p style={{ color: "rgba(196,154,60,0.5)", fontSize: "10px", letterSpacing: "0.3px" }}>{label}</p>
+                <p style={{ color: "rgba(var(--gold-rgb), 0.5)", fontSize: "10px", letterSpacing: "0.3px" }}>{label}</p>
               </>
             ) : (
-              <p style={{ color: "rgba(196,154,60,0.6)", fontSize: "10px", letterSpacing: "0.5px" }}>MAX TIER</p>
+              <p style={{ color: "rgba(var(--gold-rgb), 0.6)", fontSize: "10px", letterSpacing: "0.5px" }}>MAX TIER</p>
             );
           })()}
         </div>
@@ -278,7 +279,7 @@ export default function Leaderboard() {
       {/* Empty state — not enough real data for this tab */}
       {!lbLoading && rows.length < 3 && (
         <div style={{ textAlign: "center", padding: "48px 24px", background: "rgba(255,255,255,0.02)", borderRadius: "var(--radius-card)", border: "1px solid rgba(255,255,255,0.05)", marginBottom: "16px" }}>
-          <p style={{ color: "rgba(196,154,60,0.6)", fontSize: "14px", fontWeight: "600", marginBottom: "6px" }}>
+          <p style={{ color: "rgba(var(--gold-rgb), 0.6)", fontSize: "14px", fontWeight: "600", marginBottom: "6px" }}>
             {sort === "GPA" ? "Not enough GPA data yet" : sort === "Tokens" ? "The leaderboard is warming up" : "Not enough data yet"}
           </p>
           <p style={{ color: "var(--text-dim)", fontSize: "13px" }}>
@@ -300,10 +301,10 @@ export default function Leaderboard() {
             const hue      = avatarHue(row.name ?? "");
             const initial  = (row.name ?? "?")[0].toUpperCase();
 
-            const rowBg     = isMe ? "rgba(0,210,190,0.07)" : medal ? medal.rowBg : "var(--color-surface)";
-            const rowBorder = isMe ? "rgba(0,210,190,0.3)"  : medal ? medal.rowBorder : "var(--color-border)";
+            const rowBg     = isMe ? "rgba(var(--teal-rgb), 0.07)" : medal ? medal.rowBg : "var(--color-surface)";
+            const rowBorder = isMe ? "rgba(var(--teal-rgb), 0.3)"  : medal ? medal.rowBorder : "var(--color-border)";
             const rowShadow = isMe
-              ? "0 0 0 1px rgba(0,210,190,0.12), 0 4px 16px rgba(0,210,190,0.06)"
+              ? "0 0 0 1px rgba(var(--teal-rgb), 0.12), 0 4px 16px rgba(var(--teal-rgb), 0.06)"
               : "var(--depth-line)";
 
             const rowEl = (
@@ -329,7 +330,7 @@ export default function Leaderboard() {
                   <div style={{
                     position: "absolute", top: -28, right: -28,
                     width: 100, height: 100,
-                    background: "radial-gradient(circle, rgba(0,210,190,0.07) 0%, transparent 70%)",
+                    background: "radial-gradient(circle, rgba(var(--teal-rgb), 0.07) 0%, transparent 70%)",
                     pointerEvents: "none",
                   }} />
                 )}
@@ -386,7 +387,7 @@ export default function Leaderboard() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
                     <p style={{
-                      color:         isMe ? "rgba(0,210,190,0.95)" : "var(--text-primary)",
+                      color:         isMe ? "rgba(var(--teal-rgb), 0.95)" : "var(--text-primary)",
                       fontSize:      isTop3 ? "15px" : "13px",
                       fontWeight:    isTop3 ? "600" : "500",
                       overflow:      "hidden",
@@ -424,7 +425,7 @@ export default function Leaderboard() {
                   <span style={{
                     fontSize:      isTop3 ? "16px" : "14px",
                     fontWeight:    "700",
-                    color:         isMe ? (sort === "Tokens" ? "#C49A3C" : "rgba(0,210,190,0.9)") : "var(--text-primary)",
+                    color:         isMe ? (sort === "Tokens" ? "var(--gold)" : "rgba(var(--teal-rgb), 0.9)") : "var(--text-primary)",
                     letterSpacing: "-0.3px",
                   }}>
                     {fmt(row.value)}
@@ -441,9 +442,9 @@ export default function Leaderboard() {
                         width:        `${barPct}%`,
                         height:       "100%",
                         background:   isMe
-                          ? "rgba(0,210,190,0.8)"
+                          ? "rgba(var(--teal-rgb), 0.8)"
                           : rank === 1
-                          ? "rgba(0,210,190,0.5)"
+                          ? "rgba(var(--teal-rgb), 0.5)"
                           : "rgba(255,255,255,0.28)",
                         borderRadius: 1,
                         transition:   "width 0.5s var(--ease-apple)",
@@ -473,13 +474,13 @@ export default function Leaderboard() {
       {me && !meVisible && !lbLoading && (
         <div style={{
           marginTop: "10px", display: "flex", alignItems: "center", justifyContent: "space-between",
-          background: "rgba(0,210,190,0.07)", border: "1px solid rgba(0,210,190,0.3)",
+          background: "rgba(var(--teal-rgb), 0.07)", border: "1px solid rgba(var(--teal-rgb), 0.3)",
           borderRadius: "var(--radius-card)", padding: "13px 14px",
         }}>
-          <span style={{ color: "rgba(0,210,190,0.95)", fontSize: "13px", fontWeight: 600 }}>
+          <span style={{ color: "rgba(var(--teal-rgb), 0.95)", fontSize: "13px", fontWeight: 600 }}>
             #{me.rank} · You
           </span>
-          <span style={{ color: "rgba(0,210,190,0.9)", fontSize: "14px", fontWeight: 700 }}>
+          <span style={{ color: "rgba(var(--teal-rgb), 0.9)", fontSize: "14px", fontWeight: 700 }}>
             {fmt(me.value)}
           </span>
         </div>

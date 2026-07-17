@@ -78,7 +78,7 @@ const COURSE_COLORS = [
   "rgba(255,105,100,0.85)",
   "rgba(60,220,200,0.75)",
   "rgba(255,145,180,0.85)",
-  "rgba(255,215,80,0.85)",
+  "rgba(var(--gold-bright-rgb), 0.85)",
 ];
 
 function gradeColor(pct: number | null): string {
