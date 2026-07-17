@@ -66,7 +66,7 @@ async function prep(body, supabaseUrl, supabaseKey, anthropicKey) {
     const aRes = await fetch(
       // Exclude both Canvas-submitted AND app-marked-done work (manual_done_at) — an
       // assignment the student already finished isn't an "open" one to prep for.
-      `${supabaseUrl}/rest/v1/assignments?user_id=eq.${userId}&course_id=eq.${courseId}&submitted_at=is.null&manual_done_at=is.null&select=title,description,due_at,points_possible&order=due_at.asc&limit=10`,
+      `${supabaseUrl}/rest/v1/assignments?user_id=eq.${userId}&course_id=eq.${encodeURIComponent(courseId)}&submitted_at=is.null&manual_done_at=is.null&select=title,description,due_at,points_possible&order=due_at.asc&limit=10`,
       { headers }
     );
     if (aRes.ok) assignments = await aRes.json();
@@ -87,7 +87,7 @@ async function prep(body, supabaseUrl, supabaseKey, anthropicKey) {
   } catch { /* non-fatal */ }
   try {
     const fRes = await fetch(
-      `${supabaseUrl}/rest/v1/files?user_id=eq.${userId}&course_id=eq.${courseId}&select=name,file_type&order=created_at.desc&limit=2`,
+      `${supabaseUrl}/rest/v1/files?user_id=eq.${userId}&course_id=eq.${encodeURIComponent(courseId)}&select=name,file_type&order=created_at.desc&limit=2`,
       { headers }
     );
     if (fRes.ok) fileSnippets = await fRes.json();
