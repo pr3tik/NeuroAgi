@@ -17,7 +17,18 @@ function svc() {
   if (_client) return _client;
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return null;
-  _client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  // createClient can THROW at construction, not just fail a query: on Node < 22 without a
+  // global WebSocket, supabase-js eagerly builds its RealtimeClient and throws. This sink
+  // never uses realtime (insert-only) and its contract is "NEVER throws / tracing must
+  // never break a call" — so a construction failure must degrade to no-op, exactly like a
+  // missing env var, not escape as an unhandled rejection through the fire-and-forget
+  // flush(). (This is what turned the whole CI test run red under Node 20.)
+  try {
+    _client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  } catch (e: any) {
+    console.error("[tracesink] client init failed — telemetry disabled:", e?.message);
+    _client = null;
+  }
   return _client;
 }
 
