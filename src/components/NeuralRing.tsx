@@ -2334,9 +2334,10 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     logChat(userId, "user", userMsg.content, null, convId);
 
     // ── Brain behavioral signal (fire-and-forget) ─────────────────────────────
-    // Every student message is a data point for the brain.
-    // The brain_scheduler reads these signals to update context_window.
-    if (userData?.brain_person_id) {
+    // Every student message is a data point for the brain. Fire whenever we have a signed-in
+    // user — the server derives the brain identity from the JWT (installApiAuth attaches it),
+    // so we don't gate on a possibly-stale client-side brain_person_id.
+    if (userId) {
       const msgLen   = userMsg.content.length;
       const hour     = new Date().getHours();
       const timeSlot = hour < 6 ? 'late_night' : hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : hour < 22 ? 'evening' : 'late_night';

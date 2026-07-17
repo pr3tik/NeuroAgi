@@ -1,93 +1,48 @@
-// api/brain-signal.js — Writes a behavioral signal to NeuroAGI Brain DB
+// api/brain-signal.ts — Ingests a behavioral/academic signal into the NeuroAGI kernel.
 //
-// ARCHITECTURE CONTRACT:
-//   FIRES:  called fire-and-forget after every student chat message
-//           Also called for session_end (from session-close.js) and canvas_sync
-//   READS:  nothing (all data passed in body)
-//   WRITES: brain.signals table in Brain DB
+// Every student action — a chat message, a session close, a canvas sync — becomes one memory in
+// the person's brain. Writes to the product-DB kernel (neuro_memory) via remember(); the signal's
+// SUBJECT is derived from the verified caller, never trusted from the body (so no one can poison
+// another person's brain). Fire-and-forget from callers; self-degrades to {ok:false} rather than
+// throwing. (Replaces the old writer that targeted the never-provisioned two-DB Brain project.)
 //
-// SIGNAL TYPES:
-//   "behavioral" — chat message signals (this route's primary purpose)
-//   "academic"   — canvas sync, session end (also routed here for centralisation)
-//
-// WHY THIS EXISTS:
-//   Every student message is a data point. The brain needs to see:
-//   - What time of day the student studies
-//   - How long their messages are (short = confused/frustrated, long = engaged)
-//   - Emotional tone (stress markers, confusion words, confidence words)
-//   - What topics they're asking about
-//   - Response latency (how fast they reply — slow = thinking hard or distracted)
-//   The brain_scheduler reads these signals and synthesises them into context_window.
-//
-// CALLER (fire-and-forget from NeuralRing.jsx after message send):
-//   fetch('/api/brain-signal', {
-//     method: 'POST',
-//     body: JSON.stringify({
-//       brainPersonId, signalType: 'behavioral',
-//       payload: { message_length, time_of_day, topic, emotional_tone, ... }
-//     })
-//   }).catch(() => {})
-
+// CALLER (fire-and-forget; the browser auto-attaches the caller's JWT via installApiAuth):
+//   fetch('/api/brain-signal', { method:'POST',
+//     body: JSON.stringify({ signalType:'behavioral', source:'fschoolai_chat', payload:{...} }) })
 import { requireUserOr401 } from "./_auth.js";
+import { postgrestStore, remember } from "./_brain/kernel.js";
+import { resolveFschoolPerson } from "./_brain/identity.js";
 
-export default async function handler(req, res) {
+// Base importance by signal class (then decays over time). Behavioral chatter fades fast; academic
+// events (session end, canvas sync) matter longer.
+const SALIENCE: Record<string, number> = { behavioral: 0.35, academic: 0.6 };
+
+export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const brainUrl = process.env.BRAIN_SUPABASE_URL;
-  const brainKey = process.env.BRAIN_SUPABASE_KEY;
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) return res.status(200).json({ ok: false, reason: "store not configured" });
 
-  // Gracefully skip if Brain DB not configured
-  if (!brainUrl || !brainKey) {
-    return res.status(200).json({ ok: false, reason: "brain db not configured" });
-  }
+  const userId = await requireUserOr401(req, res); if (!userId) return;
 
-  const _uid = await requireUserOr401(req, res); if (!_uid) return;
-  // Signals may only be written for the caller's OWN brain person — derive it from the verified
-  // user, never trust a body brainPersonId (that let anyone forge/poison another user's brain).
-  const sbUrl = process.env.SUPABASE_URL, sbKey = process.env.SUPABASE_SERVICE_KEY;
-  let brainPersonId: string | null = null;
-  if (sbUrl && sbKey) {
-    const ur = await fetch(`${sbUrl}/rest/v1/users?id=eq.${encodeURIComponent(_uid)}&select=brain_person_id`, { headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` } }).catch(() => null);
-    if (ur && ur.ok) brainPersonId = ((await ur.json().catch(() => []))?.[0]?.brain_person_id) ?? null;
-  }
-  if (!brainPersonId) return res.status(200).json({ ok: false, reason: "no brain person for caller" });
   const { signalType = "behavioral", source = "fschoolai", payload } = req.body ?? {};
-  if (!payload)       return res.status(200).json({ ok: false, reason: "payload required" });
-
-  const brainHeaders = {
-    "apikey":          brainKey,
-    "Authorization":   `Bearer ${brainKey}`,
-    "Content-Type":    "application/json",
-    "Prefer":          "return=minimal",
-    "Accept-Profile":  "brain",   // signals table lives in brain schema
-    "Content-Profile": "brain",
-  };
+  if (!payload || typeof payload !== "object") return res.status(200).json({ ok: false, reason: "payload required" });
 
   try {
-    const signalRow = {
-      person_id:   brainPersonId,
-      signal_type: signalType,
+    const personId = await resolveFschoolPerson({ url, key }, userId);
+    if (!personId) return res.status(200).json({ ok: false, reason: "no brain identity" });
+
+    const store = postgrestStore(url, key);
+    const m = await remember(store, {
+      subject: `person:${personId}`,
+      kind: "signal",
       source,
-      payload,
-      created_at:  new Date().toISOString(),
-    };
-
-    const writeRes = await fetch(`${brainUrl}/rest/v1/signals`, {
-      method:  "POST",
-      headers: brainHeaders,
-      body:    JSON.stringify(signalRow),
+      salience: SALIENCE[signalType] ?? 0.4,
+      body: { signal_type: signalType, ...payload },
     });
-
-    if (!writeRes.ok) {
-      const errText = await writeRes.text().catch(() => "");
-      console.error("[brain-signal] write failed:", errText);
-      return res.status(200).json({ ok: false, reason: "signal write failed" });
-    }
-
-    return res.status(200).json({ ok: true });
-
-  } catch (err) {
-    console.error("[brain-signal] error:", err.message);
-    return res.status(200).json({ ok: false, reason: err.message });
+    return res.status(200).json({ ok: true, id: m.id });
+  } catch (err: any) {
+    console.error("[brain-signal]", err?.message);
+    return res.status(200).json({ ok: false, reason: err?.message ?? "error" });
   }
 }

@@ -30,6 +30,8 @@
 
 import { embed } from "./rag.js";
 import { awardTechniqueTypeIfEligible } from "./_achievements.js";
+import { postgrestStore, remember } from "./_brain/kernel.js";
+import { resolveFschoolPerson } from "./_brain/identity.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -194,6 +196,33 @@ RULES:
       console.error("[session-close] upsert failed:", errText);
       return res.status(200).json({ ok: false, reason: "upsert failed" });
     }
+
+    // ── 6b. NeuroAGI kernel write (product-DB, always on) ────────────────────
+    // The session becomes memories in the person's brain: an academic 'signal' + a 'digest'
+    // (the rewritten living mind). Independent of the legacy Brain DB below; identity resolved
+    // from the verified userId. Best-effort — never affects the response.
+    try {
+      const personId = await resolveFschoolPerson({ url: supabaseUrl, key: supabaseKey }, userId);
+      if (personId) {
+        const store = postgrestStore(supabaseUrl, supabaseKey);
+        const subject = `person:${personId}`;
+        await remember(store, {
+          subject, kind: "signal", source: "fschoolai",
+          salience: Math.min(1, msgs.length / 20),
+          body: {
+            signal_type: "academic", event: "session_end",
+            session_messages: msgs.length, duration_mins: Math.round(msgs.length * 1.5),
+            user_gpa: userProfile?.gpa, user_streak: userProfile?.streak, school: userProfile?.school,
+          },
+        });
+        if (mindDoc) {
+          await remember(store, {
+            subject, kind: "digest", source: "fschoolai", salience: 0.7,
+            body: { summary: String(mindDoc).slice(0, 2000) },
+          });
+        }
+      }
+    } catch (e: any) { console.error("[session-close] kernel write failed:", e?.message); }
 
     // ── 7. Write signal to NeuroAGI Brain DB (fire-and-forget) ─────────────
     // Only fires if brain env vars are set AND user has a brain_person_id
