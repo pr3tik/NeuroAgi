@@ -39,5 +39,9 @@ describe.skipIf(!LIVE)("global identity resolver", () => {
     // DIFFERENT product, SAME email → the SAME person. One person, one brain across products.
     const b1 = await resolvePersonId(conn, { product: "selftestB", localId: "v1", email: EMAIL });
     expect(b1).toBe(a1);
+
+    // MIXED-CASE variant of the same email → still the SAME person (regression: used to return null).
+    const c1 = await resolvePersonId(conn, { product: "selftestC", localId: "w1", email: EMAIL.toUpperCase() });
+    expect(c1).toBe(a1);
   });
 });

@@ -23,7 +23,9 @@ export async function resolvePersonId(
 ): Promise<string | null> {
   const product = opts.product ?? DEFAULT_PRODUCT;
   const base = rest(url);
-  const email = opts.email?.trim() || null;
+  // Normalize to lowercase for BOTH lookup and insert so it matches the lower(email) unique index
+  // and a mixed-case variant of a known address resolves to the same person (never null).
+  const email = opts.email?.trim().toLowerCase() || null;
 
   // 1. Existing link → done (no email needed).
   const linkRes = await fetch(
