@@ -50,6 +50,28 @@ export interface Store {
 
 function clamp01(n: number) { return Math.max(0, Math.min(1, Number.isFinite(n) ? n : 1)); }
 
+/**
+ * Fold recalled memories into a compact "STUDENT BRAIN STATE" block for a prompt. Pure function
+ * over recall output (a derived layer) — returns null when there's nothing worth injecting.
+ */
+export function renderStudentBrainState(mems: Memory[]): string | null {
+  if (!mems?.length) return null;
+  const digest = mems.find((m) => m.kind === "digest");
+  const traits = mems.filter((m) => m.kind === "trait" || m.kind === "focus");
+  const signals = mems.filter((m) => m.kind === "signal");
+  const lines: string[] = [];
+  if (digest?.body?.summary) lines.push(`Living mind: ${String(digest.body.summary).slice(0, 500)}`);
+  for (const t of traits) {
+    const v = t.body?.text ?? t.body?.value ?? t.body?.label;
+    if (v) lines.push(`${t.kind}: ${v}`);
+  }
+  const tones = signals.map((s) => s.body?.emotional_tone).filter(Boolean);
+  const events = signals.map((s) => s.body?.event).filter(Boolean);
+  if (tones.length) lines.push(`recent tone: ${[...new Set(tones)].slice(0, 3).join(", ")}`);
+  if (events.length) lines.push(`recent: ${[...new Set(events)].slice(0, 3).join(", ")}`);
+  return lines.length ? `STUDENT BRAIN STATE (NeuroAGI):\n${lines.join(" | ")}` : null;
+}
+
 /** Deterministic forgetting: effective(m,t) = salience × exp(-λ · days since last recall). */
 export function effective(m: Pick<Memory, "salience" | "last_seen_at">, nowMs: number): number {
   const days = Math.max(0, (nowMs - Date.parse(m.last_seen_at)) / 86_400_000);
