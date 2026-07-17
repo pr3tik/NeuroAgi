@@ -25,22 +25,23 @@ afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
 
 // ── brain-person-link: users select must not reference nonexistent created_at ──
 // (Live failure: PostgREST 42703 "column users.created_at does not exist" → every
-// prod link attempt returned {ok:false, reason:"user fetch failed"}.)
+// prod link attempt returned {ok:false, reason:"user fetch failed"}.) Now resolves the
+// GLOBAL neuro_person in the product DB; the users select must still avoid created_at.
 describe("brain-person-link users query (42703 regression)", () => {
-  it("selects only real columns and links successfully", async () => {
-    process.env.BRAIN_SUPABASE_URL = "http://brain";
-    process.env.BRAIN_SUPABASE_KEY = "bkey";
+  it("selects only real columns and links to the global person", async () => {
     const calls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: any) => {
       const u = String(url); calls.push(u);
-      if (u.startsWith("http://localhost/rest/v1/users") && u.includes("select="))
-        return R([{ id: "u1", name: "Sam", email: "s@x.edu", school: null, gpa: null, brain_person_id: "bp-1" }]);
+      if (u.includes("/rest/v1/users") && u.includes("select="))
+        return R([{ email: "s@x.edu", name: "Sam", school: null, gpa: null, brain_person_id: "bp-1" }]);
+      if (u.includes("/rest/v1/neuro_person_link"))
+        return R([{ person_id: "bp-1" }]);   // existing link → fast path
       return R([]);
     }));
     const h = (await import("../api/brain-person-link.ts")).default;
     const res = makeRes();
     await h({ method: "POST", body: { userId: "u1" } }, res);
-    expect(res.body).toMatchObject({ ok: true, brain_person_id: "bp-1", created: false });
+    expect(res.body).toMatchObject({ ok: true, brain_person_id: "bp-1" });
     const usersCall = calls.find((u) => u.includes("/rest/v1/users"))!;
     expect(usersCall).not.toContain("created_at");   // the column that 42703'd prod
   });

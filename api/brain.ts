@@ -13,21 +13,19 @@
 // PR2 upgrades subjectForUser() to the global neuro_person id shared across products.)
 import { requireUserOr401 } from "./_auth.js";
 import { postgrestStore, remember, recall, forget, reinforce, tickDecay } from "./_brain/kernel.js";
+import { resolveFschoolPerson } from "./_brain/identity.js";
 
-function store() {
+function conn() {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return null;
-  return postgrestStore(url, key);
+  return { url, key };
 }
-
-// PR1: FschoolAI-local subject. PR2 resolves this to the global neuro_person id (one person,
-// one brain across every child product).
-function subjectForUser(userId: string): string { return `person:fschoolai:${userId}`; }
 
 export default async function handler(req: any, res: any) {
   const action = String(req.query?.action || (req.method === "GET" ? "recall" : ""));
-  const s = store();
-  if (!s) return res.status(503).json({ error: "brain store not configured" });
+  const c = conn();
+  if (!c) return res.status(503).json({ error: "brain store not configured" });
+  const s = postgrestStore(c.url, c.key);
 
   try {
     // Cron decay sweep: a valid x-cron-secret sweeps the scopes it names, no per-user auth.
@@ -38,7 +36,11 @@ export default async function handler(req: any, res: any) {
     }
 
     const userId = await requireUserOr401(req, res); if (!userId) return;
-    const subject = subjectForUser(userId);
+    // Resolve the caller's GLOBAL person id (creates + links + backfills users.brain_person_id on
+    // first touch). This is the shared cross-product subject — 'person:<neuro_person_id>'.
+    const personId = await resolveFschoolPerson(c, userId);
+    if (!personId) return res.status(500).json({ error: "could not resolve brain identity" });
+    const subject = `person:${personId}`;
 
     if (action === "remember") {
       const { kind, body, salience, audience, source } = req.body ?? {};
