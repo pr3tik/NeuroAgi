@@ -126,3 +126,22 @@ describe("renderStudentBrainState (recall → prompt fold)", () => {
     expect(out).toContain("recent: session_end");
   });
 });
+
+describe("subject validation (in.() injection / collision guard)", () => {
+  it("remember rejects a subject with a double-quote / comma / paren", async () => {
+    const s = new InMemoryStore();
+    for (const bad of ['person:a"b', "person:a,b", "person:(x)", "person:a b"]) {
+      await expect(remember(s, { subject: bad, kind: "signal", body: {} })).rejects.toThrow(/invalid subject/);
+    }
+  });
+  it("recall rejects an unsafe scope", async () => {
+    const s = new InMemoryStore();
+    await expect(recall(s, ['person:a"b'], { reinforce: false })).rejects.toThrow(/invalid subject/);
+  });
+  it("accepts the real subject shapes (person/course/prof/room + uuid/code ids)", async () => {
+    const s = new InMemoryStore();
+    for (const subj of ["person:0f8b-uuid", "course:GGRB03H3", "prof:42", "room:abc_def"]) {
+      await expect(remember(s, { subject: subj, kind: "signal", body: {} })).resolves.toBeTruthy();
+    }
+  });
+});

@@ -4,7 +4,7 @@
 // runs in CI (Node-20, no creds). Uses a dedicated self-test subject and hard-deletes its
 // rows afterward so it leaves no residue in prod.
 import { describe, it, expect, afterAll } from "vitest";
-import { postgrestStore, remember, recall, forget, renderStudentBrainState } from "../api/_brain/kernel.ts";
+import { postgrestStore, remember, recall, forget, reinforce, renderStudentBrainState } from "../api/_brain/kernel.ts";
 
 const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -54,5 +54,20 @@ describe.skipIf(!LIVE)("PostgrestStore against live neuro_memory", () => {
     expect(block).toContain("STUDENT BRAIN STATE (NeuroAGI):");
     expect(block).toContain("Living mind: Strong in calculus");
     expect(block).toContain("recent tone: stressed");
+  });
+
+  it("reinforce persists the salience boost in the real store (prod parity, regression)", async () => {
+    await hardDelete();
+    const s = postgrestStore(URL!, KEY!);
+    const now = Date.now();
+    const m = await remember(s, { subject: SUBJ, kind: "signal", body: {}, salience: 0.5 }, now);
+    await reinforce(s, m.id, now, 0.4);
+    const got = await recall(s, [SUBJ], { now, reinforce: false });
+    expect(got[0].salience).toBeCloseTo(0.9, 5); // was a no-op before the fix (stayed 0.5)
+  });
+
+  it("rejects a subject with a double-quote instead of silently colliding (regression)", async () => {
+    const s = postgrestStore(URL!, KEY!);
+    await expect(remember(s, { subject: 'person:e2e:pr9:q"evil', kind: "signal", body: {} })).rejects.toThrow(/invalid/);
   });
 });

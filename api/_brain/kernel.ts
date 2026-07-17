@@ -42,13 +42,25 @@ export type NewMemory = {
 export interface Store {
   insert(row: NewMemory & { now: string }): Promise<Memory>;
   /** live (non-forgotten) memories whose subject ∈ subjects, optionally filtered by kind */
-  bySubjects(subjects: string[], kinds?: string[]): Promise<Memory[]>;
+  bySubjects(subjects: string[], kinds?: string[], limit?: number): Promise<Memory[]>;
   touch(ids: string[], now: string): Promise<void>;   // reinforce: bump last_seen_at
   forget(ids: string[], now: string): Promise<void>;  // soft-forget
   reinforce(id: string, now: string, boost?: number): Promise<void>;
 }
 
 function clamp01(n: number) { return Math.max(0, Math.min(1, Number.isFinite(n) ? n : 1)); }
+
+// Identifiers safe to interpolate into a PostgREST in.() quoted list (subjects, kinds, ids).
+// Anything outside this set (a quote, comma, paren, backslash, whitespace) is REJECTED rather than
+// silently stripped — stripping made a '"'-bearing subject match a different, quote-free subject
+// (a cross-subject collision). Our subjects (person:/course:/prof:/room: + uuid/code ids), kinds,
+// and uuids all satisfy this.
+const IDENT_RE = /^[A-Za-z0-9:._-]+$/;
+export function isValidSubject(s: unknown): boolean { return typeof s === "string" && IDENT_RE.test(s); }
+function assertIdent(s: string, what: string): string {
+  if (!isValidSubject(s)) throw new Error(`neuro: invalid ${what} ${JSON.stringify(s)} (allowed chars: A-Za-z0-9:._-)`);
+  return s;
+}
 
 /**
  * Fold recalled memories into a compact "STUDENT BRAIN STATE" block for a prompt. Pure function
@@ -94,7 +106,10 @@ export async function recall(store: Store, scopes: string[], opts: RecallOpts = 
   const nowMs = opts.now ?? Date.now();
   const threshold = opts.threshold ?? FORGET_THRESHOLD;
   const kinds = opts.kind == null ? undefined : Array.isArray(opts.kind) ? opts.kind : [opts.kind];
-  const rows = await store.bySubjects(scopes, kinds);
+  scopes.forEach((s) => assertIdent(s, "subject"));
+  // Fetch at least the requested limit (floor 2000) so the top-N slice below — and the ownership
+  // set built in api/brain.ts via recall({limit:N}) — reflect the full owned set, not a 2000 cap.
+  const rows = await store.bySubjects(scopes, kinds, Math.max(opts.limit ?? 0, 2000));
   const scored = rows
     .map((m) => ({ m, e: effective(m, nowMs) }))
     .filter((x) => x.e >= threshold)
@@ -108,6 +123,7 @@ export async function recall(store: Store, scopes: string[], opts: RecallOpts = 
 
 /** Store any information as one memory. */
 export async function remember(store: Store, m: NewMemory, nowMs = Date.now()): Promise<Memory> {
+  assertIdent(m.subject, "subject");
   return store.insert({
     subject: m.subject,
     kind: m.kind,
@@ -134,6 +150,7 @@ export async function reinforce(store: Store, id: string, nowMs = Date.now(), bo
  * a set-based SQL sweep can replace this for large shared scopes later.
  */
 export async function tickDecay(store: Store, scopes: string[], nowMs = Date.now()): Promise<string[]> {
+  scopes.forEach((s) => assertIdent(s, "subject"));
   const rows = await store.bySubjects(scopes);
   const dead = rows.filter((m) => effective(m, nowMs) < FORGET_THRESHOLD).map((m) => m.id);
   if (dead.length) await store.forget(dead, new Date(nowMs).toISOString());
@@ -164,7 +181,7 @@ export class InMemoryStore implements Store {
     this.rows.push(m);
     return { ...m };
   }
-  async bySubjects(subjects: string[], kinds?: string[]): Promise<Memory[]> {
+  async bySubjects(subjects: string[], kinds?: string[], _limit?: number): Promise<Memory[]> {
     const s = new Set(subjects);
     return this.rows
       .filter((m) => !m.forgotten_at && s.has(m.subject) && (!kinds || kinds.includes(m.kind)))
@@ -197,9 +214,10 @@ export function postgrestStore(url: string, key: string): Store {
     "Content-Type": "application/json",
     ...(extra || {}),
   });
-  // PostgREST in.() list of quoted values. Subjects/ids contain ':' and '-' only (no comma/paren),
-  // so this quoting is safe; strip any stray double-quote defensively.
-  const inList = (vals: string[]) => encodeURIComponent(vals.map((v) => `"${String(v).replace(/"/g, "")}"`).join(","));
+  // PostgREST in.() list of quoted values. Each value is VALIDATED (not stripped): a stray quote
+  // used to be removed, which made a '"'-bearing subject match a different quote-free subject
+  // (a cross-subject collision). assertIdent rejects unsafe identifiers loudly instead.
+  const inList = (vals: string[]) => encodeURIComponent(vals.map((v) => `"${assertIdent(String(v), "identifier")}"`).join(","));
 
   async function patchIds(ids: string[], patch: Record<string, any>): Promise<void> {
     if (!ids.length) return;
@@ -232,9 +250,9 @@ export function postgrestStore(url: string, key: string): Store {
       const rows = await res.json();
       return Array.isArray(rows) ? rows[0] : rows;
     },
-    async bySubjects(subjects, kinds) {
+    async bySubjects(subjects, kinds, limit) {
       if (!subjects.length) return [];
-      let q = `${base}?forgotten_at=is.null&subject=in.(${inList(subjects)})&select=*&limit=2000`;
+      let q = `${base}?forgotten_at=is.null&subject=in.(${inList(subjects)})&select=*&limit=${Math.max(1, limit ?? 2000)}`;
       if (kinds && kinds.length) q += `&kind=in.(${inList(kinds)})`;
       const res = await fetch(q, { headers: headers() });
       if (!res.ok) throw new Error(`neuro recall ${res.status}: ${await res.text().catch(() => "")}`);
@@ -242,6 +260,17 @@ export function postgrestStore(url: string, key: string): Store {
     },
     async touch(ids, now) { await patchIds(ids, { last_seen_at: now }); },
     async forget(ids, now) { await patchIds(ids, { forgotten_at: now }); },
-    async reinforce(id, now) { await patchIds([id], { last_seen_at: now }); }, // boost handled at kernel level only
+    async reinforce(id, now, boost = 0) {
+      if (!boost) { await patchIds([id], { last_seen_at: now }); return; }
+      // Read-modify-write the salience so re-observed hypotheses/traits actually STRENGTHEN in prod
+      // (InMemoryStore applies the boost directly; this keeps the real store in parity). Not fully
+      // atomic under concurrent boosts of the same id — acceptable for the per-person reflection
+      // passes that call it; a SQL RPC can make it atomic if that ever changes.
+      const res = await fetch(`${base}?id=in.(${inList([id])})&select=salience`, { headers: headers() });
+      if (!res.ok) throw new Error(`neuro reinforce read ${res.status}: ${await res.text().catch(() => "")}`);
+      const rows = await res.json();
+      const cur = Array.isArray(rows) && rows[0] ? Number(rows[0].salience) : 1;
+      await patchIds([id], { last_seen_at: now, salience: clamp01(cur + boost) });
+    },
   };
 }
