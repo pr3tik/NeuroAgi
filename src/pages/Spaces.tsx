@@ -31,10 +31,10 @@ const MD = `
 .smd em{color:rgba(245,245,245,.75)}
 .smd h1,.smd h2,.smd h3{color:var(--text-primary);font-weight:600;line-height:1.3;margin:.75em 0 .3em}
 .smd h1{font-size:15px}.smd h2{font-size:14px}.smd h3{font-size:13px}
-.smd code{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 5px;font-size:11.5px;color:#C49A3C}
+.smd code{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 5px;font-size:11.5px;color:var(--gold)}
 .smd pre{background:rgba(0,0,0,.3);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:.5em 0}
 .smd pre code{background:none;border:none;padding:0;color:rgba(245,245,245,.82)}
-.smd blockquote{border-left:2px solid rgba(196,154,60,.35);padding-left:10px;margin:.4em 0;color:rgba(245,245,245,.65);font-style:italic}
+.smd blockquote{border-left:2px solid rgba(var(--gold-rgb),.35);padding-left:10px;margin:.4em 0;color:rgba(245,245,245,.65);font-style:italic}
 `;
 
 type ChatMsg = { id: string; role: "user" | "assistant"; content: string };
@@ -312,10 +312,10 @@ function CreateSpaceSheet({
           disabled={!name.trim()}
           style={{
             width: "100%", padding: "14px",
-            background: name.trim() ? "rgba(196,154,60,0.14)" : "rgba(255,255,255,0.04)",
-            border: `1px solid ${name.trim() ? "rgba(196,154,60,0.38)" : "rgba(255,255,255,0.07)"}`,
+            background: name.trim() ? "rgba(var(--gold-rgb),0.14)" : "rgba(255,255,255,0.04)",
+            border: `1px solid ${name.trim() ? "rgba(var(--gold-rgb),0.38)" : "rgba(255,255,255,0.07)"}`,
             borderRadius: "var(--radius-btn)",
-            color: name.trim() ? "#C49A3C" : "var(--text-tertiary)",
+            color: name.trim() ? "var(--gold)" : "var(--text-tertiary)",
             fontSize: 15, fontWeight: 600,
             cursor: name.trim() ? "pointer" : "default",
             fontFamily: "inherit", transition: "all 0.15s",
@@ -615,8 +615,8 @@ function SpaceChat({
             <div style={{
               maxWidth: "88%", padding: "9px 13px",
               borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
-              background: m.role === "user" ? "rgba(196,154,60,0.13)" : "rgba(255,255,255,0.06)",
-              border: m.role === "user" ? "1px solid rgba(196,154,60,0.2)" : "1px solid rgba(255,255,255,0.07)",
+              background: m.role === "user" ? "rgba(var(--gold-rgb),0.13)" : "rgba(255,255,255,0.06)",
+              border: m.role === "user" ? "1px solid rgba(var(--gold-rgb),0.2)" : "1px solid rgba(255,255,255,0.07)",
               color: "var(--text-primary)", fontSize: 13,
             }}>
               {m.role === "user" ? (
@@ -663,9 +663,9 @@ function SpaceChat({
           disabled={!input.trim() || busy || !docRefs.length}
           style={{
             width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
-            background: input.trim() && !busy && docRefs.length ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.04)",
-            border: `1px solid ${input.trim() && !busy && docRefs.length ? "rgba(196,154,60,0.32)" : "rgba(255,255,255,0.07)"}`,
-            color: input.trim() && !busy && docRefs.length ? "#C49A3C" : "var(--text-tertiary)",
+            background: input.trim() && !busy && docRefs.length ? "rgba(var(--gold-rgb),0.18)" : "rgba(255,255,255,0.04)",
+            border: `1px solid ${input.trim() && !busy && docRefs.length ? "rgba(var(--gold-rgb),0.32)" : "rgba(255,255,255,0.07)"}`,
+            color: input.trim() && !busy && docRefs.length ? "var(--gold)" : "var(--text-tertiary)",
             cursor: input.trim() && !busy && docRefs.length ? "pointer" : "default",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 15, transition: "all 0.15s",
@@ -1038,10 +1038,10 @@ function SpaceDetail({
                           }}>{file?.name ?? "Document"}</p>
                           <span style={{
                             fontSize: 11, flexShrink: 0,
-                            color: "rgba(196,154,60,0.9)",
-                            background: "rgba(196,154,60,0.1)",
+                            color: "rgba(var(--gold-rgb),0.9)",
+                            background: "rgba(var(--gold-rgb),0.1)",
                             padding: "2px 9px", borderRadius: 20,
-                            border: "1px solid rgba(196,154,60,0.22)",
+                            border: "1px solid rgba(var(--gold-rgb),0.22)",
                           }}>
                             {deck.length} card{deck.length !== 1 ? "s" : ""}
                           </span>
@@ -1207,15 +1207,15 @@ export default function Spaces() {
                 style={{
                   display: "flex", alignItems: "center", gap: 5,
                   padding: "9px 16px",
-                  background: "rgba(196,154,60,0.1)",
-                  border: "1px solid rgba(196,154,60,0.28)",
+                  background: "rgba(var(--gold-rgb),0.1)",
+                  border: "1px solid rgba(var(--gold-rgb),0.28)",
                   borderRadius: "var(--radius-pill)",
-                  color: "#C49A3C", fontSize: 13, fontWeight: 600,
+                  color: "var(--gold)", fontSize: 13, fontWeight: 600,
                   cursor: "pointer", fontFamily: "inherit",
                   flexShrink: 0, transition: "background 0.14s",
                 }}
-                onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(196,154,60,0.18)")}
-                onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(196,154,60,0.1)")}
+                onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(var(--gold-rgb),0.18)")}
+                onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(var(--gold-rgb),0.1)")}
               >
                 <span style={{ fontSize: 17, lineHeight: 1 }}>+</span> New
               </button>
@@ -1270,15 +1270,15 @@ export default function Spaces() {
                   onClick={() => setShowCreate(true)}
                   style={{
                     padding: "12px 26px",
-                    background: "rgba(196,154,60,0.12)",
-                    border: "1px solid rgba(196,154,60,0.32)",
+                    background: "rgba(var(--gold-rgb),0.12)",
+                    border: "1px solid rgba(var(--gold-rgb),0.32)",
                     borderRadius: "var(--radius-pill)",
-                    color: "#C49A3C", fontSize: 14, fontWeight: 600,
+                    color: "var(--gold)", fontSize: 14, fontWeight: 600,
                     cursor: "pointer", fontFamily: "inherit",
                     transition: "background 0.14s",
                   }}
-                  onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(196,154,60,0.2)")}
-                  onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(196,154,60,0.12)")}
+                  onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(var(--gold-rgb),0.2)")}
+                  onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(var(--gold-rgb),0.12)")}
                 >Create your first Space</button>
               </motion.div>
             )}

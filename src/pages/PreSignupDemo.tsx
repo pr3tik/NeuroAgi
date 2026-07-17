@@ -135,7 +135,7 @@ export default function PreSignupDemo({ onEnter }) {
         .ps-skip:hover  { color: rgba(255,255,255,0.5) !important; }
         .nr-md p           { margin: 0 0 6px; }
         .nr-md p:last-child { margin: 0; }
-        .nr-md strong       { color: #C49A3C; font-weight: 600; }
+        .nr-md strong       { color: var(--gold); font-weight: 600; }
         .nr-md ul           { margin: 4px 0; padding-left: 18px; }
         .nr-md li           { margin: 3px 0; }
       `}</style>

@@ -82,9 +82,9 @@ export default function LectureUpload({ userId, courseId, onDone }: Props) {
         disabled={busy}
         style={{
           width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-          background: busy ? "rgba(0,210,190,0.06)" : "rgba(0,210,190,0.1)",
-          border: "1px solid rgba(0,210,190,0.2)", borderRadius: "10px",
-          padding: "14px", color: "rgba(0,210,190,0.85)", fontSize: "13px", fontWeight: 500,
+          background: busy ? "rgba(var(--teal-rgb), 0.06)" : "rgba(var(--teal-rgb), 0.1)",
+          border: "1px solid rgba(var(--teal-rgb), 0.2)", borderRadius: "10px",
+          padding: "14px", color: "rgba(var(--teal-rgb), 0.85)", fontSize: "13px", fontWeight: 500,
           cursor: busy ? "default" : "pointer", fontFamily: "inherit",
         }}
       >

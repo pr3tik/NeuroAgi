@@ -103,7 +103,7 @@ function Dots() {
     <span style={{ display: "inline-flex", gap: "3px", alignItems: "center", marginLeft: "2px" }}>
       <style>{`@keyframes td{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}`}</style>
       {[0, .17, .34].map((d, i) => (
-        <span key={i} style={{ display: "inline-block", width: 4, height: 4, borderRadius: "50%", background: "#C49A3C", animation: `td 1s ease-in-out infinite`, animationDelay: `${d}s` }} />
+        <span key={i} style={{ display: "inline-block", width: 4, height: 4, borderRadius: "50%", background: "var(--gold)", animation: `td 1s ease-in-out infinite`, animationDelay: `${d}s` }} />
       ))}
     </span>
   );
@@ -118,10 +118,10 @@ const MD_STYLES = `
 .doc-md li{margin:.25em 0;color:rgba(245,245,245,.84);line-height:1.65}
 .doc-md strong{color:rgba(245,245,245,.96);font-weight:700}
 .doc-md em{color:rgba(245,245,245,.75)}
-.doc-md code{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 5px;font-size:12px;font-family:monospace;color:#C49A3C}
+.doc-md code{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 5px;font-size:12px;font-family:monospace;color:var(--gold)}
 .doc-md pre{background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:12px 14px;overflow-x:auto;margin:.6em 0}
 .doc-md pre code{background:none;border:none;padding:0;color:rgba(245,245,245,.82)}
-.doc-md blockquote{border-left:2px solid rgba(196,154,60,.4);padding-left:12px;margin:.5em 0;color:rgba(245,245,245,.65);font-style:italic}
+.doc-md blockquote{border-left:2px solid rgba(var(--gold-rgb), .4);padding-left:12px;margin:.5em 0;color:rgba(245,245,245,.65);font-style:italic}
 .doc-md hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:.8em 0}
 `;
 
@@ -340,7 +340,7 @@ export default function DocChat({
       >
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
-          <div style={{ width: 28, height: 28, borderRadius: "8px", background: "rgba(196,154,60,0.13)", display: "flex", alignItems: "center", justifyContent: "center", color: "#C49A3C", fontWeight: "700" }}><Sparkles size={14} /></div>
+          <div style={{ width: 28, height: 28, borderRadius: "8px", background: "rgba(var(--gold-rgb), 0.13)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--gold)", fontWeight: "700" }}><Sparkles size={14} /></div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: "13px", fontWeight: "600", color: "rgba(245,245,245,0.9)" }}>{actionLabel}</p>
             <p style={{ margin: 0, fontSize: "11px", color: "rgba(255,255,255,0.3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{docTitle}</p>
@@ -381,8 +381,8 @@ export default function DocChat({
             {showEmpty && (
               <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 {initialSelection && (
-                  <div style={{ marginBottom: "16px", padding: "10px 14px", background: "rgba(196,154,60,0.06)", border: "1px solid rgba(196,154,60,0.15)", borderRadius: "10px" }}>
-                    <p style={{ margin: "0 0 4px", fontSize: "10px", fontWeight: "700", letterSpacing: "0.5px", textTransform: "uppercase", color: "#C49A3C" }}>Selected</p>
+                  <div style={{ marginBottom: "16px", padding: "10px 14px", background: "rgba(var(--gold-rgb), 0.06)", border: "1px solid rgba(var(--gold-rgb), 0.15)", borderRadius: "10px" }}>
+                    <p style={{ margin: "0 0 4px", fontSize: "10px", fontWeight: "700", letterSpacing: "0.5px", textTransform: "uppercase", color: "var(--gold)" }}>Selected</p>
                     <p style={{ margin: 0, fontSize: "12px", lineHeight: "1.6", color: "rgba(245,245,245,0.6)", fontStyle: "italic", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>"{initialSelection}"</p>
                   </div>
                 )}
@@ -396,7 +396,7 @@ export default function DocChat({
                         sendMsg(initialSelection ? `Explain:\n\n"${initialSelection}"` : "Explain the main ideas in this document.");
                       }}
                       style={{ display: "flex", alignItems: "center", gap: "10px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "10px", padding: "10px 14px", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 0.12s, border-color 0.12s" }}
-                      onMouseEnter={e => { e.currentTarget.style.background = "rgba(196,154,60,0.06)"; e.currentTarget.style.borderColor = "rgba(196,154,60,0.18)"; }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "rgba(var(--gold-rgb), 0.06)"; e.currentTarget.style.borderColor = "rgba(var(--gold-rgb), 0.18)"; }}
                       onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; }}
                     >
                       <span style={{ fontSize: "13px", color: "rgba(245,245,245,0.7)", fontWeight: "500" }}>{s.label}</span>
@@ -418,14 +418,14 @@ export default function DocChat({
                     ) : (
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "7px" }}>
-                          <div style={{ width: 18, height: 18, borderRadius: "5px", background: "rgba(196,154,60,0.14)", display: "flex", alignItems: "center", justifyContent: "center", color: "#C49A3C", fontWeight: "700" }}><Sparkles size={11} /></div>
+                          <div style={{ width: 18, height: 18, borderRadius: "5px", background: "rgba(var(--gold-rgb), 0.14)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--gold)", fontWeight: "700" }}><Sparkles size={11} /></div>
                           <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.28)", fontWeight: "600" }}>AI Tutor</span>
                         </div>
                         <div style={{ paddingLeft: "24px", fontSize: "14px", color: "rgba(245,245,245,0.88)" }}>
                           <MarkdownContent content={msg.content} />
                           {msg.streaming && !msg.content && <Dots />}
                           {msg.streaming && msg.content && (
-                            <span style={{ display: "inline-block", width: 2, height: "1em", background: "#C49A3C", marginLeft: 2, verticalAlign: "text-bottom", animation: "blink .9s step-end infinite" }} />
+                            <span style={{ display: "inline-block", width: 2, height: "1em", background: "var(--gold)", marginLeft: 2, verticalAlign: "text-bottom", animation: "blink .9s step-end infinite" }} />
                           )}
                           <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}`}</style>
                         </div>
@@ -445,16 +445,16 @@ export default function DocChat({
             <AnimatePresence>
               {chip && (
                 <motion.div initial={{ opacity: 0, height: 0, marginBottom: 0 }} animate={{ opacity: 1, height: "auto", marginBottom: 8 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.18 }} style={{ overflow: "hidden" }}>
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: "rgba(196,154,60,0.08)", border: "1px solid rgba(196,154,60,0.18)", borderRadius: "7px", padding: "3px 8px 3px 7px", maxWidth: "100%" }}>
-                    <span style={{ color: "#C49A3C", fontSize: "11px", fontWeight: "700" }}>→</span>
-                    <span style={{ fontSize: "11px", color: "rgba(196,154,60,0.85)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "200px" }}>{chip.length > 55 ? chip.slice(0, 55) + "…" : chip}</span>
-                    <button onClick={() => setChip(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(196,154,60,0.5)", fontSize: "12px", padding: "0 1px", lineHeight: 1 }}>×</button>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: "rgba(var(--gold-rgb), 0.08)", border: "1px solid rgba(var(--gold-rgb), 0.18)", borderRadius: "7px", padding: "3px 8px 3px 7px", maxWidth: "100%" }}>
+                    <span style={{ color: "var(--gold)", fontSize: "11px", fontWeight: "700" }}>→</span>
+                    <span style={{ fontSize: "11px", color: "rgba(var(--gold-rgb), 0.85)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "200px" }}>{chip.length > 55 ? chip.slice(0, 55) + "…" : chip}</span>
+                    <button onClick={() => setChip(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(var(--gold-rgb), 0.5)", fontSize: "12px", padding: "0 1px", lineHeight: 1 }}>×</button>
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
             <div style={{ display: "flex", gap: "8px", alignItems: "flex-end", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", padding: "9px 12px", transition: "border-color 0.15s" }}
-              onFocusCapture={e => (e.currentTarget.style.borderColor = "rgba(196,154,60,0.28)")}
+              onFocusCapture={e => (e.currentTarget.style.borderColor = "rgba(var(--gold-rgb), 0.28)")}
               onBlurCapture={e  => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)")}
             >
               <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey} disabled={streaming}
@@ -464,7 +464,7 @@ export default function DocChat({
               />
               {streaming
                 ? <button onClick={() => abortRef.current?.abort()} style={{ background: "rgba(255,59,48,0.1)", border: "1px solid rgba(255,59,48,0.2)", borderRadius: "8px", padding: "5px 10px", cursor: "pointer", color: "rgba(255,100,90,0.8)", fontSize: "11px", fontWeight: "600", fontFamily: "inherit", flexShrink: 0, alignSelf: "flex-end" }}>Stop</button>
-                : <button onClick={handleSend} disabled={!input.trim()} style={{ background: input.trim() ? "rgba(196,154,60,0.14)" : "transparent", border: `1px solid ${input.trim() ? "rgba(196,154,60,0.28)" : "rgba(255,255,255,0.07)"}`, borderRadius: "8px", padding: "5px 11px", cursor: input.trim() ? "pointer" : "default", color: input.trim() ? "#C49A3C" : "rgba(255,255,255,0.2)", fontSize: "12px", fontWeight: "600", fontFamily: "inherit", flexShrink: 0, alignSelf: "flex-end", transition: "all 0.12s" }}>Send</button>
+                : <button onClick={handleSend} disabled={!input.trim()} style={{ background: input.trim() ? "rgba(var(--gold-rgb), 0.14)" : "transparent", border: `1px solid ${input.trim() ? "rgba(var(--gold-rgb), 0.28)" : "rgba(255,255,255,0.07)"}`, borderRadius: "8px", padding: "5px 11px", cursor: input.trim() ? "pointer" : "default", color: input.trim() ? "var(--gold)" : "rgba(255,255,255,0.2)", fontSize: "12px", fontWeight: "600", fontFamily: "inherit", flexShrink: 0, alignSelf: "flex-end", transition: "all 0.12s" }}>Send</button>
               }
             </div>
           </div>

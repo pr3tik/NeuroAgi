@@ -28,7 +28,7 @@ function relativeTime(iso: string): string {
 
 // ── Avatar color palette ──────────────────────────────────────────────────────
 const AVATAR_PALETTE = [
-  { bg: "rgba(196,154,60,0.18)",  fg: "#C49A3C" },
+  { bg: "rgba(var(--gold-rgb), 0.18)",  fg: "var(--gold)" },
   { bg: "rgba(111,179,196,0.18)", fg: "#6fb3c4" },
   { bg: "rgba(127,174,110,0.18)", fg: "#7fae6e" },
   { bg: "rgba(196,100,100,0.18)", fg: "#d47878" },
@@ -140,7 +140,7 @@ function NotificationItem({
       <div style={{
         width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
         marginTop: 15,            // visually centers with 36px avatar
-        background: isUnread ? "#C49A3C" : "transparent",
+        background: isUnread ? "var(--gold)" : "transparent",
         transition: "background 0.2s",
       }} />
 
@@ -152,7 +152,7 @@ function NotificationItem({
         fontSize: cfg.useAvatar ? "14px" : "16px",
         fontWeight: cfg.useAvatar ? "700" : "normal",
         color: cfg.useAvatar ? col.fg : "rgba(255,255,255,0.55)",
-        boxShadow: isUnread ? `0 0 0 1.5px rgba(196,154,60,0.45)` : "none",
+        boxShadow: isUnread ? `0 0 0 1.5px rgba(var(--gold-rgb), 0.45)` : "none",
         transition: "box-shadow 0.2s",
       }}>
         {cfg.useAvatar && fromName ? initial : <cfg.icon size={17} />}
@@ -206,12 +206,12 @@ function NotificationItem({
               style={{
                 fontSize: "11px", padding: "4px 12px", borderRadius: "6px",
                 cursor: "pointer", fontFamily: "inherit", fontWeight: "600",
-                background: "rgba(196,154,60,0.14)", color: "#C49A3C",
-                border: "1px solid rgba(196,154,60,0.28)",
+                background: "rgba(var(--gold-rgb), 0.14)", color: "var(--gold)",
+                border: "1px solid rgba(var(--gold-rgb), 0.28)",
                 transition: "background 0.12s",
               }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(196,154,60,0.22)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "rgba(196,154,60,0.14)")}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(var(--gold-rgb), 0.22)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "rgba(var(--gold-rgb), 0.14)")}
             >
               Accept
             </button>
@@ -252,12 +252,12 @@ function NotificationItem({
               marginTop: "8px",
               fontSize: "11px", padding: "4px 10px", borderRadius: "6px",
               cursor: "pointer", fontFamily: "inherit",
-              background: "rgba(196,154,60,0.08)", color: "#C49A3C",
-              border: "1px solid rgba(196,154,60,0.18)",
+              background: "rgba(var(--gold-rgb), 0.08)", color: "var(--gold)",
+              border: "1px solid rgba(var(--gold-rgb), 0.18)",
               transition: "background 0.12s",
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(196,154,60,0.15)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(196,154,60,0.08)")}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(var(--gold-rgb), 0.15)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(var(--gold-rgb), 0.08)")}
           >
             Join room →
           </button>
@@ -453,7 +453,7 @@ export default function NotificationPanel({
           <button
             onClick={handleMarkAllRead}
             style={{
-              fontSize: "12px", color: "#C49A3C",
+              fontSize: "12px", color: "var(--gold)",
               background: "none", border: "none",
               cursor: "pointer", fontFamily: "inherit",
               padding: "2px 4px", opacity: 0.85,

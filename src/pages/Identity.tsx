@@ -272,27 +272,27 @@ export default function Identity() {
           <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", padding: "16px 18px", marginBottom: "10px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
               <div>
-                <p style={{ fontSize: "28px", fontWeight: "600", color: "#C49A3C", letterSpacing: "-0.5px", lineHeight: 1 }}>
+                <p style={{ fontSize: "28px", fontWeight: "600", color: "var(--gold)", letterSpacing: "-0.5px", lineHeight: 1 }}>
                   {tokenSummary.points ?? 0}
                 </p>
                 <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "3px" }}>
                   {tokenSummary.tier}
                   {tokenSummary.todayEarned > 0 && (
-                    <span style={{ color: "rgba(196,154,60,0.65)", marginLeft: "8px" }}>+{tokenSummary.todayEarned} today</span>
+                    <span style={{ color: "rgba(var(--gold-rgb), 0.65)", marginLeft: "8px" }}>+{tokenSummary.todayEarned} today</span>
                   )}
                 </p>
               </div>
               {getNextTier(tokenSummary.points ?? 0) && (
                 <p style={{ fontSize: "11px", color: "var(--text-dim)", textAlign: "right", lineHeight: 1.4 }}>
                   {getNextTier(tokenSummary.points ?? 0).min - (tokenSummary.points ?? 0)} to<br/>
-                  <span style={{ color: "rgba(196,154,60,0.7)" }}>{getNextTier(tokenSummary.points ?? 0).name}</span>
+                  <span style={{ color: "rgba(var(--gold-rgb), 0.7)" }}>{getNextTier(tokenSummary.points ?? 0).name}</span>
                 </p>
               )}
             </div>
             {/* Tier progress bar */}
             <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "3px", height: "3px" }}>
               <div style={{
-                background: "linear-gradient(90deg, #C49A3C, rgba(196,154,60,0.6))",
+                background: "linear-gradient(90deg, var(--gold), rgba(var(--gold-rgb), 0.6))",
                 height: "100%", borderRadius: "3px",
                 width: `${tierProgressPct(tokenSummary.points ?? 0)}%`,
                 transition: "width 0.6s var(--ease-apple)",
@@ -313,13 +313,13 @@ export default function Identity() {
                     padding: "8px 4px",
                     borderBottom: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none",
                   }}>
-                    <span style={{ color: "rgba(196,154,60,0.6)", width: "16px", display: "inline-flex", justifyContent: "center", flexShrink: 0 }}>
+                    <span style={{ color: "rgba(var(--gold-rgb), 0.6)", width: "16px", display: "inline-flex", justifyContent: "center", flexShrink: 0 }}>
                       {(() => { const Ic = TOKEN_ICONS[e.action]; return Ic ? <Ic size={13} /> : "·"; })()}
                     </span>
                     <span style={{ color: "var(--text-secondary)", fontSize: "13px", flex: 1 }}>
                       {TOKEN_LABELS[e.action] ?? e.action}
                     </span>
-                    <span style={{ color: "#C49A3C", fontSize: "12px", fontWeight: "700", flexShrink: 0 }}>+{e.tokens}</span>
+                    <span style={{ color: "var(--gold)", fontSize: "12px", fontWeight: "700", flexShrink: 0 }}>+{e.tokens}</span>
                     <span style={{ color: "var(--text-dim)", fontSize: "11px", flexShrink: 0, minWidth: "44px", textAlign: "right" }}>
                       {fmtAgo(e.created_at)}
                     </span>
@@ -354,8 +354,8 @@ export default function Identity() {
           <div style={{
             display: "flex", alignItems: "center", gap: "14px",
             padding: "16px 18px",
-            background: "rgba(196,154,60,0.08)",
-            border: "1px solid rgba(196,154,60,0.25)",
+            background: "rgba(var(--gold-rgb), 0.08)",
+            border: "1px solid rgba(var(--gold-rgb), 0.25)",
             borderRadius: "var(--radius-card)",
           }}>
             <span style={{ fontSize: "28px", lineHeight: 1 }}>{yourType.emoji}</span>
@@ -381,12 +381,12 @@ export default function Identity() {
                 <div key={a.key} title={a.description} style={{
                   display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
                   padding: "12px 8px",
-                  background: unlocked ? "rgba(196,154,60,0.08)" : "var(--color-surface)",
-                  border: `1px solid ${unlocked ? "rgba(196,154,60,0.25)" : "var(--color-border)"}`,
+                  background: unlocked ? "rgba(var(--gold-rgb), 0.08)" : "var(--color-surface)",
+                  border: `1px solid ${unlocked ? "rgba(var(--gold-rgb), 0.25)" : "var(--color-border)"}`,
                   borderRadius: "var(--radius-card)",
                   opacity: unlocked ? 1 : 0.35,
                 }}>
-                  <Ic size={20} color={unlocked ? "#C49A3C" : "var(--text-dim)"} />
+                  <Ic size={20} color={unlocked ? "var(--gold)" : "var(--text-dim)"} />
                   <span style={{ fontSize: "10px", color: unlocked ? "var(--text-primary)" : "var(--text-dim)", textAlign: "center", lineHeight: 1.3 }}>
                     {a.name}
                   </span>

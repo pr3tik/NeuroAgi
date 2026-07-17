@@ -68,8 +68,8 @@ export default function DocQuiz({ questions, onDone }: Props) {
 
         <button onClick={onDone} style={{
           width: "100%", padding: "11px", borderRadius: "10px",
-          background: "rgba(196,154,60,0.14)", color: "#C49A3C",
-          border: "1px solid rgba(196,154,60,0.3)",
+          background: "rgba(var(--gold-rgb), 0.14)", color: "var(--gold)",
+          border: "1px solid rgba(var(--gold-rgb), 0.3)",
           fontSize: "13px", fontWeight: "600", cursor: "pointer",
           fontFamily: "inherit",
         }}>
@@ -87,7 +87,7 @@ export default function DocQuiz({ questions, onDone }: Props) {
           <motion.div
             animate={{ width: `${((idx) / questions.length) * 100}%` }}
             transition={{ duration: 0.3 }}
-            style={{ height: "100%", background: "#C49A3C", borderRadius: 2 }}
+            style={{ height: "100%", background: "var(--gold)", borderRadius: 2 }}
           />
         </div>
         <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)", flexShrink: 0 }}>
@@ -161,13 +161,13 @@ export default function DocQuiz({ questions, onDone }: Props) {
               animate={{ opacity: 1, y: 0 }}
               style={{
                 padding: "10px 13px",
-                background: "rgba(196,154,60,0.07)",
-                border: "1px solid rgba(196,154,60,0.18)",
+                background: "rgba(var(--gold-rgb), 0.07)",
+                border: "1px solid rgba(var(--gold-rgb), 0.18)",
                 borderRadius: "9px", marginBottom: "14px",
               }}
             >
               <p style={{ fontSize: "12px", lineHeight: "1.6", color: "rgba(245,245,245,0.72)", margin: 0 }}>
-                <strong style={{ color: "#C49A3C", fontWeight: "600" }}>Why: </strong>
+                <strong style={{ color: "var(--gold)", fontWeight: "600" }}>Why: </strong>
                 {q.explanation}
               </p>
             </motion.div>
@@ -181,8 +181,8 @@ export default function DocQuiz({ questions, onDone }: Props) {
               onClick={next}
               style={{
                 width: "100%", padding: "10px", borderRadius: "10px",
-                background: "rgba(196,154,60,0.14)", color: "#C49A3C",
-                border: "1px solid rgba(196,154,60,0.3)",
+                background: "rgba(var(--gold-rgb), 0.14)", color: "var(--gold)",
+                border: "1px solid rgba(var(--gold-rgb), 0.3)",
                 fontSize: "13px", fontWeight: "600", cursor: "pointer",
                 fontFamily: "inherit",
               }}

@@ -9,6 +9,7 @@
 //   size        — px diameter of the orb stage (default 200)
 
 import { useMemo } from "react";
+import { GOLD, goldAlpha } from "../lib/theme";
 
 type OrbMember = { userId?: string; name?: string; initial?: string };
 type StudyOrbProps = { active?: boolean; members?: OrbMember[]; size?: number; speakingNames?: string[] };
@@ -19,7 +20,7 @@ const ORB_CSS = `
 @keyframes so-spin    { to { transform:rotate(360deg) } }
 @keyframes so-spinrev { to { transform:rotate(-360deg) } }
 @keyframes so-twinkle { 0%,100%{opacity:.25}           50%{opacity:.95} }
-@keyframes so-speak   { 0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,0.7),0 0 10px rgba(196,154,60,0.28)} 60%{box-shadow:0 0 0 7px rgba(74,222,128,0),0 0 10px rgba(196,154,60,0.28)} }
+@keyframes so-speak   { 0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,0.7),0 0 10px rgba(var(--gold-rgb),0.28)} 60%{box-shadow:0 0 0 7px rgba(74,222,128,0),0 0 10px rgba(var(--gold-rgb),0.28)} }
 .so-g    { transform-box:view-box; transform-origin:100px 100px; }
 .so-core { transform-box:view-box; transform-origin:100px 100px; animation:so-breathe 4.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce){
@@ -52,7 +53,7 @@ export default function StudyOrb({ active = false, members = [], size = 200, spe
         {/* Soft warm/cool glow behind everything */}
         <div style={{
           position: "absolute", inset: "-14%", borderRadius: "50%",
-          background: `radial-gradient(circle at 50% 44%, rgba(196,154,60,${0.32 * pulse}) 0%, rgba(118,148,210,${0.14 * pulse}) 40%, transparent 70%)`,
+          background: `radial-gradient(circle at 50% 44%, rgba(var(--gold-rgb),${0.32 * pulse}) 0%, rgba(118,148,210,${0.14 * pulse}) 40%, transparent 70%)`,
           filter: "blur(6px)", animation: "so-glow 5s ease-in-out infinite",
         }} />
 
@@ -60,13 +61,13 @@ export default function StudyOrb({ active = false, members = [], size = 200, spe
           <defs>
             <radialGradient id="so-core-grad" cx="50%" cy="42%" r="62%">
               <stop offset="0%"   stopColor="#FBEBC8" stopOpacity="0.95" />
-              <stop offset="34%"  stopColor="#C49A3C" stopOpacity="0.85" />
+              <stop offset="34%"  stopColor={GOLD} stopOpacity="0.85" />
               <stop offset="74%"  stopColor="#6E5FA8" stopOpacity="0.32" />
               <stop offset="100%" stopColor="#3A4A78" stopOpacity="0" />
             </radialGradient>
             <radialGradient id="so-rim" cx="50%" cy="50%" r="50%">
               <stop offset="76%"  stopColor="transparent" />
-              <stop offset="92%"  stopColor="rgba(196,154,60,0.45)" />
+              <stop offset="92%"  stopColor={goldAlpha(0.45)} />
               <stop offset="100%" stopColor="transparent" />
             </radialGradient>
           </defs>
@@ -76,7 +77,7 @@ export default function StudyOrb({ active = false, members = [], size = 200, spe
             <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(118,148,210,0.22)" strokeWidth="1" strokeDasharray="2 8" />
           </g>
           <g className="so-g" style={{ animation: `so-spinrev ${active ? 36 : 62}s linear infinite` }}>
-            <circle cx="100" cy="100" r="66" fill="none" stroke="rgba(196,154,60,0.26)" strokeWidth="1" strokeDasharray="1 9" />
+            <circle cx="100" cy="100" r="66" fill="none" stroke={goldAlpha(0.26)} strokeWidth="1" strokeDasharray="1 9" />
           </g>
 
           {/* Breathing core */}
@@ -94,7 +95,7 @@ export default function StudyOrb({ active = false, members = [], size = 200, spe
                 cx={100 + Math.cos(p.a) * p.r}
                 cy={100 + Math.sin(p.a) * p.r}
                 r={p.s}
-                fill={i % 2 ? "rgba(196,154,60,0.9)" : "rgba(150,180,230,0.85)"}
+                fill={i % 2 ? goldAlpha(0.9) : "rgba(150,180,230,0.85)"}
                 style={{ animation: `so-twinkle ${2 + p.d}s ease-in-out ${p.d}s infinite` }}
               />
             ))}
@@ -126,7 +127,7 @@ export default function StudyOrb({ active = false, members = [], size = 200, spe
                     position: "absolute", left: x, top: y, width: 26, height: 26,
                     marginLeft: -13, marginTop: -13, borderRadius: "50%",
                     background: "rgba(18,18,24,0.92)",
-                    border: isSpeaking ? "1.5px solid rgba(74,222,128,0.85)" : "1px solid rgba(196,154,60,0.5)",
+                    border: isSpeaking ? "1.5px solid rgba(74,222,128,0.85)" : "1px solid rgba(var(--gold-rgb),0.5)",
                     color: isSpeaking ? "#4ade80" : "var(--color-accent)", fontSize: "11px", fontWeight: 700,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     animation: isSpeaking ? "so-speak 0.9s ease-out infinite" : undefined,

@@ -15,7 +15,7 @@ interface Metrics {
 interface Delta { key: string; label: string; from: number; to: number; delta: number; }
 interface Snapshot { id: string; title: string | null; word_count: number; metrics: Metrics; created_at: string; }
 
-const ACCENT = "#C49A3C";
+const ACCENT = "var(--gold)";
 const pct = (v: number) => `${Math.round((v ?? 0) * 100)}%`;
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
@@ -125,8 +125,8 @@ export default function WritingTracker() {
         disabled={loading || text.trim().length < 40}
         style={{
           padding: "9px 16px", borderRadius: "var(--radius-btn)",
-          background: loading || text.trim().length < 40 ? "rgba(255,255,255,0.06)" : "rgba(196,154,60,0.14)",
-          border:     loading || text.trim().length < 40 ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(196,154,60,0.3)",
+          background: loading || text.trim().length < 40 ? "rgba(255,255,255,0.06)" : "rgba(var(--gold-rgb), 0.14)",
+          border:     loading || text.trim().length < 40 ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(var(--gold-rgb), 0.3)",
           color:      loading || text.trim().length < 40 ? "var(--text-dim)" : ACCENT,
           fontSize: 13, fontWeight: 600, cursor: loading || text.trim().length < 40 ? "default" : "pointer",
           fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 6,
@@ -158,7 +158,7 @@ export default function WritingTracker() {
             <p style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55, margin: "0 0 8px" }}>{result.assessment}</p>
           )}
           {result.tip && (
-            <div style={{ background: "rgba(196,154,60,0.05)", border: "1px solid rgba(196,154,60,0.16)", borderRadius: "10px", padding: "10px 12px", display: "flex", gap: 7 }}>
+            <div style={{ background: "rgba(var(--gold-rgb), 0.05)", border: "1px solid rgba(var(--gold-rgb), 0.16)", borderRadius: "10px", padding: "10px 12px", display: "flex", gap: 7 }}>
               <Sparkles size={13} style={{ color: ACCENT, flexShrink: 0, marginTop: 2 }} />
               <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5, margin: 0 }}>{result.tip}</p>
             </div>

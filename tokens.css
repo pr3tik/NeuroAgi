@@ -6,6 +6,8 @@
    Hallmark · macrostructure: App Shell · tone: luxury-minimal · anchor hue: neutral-white */
 
 :root {
+  color-scheme: dark;
+
   /* ── Colour ─────────────────────────────────────────────────────────── */
   --color-bg:             #111111;
   --color-surface:        rgba(255, 255, 255, 0.05);
@@ -28,12 +30,57 @@
   --color-amber:        rgba(255, 190, 0, 0.8);
   --color-amber-bar:    rgba(255, 190, 0, 0.65);
 
+  /* ── Brand palette ──────────────────────────────────────────────────
+     Single source for the gold/teal/cream accent family. The *-rgb triplets
+     exist so call sites can keep their exact alpha: rgba(var(--gold-rgb), 0.15).
+     JS-side mirrors (canvas/WebGL code that can't read CSS vars) live in
+     src/lib/theme.ts — keep the two in sync. */
+  --gold:            #C49A3C;
+  --gold-rgb:        196, 154, 60;
+  --gold-bright:     rgb(255, 215, 80);
+  --gold-bright-rgb: 255, 215, 80;
+  --cream:           #F6F2E9;
+  --cream-rgb:       246, 242, 233;
+  --teal:            rgb(0, 210, 190);
+  --teal-rgb:        0, 210, 190;
+  --amber-rgb:       255, 190, 0;
+  --ink-warm:        #1a1814;
+
+  /* Semantic aliases — prefer these in new code */
+  --color-brand:       var(--gold);   /* AI/tutor accent, highlights, active states */
+  --color-brand-text:  var(--cream);  /* prose on warm-dark brand surfaces */
+  --color-data-accent: var(--teal);   /* primary data series (e.g. GPA line) */
+
   /* Depth — subtle top-edge highlight for surface elevation */
   --depth-line: 0 1px 0 rgba(255, 255, 255, 0.06);
 
   /* ── Typography ─────────────────────────────────────────────────────── */
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
                "Helvetica Neue", Arial, sans-serif;
+
+  /* Type scale (matches sizes in active use across src/) */
+  --font-size-2xs:  10px;
+  --font-size-xs:   11px;
+  --font-size-sm:   12px;
+  --font-size-md:   13px;
+  --font-size-base: 14px;
+  --font-size-lg:   16px;
+  --font-size-xl:   18px;
+  --font-size-2xl:  22px;
+  --font-size-3xl:  28px;
+
+  --font-weight-regular:  400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  --leading-tight:   1.2;
+  --leading-snug:    1.35;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.65;
+
+  --tracking-tight: -0.02em;
+  --tracking-caps:   0.08em;
 
   /* ── Spacing (4 pt scale) ───────────────────────────────────────────── */
   --space-1:  4px;
@@ -66,4 +113,46 @@
   /* ── Blur surfaces ──────────────────────────────────────────────────── */
   --blur-surface: blur(20px);
   --blur-sheet:   blur(30px);
+}
+
+/* ── Light theme ──────────────────────────────────────────────────────────
+   Opt-in: set data-theme="light" on <html>. Nothing sets it today, so the
+   app stays dark by default; every themable token has a light counterpart
+   here so a toggle is a one-line change. Non-colour tokens (spacing, radius,
+   type, motion) are theme-invariant and inherit from :root. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg:             #F5F5F7;
+  --color-surface:        rgba(0, 0, 0, 0.04);
+  --color-surface-hover:  rgba(0, 0, 0, 0.07);
+  --color-border:         rgba(0, 0, 0, 0.08);
+  --color-border-strong:  rgba(0, 0, 0, 0.16);
+  --color-accent:         rgba(0, 0, 0, 0.85);
+
+  --text-primary:   #1D1D1F;
+  --text-secondary: rgba(0, 0, 0, 0.55);
+  --text-tertiary:  rgba(0, 0, 0, 0.35);
+  --text-dim:       rgba(0, 0, 0, 0.45);
+
+  --color-urgent-bg:    rgba(255, 59, 48, 0.12);
+  --color-urgent-text:  #C93400;
+  --color-success-bg:   rgba(52, 199, 89, 0.12);
+  --color-success-text: #1E7E38;
+  --color-amber:        rgba(178, 125, 0, 0.9);
+  --color-amber-bar:    rgba(178, 125, 0, 0.7);
+
+  /* Gold family darkens slightly so it keeps contrast on light paper */
+  --gold:            #A9822F;
+  --gold-rgb:        169, 130, 47;
+  --gold-bright:     rgb(197, 158, 33);
+  --gold-bright-rgb: 197, 158, 33;
+  --cream:           #4A4030;
+  --cream-rgb:       74, 64, 48;
+  --teal:            rgb(0, 150, 136);
+  --teal-rgb:        0, 150, 136;
+  --amber-rgb:       178, 125, 0;
+  --ink-warm:        #FBF8F2;
+
+  --depth-line: 0 1px 0 rgba(0, 0, 0, 0.04);
 }
