@@ -44,6 +44,9 @@
 // top-level import.
 
 import { requireUserOr401 } from "./_auth.js";
+// Safe to import statically — these build no Supabase client at module load (raw fetch only).
+import { postgrestStore, recall, renderStudentBrainState } from "./_brain/kernel.js";
+import { resolveFschoolPerson } from "./_brain/identity.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -95,6 +98,23 @@ export default async function handler(req, res) {
           },
         }
       ).then(r => r.ok ? r.json() : null).catch(() => null)
+    : Promise.resolve(null);
+
+  // ── 0a′. NeuroAGI kernel recall — the LIVE brain (product DB). Runs in parallel. ─────
+  // Pulls the person's most-salient recent memories (digest / traits / focus / signals) via the
+  // kernel and folds them into STUDENT BRAIN STATE. This is the real brain read now; the legacy
+  // context_window fetch above stays only as a fallback until PR7. Ambient read → reinforce:false
+  // (recalling the firehose every message must NOT keep everything alive and defeat decay).
+  const kernelFetch = (supabaseUrl && supabaseKey)
+    ? (async () => {
+        try {
+          const pid = brainPersonId ?? await resolveFschoolPerson({ url: supabaseUrl, key: supabaseKey }, userId);
+          if (!pid) return null;
+          const store = postgrestStore(supabaseUrl, supabaseKey);
+          const mems = await recall(store, [`person:${pid}`], { limit: 15, reinforce: false });
+          return mems.length ? mems : null;
+        } catch { return null; }
+      })()
     : Promise.resolve(null);
 
   // ── 0b. Library agent search — runs in parallel with brain fetch ───────────
@@ -293,8 +313,8 @@ Examples:
     }
   } catch { /* fall through to none */ }
 
-  // Await brain context, library, and the strategy hint (all in parallel with classification)
-  const [brainRows, librarySnippets, strategyHint] = await Promise.all([brainFetch, libraryFetch, strategyHintFetch]);
+  // Await brain context, kernel recall, library, and the strategy hint (all in parallel)
+  const [brainRows, kernelMems, librarySnippets, strategyHint] = await Promise.all([brainFetch, kernelFetch, libraryFetch, strategyHintFetch]);
   const brainWindow = brainRows?.[0] ?? null;
   if (brainWindow) {
     const parts = [];
@@ -308,6 +328,9 @@ Examples:
       brainContext = `STUDENT BRAIN STATE (NeuroAGI):\n${parts.join(" | ")}`;
     }
   }
+  // Live kernel memories take precedence over the (legacy, usually-empty) context_window.
+  const kernelState = renderStudentBrainState(kernelMems ?? []);
+  if (kernelState) brainContext = kernelState;
 
   // Build library context block
   let libraryContext = null;

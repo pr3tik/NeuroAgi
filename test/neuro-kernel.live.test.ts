@@ -4,7 +4,7 @@
 // runs in CI (Node-20, no creds). Uses a dedicated self-test subject and hard-deletes its
 // rows afterward so it leaves no residue in prod.
 import { describe, it, expect, afterAll } from "vitest";
-import { postgrestStore, remember, recall, forget } from "../api/_brain/kernel.ts";
+import { postgrestStore, remember, recall, forget, renderStudentBrainState } from "../api/_brain/kernel.ts";
 
 const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -41,5 +41,18 @@ describe.skipIf(!LIVE)("PostgrestStore against live neuro_memory", () => {
 
     await forget(s, [m.id], now);
     expect((await recall(s, [SUBJ], { now, reinforce: false })).length).toBe(0);
+  });
+
+  it("full loop: producer writes → recall → renders STUDENT BRAIN STATE (PR4)", async () => {
+    await hardDelete();
+    const s = postgrestStore(URL!, KEY!);
+    const now = Date.now();
+    await remember(s, { subject: SUBJ, kind: "digest", body: { summary: "Strong in calculus; avoids essays." }, salience: 0.7 }, now);
+    await remember(s, { subject: SUBJ, kind: "signal", body: { signal_type: "behavioral", emotional_tone: "stressed" }, salience: 0.35 }, now);
+    const mems = await recall(s, [SUBJ], { now, reinforce: false });
+    const block = renderStudentBrainState(mems);
+    expect(block).toContain("STUDENT BRAIN STATE (NeuroAGI):");
+    expect(block).toContain("Living mind: Strong in calculus");
+    expect(block).toContain("recent tone: stressed");
   });
 });

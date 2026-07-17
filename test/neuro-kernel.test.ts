@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   InMemoryStore, remember, recall, forget, reinforce, tickDecay,
-  effective, HALF_LIFE_DAYS, FORGET_THRESHOLD,
+  effective, renderStudentBrainState, HALF_LIFE_DAYS, FORGET_THRESHOLD,
 } from "../api/_brain/kernel.ts";
 
 const DAY = 86_400_000;
@@ -100,5 +100,29 @@ describe("forget / reinforce / tick", () => {
     expect(forgotten.length).toBe(1);
     const left = await recall(s, [subj], { now, reinforce: false });
     expect(left.map((m) => m.body.t)).toEqual(["keep"]);
+  });
+});
+
+describe("renderStudentBrainState (recall → prompt fold)", () => {
+  const mk = (kind: string, body: any) => ({ id: "x", subject: "person:p", kind, body, salience: 1, audience: [], source: null, happened_at: "", last_seen_at: "", forgotten_at: null, created_at: "" });
+
+  it("returns null when there's nothing to inject", () => {
+    expect(renderStudentBrainState([])).toBeNull();
+    expect(renderStudentBrainState([mk("signal", {})])).toBeNull();
+  });
+
+  it("folds digest + traits + recent signal tone into a labeled block", () => {
+    const out = renderStudentBrainState([
+      mk("digest", { summary: "Strong in calculus, avoids writing." }),
+      mk("trait", { text: "visual learner" }),
+      mk("signal", { emotional_tone: "stressed" }),
+      mk("signal", { emotional_tone: "stressed" }),
+      mk("signal", { event: "session_end" }),
+    ]);
+    expect(out).toContain("STUDENT BRAIN STATE (NeuroAGI):");
+    expect(out).toContain("Living mind: Strong in calculus");
+    expect(out).toContain("trait: visual learner");
+    expect(out).toContain("recent tone: stressed");   // de-duped
+    expect(out).toContain("recent: session_end");
   });
 });
