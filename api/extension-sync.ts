@@ -27,6 +27,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { assertCourseFact, CourseFactRejected } from "./course-fact-guard.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -141,12 +142,23 @@ export default async function handler(req, res) {
       case "upsert_course_content": {
         const { rows } = payload;
         if (!Array.isArray(rows)) return res.status(400).json({ error: "rows[] required" });
-        // course_content is shared — no user_id scoping, but we still validate caller
-        const { error } = await supabase
-          .from("course_content")
-          .upsert(rows, { onConflict: "canvas_course_id,content_hash" });
-        if (error) throw error;
-        return res.status(200).json({ ok: true, count: rows.length });
+        // BR-06: every row must pass the shared-write guard. Fail-closed per row.
+        const clean: Record<string, unknown>[] = [];
+        let dropped = 0;
+        for (const r of rows) {
+          try { clean.push(assertCourseFact(r)); }
+          catch (e) {
+            if (e instanceof CourseFactRejected) { dropped++; console.warn("[extension-sync] BR-06 dropped row:", e.reason); }
+            else throw e;
+          }
+        }
+        if (clean.length) {
+          const { error } = await supabase
+            .from("course_content")
+            .upsert(clean, { onConflict: "canvas_course_id,content_hash" });
+          if (error) throw error;
+        }
+        return res.status(200).json({ ok: true, count: clean.length, dropped });
       }
 
       // ── delete stale rows ────────────────────────────────────────────────

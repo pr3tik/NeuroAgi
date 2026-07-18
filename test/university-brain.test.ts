@@ -100,3 +100,26 @@ describe("upsertSnapshot", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("BR-06: upsertSnapshot routes through the guard", () => {
+  const cleanRow = {
+    university_id: "q.utoronto.ca", course_id: "BIO130", canvas_course_id: "123",
+    content_type: "assessment", text: "sched v1", professor_name: "Prof X", summary: "sched v1", concepts: null,
+  };
+  beforeEach(() => {
+    process.env.SUPABASE_URL = "http://localhost";
+    process.env.SUPABASE_SERVICE_KEY = "test";
+  });
+  it("rejects a snapshot carrying a person-linking key — no POST (guard wired)", async () => {
+    const methods: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, opts: any = {}) => {
+      methods.push(opts.method ?? "GET");
+      return { ok: true, json: async () => [], text: async () => "" };
+    }));
+    await expect(
+      upsertSnapshot({ ...cleanRow, user_id: "someone-else" } as any),
+    ).rejects.toThrow(/person-linking key/);
+    expect(methods.includes("POST")).toBe(false);
+    vi.unstubAllGlobals();
+  });
+});
