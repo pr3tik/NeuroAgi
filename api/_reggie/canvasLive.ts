@@ -44,8 +44,11 @@ export async function userUniversityId(userId: string): Promise<string | null> {
     );
     if (!r.ok) return null;
     const row = ((await r.json()) as any[])[0];
-    if (row?.university_id) return String(row.university_id).toLowerCase();
-    if (row?.canvas_base_url) { try { return new URL(row.canvas_base_url).hostname.toLowerCase(); } catch { /* fall through */ } }
+    // Sanitize to valid hostname chars only (strips stray chars like a trailing quote that would
+    // fragment a school) — must match the write-side derivation in extension-content.ts.
+    const clean = (h: string) => h.toLowerCase().replace(/[^a-z0-9.-]/g, "") || null;
+    if (row?.university_id) return clean(String(row.university_id));
+    if (row?.canvas_base_url) { try { return clean(new URL(row.canvas_base_url).hostname); } catch { /* fall through */ } }
     return null;
   } catch { return null; }
 }

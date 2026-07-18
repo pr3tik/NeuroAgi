@@ -50,7 +50,10 @@ const supabase = createClient(
 export function deriveUniversityId(url) {
   if (!url) return null;
   try {
-    return new URL(url).hostname.toLowerCase();
+    // Sanitize to valid hostname chars only — some stored Canvas URLs carry stray characters
+    // (e.g. a trailing quote 'https://q.utoronto.ca''), which would otherwise fragment a school.
+    const host = new URL(url).hostname.toLowerCase().replace(/[^a-z0-9.-]/g, "");
+    return host || null;
   } catch {
     return null;
   }

@@ -29,13 +29,23 @@ comment on column public.users.university_id is
 create index if not exists users_university_id_idx
   on public.users (university_id) where university_id is not null;
 
--- 3. Backfill from the already-stored Canvas base URL. hostname = the host portion of the URL.
---    substring(... from '^https?://([^/]+)') -> 'q.utoronto.ca' for 'https://q.utoronto.ca'.
---    (Strips any :port too, which Canvas URLs effectively never have.)
+-- 3. Backfill from the already-stored Canvas base URL. hostname = the host portion of the URL,
+--    sanitized to valid hostname chars only. regexp_replace strips stray characters some stored
+--    URLs carry (e.g. a trailing quote in 'https://q.utoronto.ca''), which would otherwise
+--    fragment a school. split_part(...,':',1) drops any :port (Canvas URLs effectively never have).
 update public.users
-   set university_id = lower(split_part(substring(canvas_base_url from '^https?://([^/]+)'), ':', 1))
+   set university_id = regexp_replace(
+         lower(split_part(substring(canvas_base_url from '^https?://([^/]+)'), ':', 1)),
+         '[^a-z0-9.\-]', '', 'g')
  where canvas_base_url is not null
    and (university_id is null or university_id = '');
+
+-- 3b. Corrective: sanitize any ALREADY-set university_id that carries invalid chars (e.g. the
+--     'q.utoronto.ca'' row from a first pass) so it merges with the clean value. Idempotent.
+update public.users
+   set university_id = regexp_replace(lower(university_id), '[^a-z0-9.\-]', '', 'g')
+ where university_id is not null
+   and university_id ~ '[^a-z0-9.\-]';
 
 -- 4. course_content.university_id is already hostname-format and NOT NULL DEFAULT 'unknown'
 --    (supabase-course-content-migration.sql). No change needed to existing rows; the WRITE
