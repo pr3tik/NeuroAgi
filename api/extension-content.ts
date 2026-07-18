@@ -37,43 +37,25 @@ const supabase = createClient(
 );
 
 // ── University ID detection from LMS URL ─────────────────────────────────────
-// Maps known LMS hostnames to short university IDs.
-// Aryan: extend this map as new universities are added.
-const UNIVERSITY_MAP = {
-  "canvas.utoronto.ca":       "uoft",
-  "q.utoronto.ca":            "uoft",
-  "portal.utoronto.ca":       "uoft",
-  "canvas.ubc.ca":            "ubc",
-  "canvas.mcmaster.ca":       "mcmaster",
-  "avenue.mcmaster.ca":       "mcmaster",
-  "canvas.queensu.ca":        "queens",
-  "onq.queensu.ca":           "queens",
-  "learn.uwaterloo.ca":       "uwaterloo",
-  "canvas.uwaterloo.ca":      "uwaterloo",
-  "owl.uwo.ca":               "uwo",
-  "canvas.uwo.ca":            "uwo",
-  "mycourses.mcgill.ca":      "mcgill",
-  "canvas.mcgill.ca":         "mcgill",
-  "brightspace.dal.ca":       "dal",
-  "canvas.mit.edu":           "mit",
-  "canvas.stanford.edu":      "stanford",
-  "canvas.harvard.edu":       "harvard",
-  "courseworks.columbia.edu": "columbia",
-  "canvas.uchicago.edu":      "uchicago",
-};
-
+// CANONICAL institution key = the LMS hostname (e.g. 'q.utoronto.ca'), matching the Course
+// Brain seed in university-brain.ts (BR-02 / Gap 8). This previously mapped hostnames to short
+// ids ('uoft'), which mismatched the hostname written by university-brain — so facts from the
+// two write paths never deduped or scoped together, and the (university_id,course_id) index
+// fragmented. Both paths now key on the hostname.
+//
+// TRADEOFF (see BR-02 spec): keying on the raw hostname means a school's multiple portals
+// (canvas./q./portal.utoronto.ca) are DISTINCT keys. university-brain already had this property,
+// so this makes the two paths consistent; a portal→canonical-host normalization map is a Phase-2
+// refinement if intra-school fragmentation shows up in the data.
 export function deriveUniversityId(url) {
-  if (!url) return "unknown";
+  if (!url) return null;
   try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    for (const [pattern, uid] of Object.entries(UNIVERSITY_MAP)) {
-      if (hostname === pattern || hostname.endsWith(`.${pattern}`)) return uid;
-    }
-    // Fallback: use the second-level domain
-    const parts = hostname.split(".");
-    return parts.length >= 2 ? parts[parts.length - 2] : hostname;
+    // Sanitize to valid hostname chars only — some stored Canvas URLs carry stray characters
+    // (e.g. a trailing quote 'https://q.utoronto.ca''), which would otherwise fragment a school.
+    const host = new URL(url).hostname.toLowerCase().replace(/[^a-z0-9.-]/g, "");
+    return host || null;
   } catch {
-    return "unknown";
+    return null;
   }
 }
 
@@ -120,7 +102,11 @@ export default async function handler(req, res) {
   }
 
   // ── Derive university ID ────────────────────────────────────────────────────
-  const universityId = rawUniversityId || deriveUniversityId(sourceUrl) || "unknown";
+  // Prefer the SERVER-derived hostname from the content's own sourceUrl (canonical, matches
+  // university-brain) over any client-supplied value; fall back to the client's only when there
+  // is no sourceUrl, then "unknown". (Deriving from the caller's stored canvas_base_url — the
+  // most robust source — is a BR-02 follow-up, gated on the extension-content auth fix.)
+  const universityId = deriveUniversityId(sourceUrl) || rawUniversityId || "unknown";
 
   // ── Resolve canonical course ID (H4 fix) ────────────────────────────────────
   // Ensures all 3 ingestion paths (Canvas API, extension, manual) resolve to the

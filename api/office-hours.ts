@@ -78,8 +78,11 @@ async function prep(body, supabaseUrl, supabaseKey, anthropicKey) {
     const cRes = await fetch(`${supabaseUrl}/rest/v1/courses?id=eq.${encodeURIComponent(courseId)}&user_id=eq.${encodeURIComponent(userId)}&select=canvas_course_id,name,course_code`, { headers });
     const course = cRes.ok ? (await cRes.json())?.[0] : null;
     if (course?.canvas_course_id) {
+      // BR-02 (Gap 8): scope shared course material to the caller's institution.
+      const uni = await userUniversityId(userId);
+      const uniFilter = uni ? `&university_id=eq.${encodeURIComponent(uni)}` : "";
       const ccRes = await fetch(
-        `${supabaseUrl}/rest/v1/course_content?canvas_course_id=eq.${course.canvas_course_id}&select=content_type,summary,text,module_name&order=week_number.desc&limit=3`,
+        `${supabaseUrl}/rest/v1/course_content?canvas_course_id=eq.${encodeURIComponent(String(course.canvas_course_id))}${uniFilter}&select=content_type,summary,text,module_name&order=week_number.desc&limit=3`,
         { headers }
       );
       if (ccRes.ok) courseSnippets = await ccRes.json();
@@ -201,6 +204,7 @@ Return ONLY the paragraph, no preamble, no markdown.`;
 }
 
 import { requireUserOr401 } from "./_auth.js";
+import { userUniversityId } from "./_reggie/canvasLive.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");

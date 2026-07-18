@@ -21,7 +21,7 @@
 // prototype (server writes via service key).
 import crypto from "node:crypto";
 import { callModel } from "./_gateway.js";
-import { canvasCreds, canvasGET, resolveCanvasCourseId, stripHtml } from "./_reggie/canvasLive.js";
+import { canvasCreds, canvasGET, resolveCanvasCourseId, stripHtml, userUniversityId } from "./_reggie/canvasLive.js";
 import { requireUserOr401 } from "./_auth.js";
 
 function sb() {
@@ -124,11 +124,17 @@ async function profile(res: any, userId: string, course: any, professor: any) {
   const { url, headers } = sb();
   let rows: any[] = [];
   let scope = "";
+  // BR-02 (Gap 8): scope every course_content read to the caller's own institution so a
+  // course/professor lookup can't surface another school's facts. Degrade to unscoped when the
+  // caller has no Canvas connected (uni === null) — the professor read below otherwise matched
+  // EVERY "Prof <name>" on the whole platform.
+  const uni = await userUniversityId(userId);
+  const uniFilter = uni ? `&university_id=eq.${encodeURIComponent(uni)}` : "";
   if (course != null && course !== "") {
     // Resolve through the READER's own synced courses — no Canvas token needed.
     const canvasCourseId = await resolveCanvasCourseId(userId, course);
     scope = `course ${canvasCourseId}`;
-    const r = await fetch(`${url}/rest/v1/course_content?canvas_course_id=eq.${encodeURIComponent(String(canvasCourseId))}&is_private=not.is.true&select=content_type,professor_name,summary,concepts,seen_by_count,last_seen_at&order=last_seen_at.desc.nullslast&limit=20`, { headers });
+    const r = await fetch(`${url}/rest/v1/course_content?canvas_course_id=eq.${encodeURIComponent(String(canvasCourseId))}${uniFilter}&is_private=not.is.true&select=content_type,professor_name,summary,concepts,seen_by_count,last_seen_at&order=last_seen_at.desc.nullslast&limit=20`, { headers });
     if (!r.ok) throw new Error(`library read failed (${r.status}): ${(await r.text()).slice(0, 150)}`);
     rows = await r.json();
   } else if (professor) {
@@ -137,7 +143,7 @@ async function profile(res: any, userId: string, course: any, professor: any) {
     const name = String(professor).replace(/\b(professor|prof\.?|dr\.?|mr\.?|ms\.?|mrs\.?)\b/gi, "").trim();
     scope = `professor ${name || professor}`;
     const search = async (q: string) => {
-      const r = await fetch(`${url}/rest/v1/course_content?professor_name=ilike.${encodeURIComponent("*" + q + "*")}&is_private=not.is.true&select=content_type,professor_name,summary,concepts,seen_by_count,last_seen_at,course_id,canvas_course_id&order=last_seen_at.desc.nullslast&limit=30`, { headers });
+      const r = await fetch(`${url}/rest/v1/course_content?professor_name=ilike.${encodeURIComponent("*" + q + "*")}${uniFilter}&is_private=not.is.true&select=content_type,professor_name,summary,concepts,seen_by_count,last_seen_at,course_id,canvas_course_id&order=last_seen_at.desc.nullslast&limit=30`, { headers });
       if (!r.ok) throw new Error(`library read failed (${r.status}): ${(await r.text()).slice(0, 150)}`);
       return r.json();
     };

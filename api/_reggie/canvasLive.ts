@@ -27,6 +27,32 @@ export async function canvasCreds(userId: string): Promise<CanvasCreds> {
   return { host, token: row.canvas_token };
 }
 
+/** BR-02 (Gap 8): the caller's canonical institution key = the hostname of their Canvas base
+ *  URL (e.g. 'q.utoronto.ca'), used to scope Course Brain (course_content) reads to the user's
+ *  own school. Reads the populated users.university_id (fast path); falls back to deriving it
+ *  from canvas_base_url so it also works before the backfill runs. Returns null when the user
+ *  has no Canvas connected — callers MUST then skip the university_id filter (degrade to the
+ *  prior unscoped behaviour) rather than filter on null (which would return zero rows). */
+export async function userUniversityId(userId: string): Promise<string | null> {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
+  if (!url || !key || !userId) return null;
+  try {
+    const r = await fetch(
+      `${url}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=university_id,canvas_base_url&limit=1`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}` } },
+    );
+    if (!r.ok) return null;
+    const row = ((await r.json()) as any[])[0];
+    // Sanitize to valid hostname chars only (strips stray chars like a trailing quote that would
+    // fragment a school) — must match the write-side derivation in extension-content.ts.
+    const clean = (h: string) => h.toLowerCase().replace(/[^a-z0-9.-]/g, "") || null;
+    if (row?.university_id) return clean(String(row.university_id));
+    if (row?.canvas_base_url) { try { return clean(new URL(row.canvas_base_url).hostname); } catch { /* fall through */ } }
+    return null;
+  } catch { return null; }
+}
+
 /** GET a Canvas REST path (relative to /api/v1) with the student's token. */
 export async function canvasGET(creds: CanvasCreds, path: string, params: Record<string, any> = {}): Promise<any> {
   const url = new URL(`${creds.host}/api/v1${path}`);
