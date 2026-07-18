@@ -169,6 +169,11 @@ export default async function handler(req: any, res: any) {
   try {
     if (action === "run") {
       if (!cronAuthed(req)) return res.status(401).json({ error: "Unauthorized" });
+      // Register the session-end handlers before draining. Dynamic import breaks the
+      // import cycle (_roomJobs imports registerHandler from here) and keeps this file
+      // import-safe. registerRoomJobHandlers() is idempotent, so calling it per tick is fine.
+      const { registerRoomJobHandlers } = await import("./_roomJobs.js");
+      registerRoomJobHandlers();
       const out = await runJobs(Number(req.query?.limit) || BATCH);
       return res.status(200).json({ ok: true, ...out });
     }

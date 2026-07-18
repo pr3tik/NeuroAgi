@@ -251,6 +251,30 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    name: "BR-06 person-brain out of group",
+    invariant: "a NeuroAGI person brain-state (A4 brainRead) never renders on a group turn, even if mis-routed",
+    run: () => {
+      const brainState = "STUDENT BRAIN STATE (NeuroAGI):\ntrait: NEURO-BRAINSTATE-MARKER | recent tone: anxious";
+      const prompt = build({ scope: "group", persona: "facilitator", studentProfileMarkdown: brainState });
+      const v: string[] = [];
+      if (prompt.includes("NEURO-BRAINSTATE-MARKER")) v.push("person brain-state leaked into a group prompt");
+      if (prompt.includes("STUDENT LEARNING PROFILE")) v.push("private profile section rendered on a group turn");
+      return v;
+    },
+  },
+  {
+    name: "BR-06 person-brain confined to its owner's private turn",
+    invariant: "a person brain-state renders on the owner's private turn but a different student's marker never appears",
+    run: () => {
+      const own = "STUDENT BRAIN STATE (NeuroAGI):\ntrait: OWNER-MARKER-77";
+      const prompt = build({ scope: "private", persona: "facilitator", studentProfileMarkdown: own });
+      const v: string[] = [];
+      if (!prompt.includes("OWNER-MARKER-77")) v.push("owner's own brain-state failed to render on their private turn");
+      if (prompt.includes("OTHER-STUDENT-MARKER")) v.push("another student's brain-state leaked in");
+      return v;
+    },
+  },
+  {
     name: "gaps stay unattributed",
     invariant: "group focus areas never sit on a line with a participant name (no name↔gap pairing)",
     run: () => {

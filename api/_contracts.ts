@@ -215,6 +215,9 @@ export const JOB_TYPES = {
   summary: "generate_session_summary",
   quiz: "generate_quiz",
   brainProposal: "propose_brain_update",
+  // A5 — fire-and-forget warm of a participant's brain context_window on room-session start, so the
+  // C1 room-turn recall (800ms budget) hits a warm digest instead of a 3–8s cold rebuild.
+  warmBrain: "warm_brain_context",
 } as const;
 
 // Activity-event allowlist (must match the DB check constraint).
