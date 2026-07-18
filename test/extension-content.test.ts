@@ -27,23 +27,22 @@ async function loadHandler(router: (ctx: any) => any) {
 }
 const post = (body: any) => ({ method: "POST", body });
 
-// ── Pure: LMS hostname → university id ──────────────────────────────────────
+// ── Pure: LMS URL → canonical hostname (BR-02: matches university-brain's key) ────
 describe("deriveUniversityId", () => {
-  it("maps known LMS hostnames to university ids", () => {
-    expect(deriveUniversityId("https://canvas.utoronto.ca/courses/1")).toBe("uoft");
-    expect(deriveUniversityId("https://q.utoronto.ca/d2l/home")).toBe("uoft");
-    expect(deriveUniversityId("https://canvas.mit.edu/x")).toBe("mit");
-    expect(deriveUniversityId("https://courseworks.columbia.edu/x")).toBe("columbia");
+  it("returns the LMS hostname (lowercased)", () => {
+    expect(deriveUniversityId("https://canvas.utoronto.ca/courses/1")).toBe("canvas.utoronto.ca");
+    expect(deriveUniversityId("https://q.utoronto.ca/d2l/home")).toBe("q.utoronto.ca");
+    expect(deriveUniversityId("https://Canvas.MIT.edu/x")).toBe("canvas.mit.edu");
+    expect(deriveUniversityId("https://courseworks.columbia.edu/x")).toBe("courseworks.columbia.edu");
   });
-  it("matches subdomains of a known host", () => {
-    expect(deriveUniversityId("https://sub.canvas.ubc.ca/x")).toBe("ubc");
+  it("keeps the full hostname including subdomains (no short-id collapsing)", () => {
+    // Previously collapsed to 'ubc'; now distinct per host — consistent with university-brain.
+    expect(deriveUniversityId("https://sub.canvas.ubc.ca/x")).toBe("sub.canvas.ubc.ca");
+    expect(deriveUniversityId("https://learn.someschool.edu/x")).toBe("learn.someschool.edu");
   });
-  it("falls back to the second-level domain for unknown hosts", () => {
-    expect(deriveUniversityId("https://learn.someschool.edu/x")).toBe("someschool");
-  });
-  it("returns 'unknown' for empty or invalid input", () => {
-    expect(deriveUniversityId("")).toBe("unknown");
-    expect(deriveUniversityId("not a url")).toBe("unknown");
+  it("returns null for empty or invalid input (caller falls back to 'unknown')", () => {
+    expect(deriveUniversityId("")).toBe(null);
+    expect(deriveUniversityId("not a url")).toBe(null);
   });
 });
 

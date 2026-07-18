@@ -13,21 +13,23 @@ import { createClient } from "@supabase/supabase-js";
 import { setTraceSink, type TraceSpan } from "./_gateway.js";
 
 let _client: any = null;
+let _clientUnavailable = false;
 function svc() {
   if (_client) return _client;
+  if (_clientUnavailable) return null;
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return null;
-  // createClient can THROW at construction, not just fail a query: on Node < 22 without a
-  // global WebSocket, supabase-js eagerly builds its RealtimeClient and throws. This sink
-  // never uses realtime (insert-only) and its contract is "NEVER throws / tracing must
-  // never break a call" — so a construction failure must degrade to no-op, exactly like a
-  // missing env var, not escape as an unhandled rejection through the fire-and-forget
-  // flush(). (This is what turned the whole CI test run red under Node 20.)
   try {
     _client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   } catch (e: any) {
-    console.error("[tracesink] client init failed — telemetry disabled:", e?.message);
-    _client = null;
+    // Node < 22 has no global WebSocket, so supabase-js's realtime client throws from the
+    // SupabaseClient constructor. Lazy construction defers that but does not prevent it: the
+    // first flush() still hits it, and because flush() is fire-and-forget the throw escapes as
+    // an unhandled rejection (34 of them crash the Node-20 CI run). Latch it off and drop spans
+    // — tracing must never break a model call. [[ci-node20-supabase-import]]
+    _clientUnavailable = true;
+    console.error("[tracesink] client unavailable, dropping spans:", e?.message);
+    return null;
   }
   return _client;
 }

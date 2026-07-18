@@ -47,6 +47,7 @@ import { requireUserOr401 } from "./_auth.js";
 // Safe to import statically — these build no Supabase client at module load (raw fetch only).
 import { postgrestStore, recall, renderStudentBrainState } from "./_brain/kernel.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
+import { userUniversityId } from "./_reggie/canvasLive.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -146,7 +147,12 @@ export default async function handler(req, res) {
 
           if (!courseFilter) return null;
 
-          const libUrl = `${supabaseUrl}/rest/v1/course_content?${courseFilter}&is_private=eq.false&select=content_type,text,summary,module_name,week_number,seen_by_count&order=seen_by_count.desc&limit=20`;
+          // BR-02 (Gap 8): scope the shared course library to the caller's own institution so
+          // course facts can't cross schools. Degrade to unscoped when no Canvas is connected.
+          const uni = await userUniversityId(userId);
+          const uniFilter = uni ? `&university_id=eq.${encodeURIComponent(uni)}` : "";
+
+          const libUrl = `${supabaseUrl}/rest/v1/course_content?${courseFilter}${uniFilter}&is_private=eq.false&select=content_type,text,summary,module_name,week_number,seen_by_count&order=seen_by_count.desc&limit=20`;
           const libResp = await fetch(libUrl, { headers: sbHeaders });
           if (!libResp.ok) return null;
 

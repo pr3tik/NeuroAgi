@@ -17,6 +17,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { requireUserOr401 } from "./_auth.js";
+import { userUniversityId } from "./_reggie/canvasLive.js";
 
 // Lazy client — module-load createClient crashes the Node-20 CI suite (supabase-js
 // realtime needs WebSocket) and breaks import-safety for Reggie's in-process tool calls.
@@ -95,6 +96,11 @@ export async function queryLibrary({ userId, message, courseIds = [], activeCour
     return { found: false, snippets: [], sources: [] };
   }
 
+  // BR-02 (Gap 8): scope the shared library to the caller's institution so course facts
+  // can't cross schools. null (no Canvas) → skip the filter, degrade to unscoped.
+  const uni = await userUniversityId(userId);
+  const scopeUni = (q: any) => (uni ? q.eq("university_id", uni) : q);
+
   try {
     // Build the search query
     // Priority order:
@@ -106,7 +112,7 @@ export async function queryLibrary({ userId, message, courseIds = [], activeCour
 
     // Search 1: Active course — all content types including private for this student
     if (activeCourseId) {
-      const { data: activeResults } = await db()
+      const { data: activeResults } = await scopeUni(db()
         .from("course_content")
         .select("id, content_type, text, summary, concepts, module_name, week_number, professor_name, is_private, seen_by_count, course_id")
         .eq("course_id", activeCourseId)
@@ -114,7 +120,7 @@ export async function queryLibrary({ userId, message, courseIds = [], activeCour
         // migration header), so private rows are unattributable — return shared only.
         // (The previous .or() embedded a raw SQL subquery, which PostgREST rejects with
         // a 400 that the destructure swallowed — this branch silently returned nothing.)
-        .eq("is_private", false)
+        .eq("is_private", false))
         .order("seen_by_count", { ascending: false })
         .limit(20);
 
@@ -125,11 +131,11 @@ export async function queryLibrary({ userId, message, courseIds = [], activeCour
 
     // Search 2: All enrolled courses — shared content only
     if (courseIds.length > 0) {
-      const { data: enrolledResults } = await db()
+      const { data: enrolledResults } = await scopeUni(db()
         .from("course_content")
         .select("id, content_type, text, summary, concepts, module_name, week_number, professor_name, is_private, seen_by_count, course_id")
         .in("course_id", courseIds)
-        .eq("is_private", false)
+        .eq("is_private", false))
         .order("seen_by_count", { ascending: false })
         .limit(30);
 

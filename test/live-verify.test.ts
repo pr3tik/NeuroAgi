@@ -54,7 +54,7 @@ describe.skipIf(!process.env.LIVE || !HAS)("LIVE verification", () => {
     const users = await get("users?university_id=not.is.null&select=university_id&limit=20");
     const ccVals = new Set(cc.map((r: any) => r.university_id));
     const userVals = new Set(users.map((r: any) => r.university_id));
-    // Every course_content university_id is a bare host (matches canonicalUniversityId output),
+    // Every course_content university_id is a bare host (matches userUniversityId's sanitize output),
     // and at least one real school is shared between the two tables → the read filter will match.
     for (const v of ccVals) expect(String(v)).toMatch(/^[a-z0-9.-]+\.[a-z]{2,}$/i);
     const overlap = [...ccVals].filter(v => userVals.has(v));

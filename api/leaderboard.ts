@@ -14,6 +14,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { CATEGORIES, getCategory, scopeFilter, rankRows, findUserRank } from "../src/lib/leaderboard.js";
+import { rateLimit } from "./_ratelimit.js";
 
 const MAX_POPULATION = 2000; // rows scanned per request (cap for a single-region board)
 
@@ -23,6 +24,9 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  // Public read endpoint (deliberately no auth), but it hits the DB for the whole population —
+  // rate-limit so it can't be used to bulk-scrape or hammer (audit #7).
+  if (!(await rateLimit(req, res, "leaderboard", { anonMax: 30, authMax: 120 }))) return;
 
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
@@ -64,10 +68,14 @@ export default async function handler(req, res) {
       effScopeValue = meRow?.[f] ?? null;
     }
 
-    const rows = (users ?? []).map(u => ({
+    // Opted-out students are EXCLUDED from the leaderboard entirely — their id, gpa and
+    // location must never surface to other users (audit #7: previously only the name was
+    // masked while userId/gpa/location still leaked). Scope derivation above still uses the
+    // full `users` list, so an opted-out requester can still resolve their own scope.
+    const optedIn = (users ?? []).filter(u => u.leaderboard_opt_in !== false);
+    const rows = optedIn.map(u => ({
       userId:     u.id,
-      // Opted-out students still appear (ranking integrity) but never by name.
-      name:       u.leaderboard_opt_in === false ? "Anonymous Scholar" : (u.name ?? "Anonymous"),
+      name:       u.name ?? "Anonymous",
       school:     u.school ?? null,
       city:       u.city ?? null,
       country:    u.country ?? null,
@@ -92,8 +100,12 @@ export default async function handler(req, res) {
       scope,
       scopeValue: effScopeValue,
       count:      ranked.length,
+      // Return the raw userId ONLY on the requester's own row (so the client can highlight
+      // "you" via row.userId === userId). Everyone else's id is nulled — previously the raw
+      // UUID of every user was returned, which was the oracle that made other IDOR attacks
+      // zero-knowledge (audit #7). Echoing the caller's own id back leaks nothing new.
       rows: ranked.slice(0, top).map(r => ({
-        rank: r.rank, userId: r.userId, name: r.name, value: r.value,
+        rank: r.rank, userId: r.userId === userId ? r.userId : null, name: r.name, value: r.value,
         school: r.school, city: r.city, country: r.country, tier: r.tier,
       })),
       me, // the requester's true {rank, value}, even if outside the top-N above

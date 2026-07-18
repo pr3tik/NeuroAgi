@@ -8,6 +8,7 @@
 // route; absent → "default" (the tutor/Sonnet route), preserving prior behavior.
 import { callModel, openStream } from "./_gateway.js";
 import { rateLimit } from "./_ratelimit.js";
+import { requireUser } from "./_auth.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -21,14 +22,28 @@ export default async function handler(req, res) {
   if (!messages || !Array.isArray(messages))
     return res.status(400).json({ error: "messages array required" });
 
+  // Denial-of-wallet guard (SEC audit #5): this endpoint is public (used in logged-out/demo
+  // flows), and the body controls both `model` and `task` — so an anonymous caller could route
+  // to Opus/Fable (out $25–50/M) at up to 64k tokens, ~$32–64/min/IP on our key. Clamp for
+  // UNAUTHENTICATED callers: no model override, a cheap-task allowlist, and a small token cap.
+  // Authenticated callers (valid JWT) keep full control. Legit anon flows use task:"cheap" +
+  // small max_tokens (e.g. SiteGuide: task:"cheap", 400), so they're unaffected. We verify the
+  // JWT via requireUser (NOT the rate-limiter's Bearer parse, which doesn't validate the token).
+  const authed = await requireUser(req);
+  const ANON_TASKS = new Set(["cheap", "classify", "summarize", "route", "default", "tutor"]);
+  const ANON_MAX_TOKENS = 1024;
+  const safeTask      = authed ? task      : (ANON_TASKS.has(task) ? task : "cheap");
+  const safeModel     = authed ? model     : undefined;
+  const safeMaxTokens = authed ? max_tokens : Math.min(Number(max_tokens) || ANON_MAX_TOKENS, ANON_MAX_TOKENS);
+
   // Let the task route naturally (default → Anthropic Sonnet). We intentionally do NOT
   // force provider:"anthropic" here — that would mismatch a Groq-routed task (e.g.
   // task:"cheap") onto the Anthropic endpoint. Callers wanting Groq use /api/groq.
-  const gwReq = { task, model, messages, system, max_tokens, tools, cache, thinking };
+  const gwReq = { task: safeTask, model: safeModel, messages, system, max_tokens: safeMaxTokens, tools, cache, thinking };
 
   // ── Streaming path — forward SSE straight to the client ──────────────────────
   if (stream) {
-    const out = await openStream({ ...gwReq, task: task ?? "default" });
+    const out = await openStream({ ...gwReq, task: safeTask ?? "default" });
     if (!out.ok || !out.stream) {
       return res.status(502).json({ error: out.error ?? "stream open failed", detail: out.detail });
     }

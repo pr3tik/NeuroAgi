@@ -21,26 +21,8 @@
 // prototype (server writes via service key).
 import crypto from "node:crypto";
 import { callModel } from "./_gateway.js";
-import { canvasCreds, canvasGET, resolveCanvasCourseId, stripHtml } from "./_reggie/canvasLive.js";
+import { canvasCreds, canvasGET, resolveCanvasCourseId, stripHtml, userUniversityId } from "./_reggie/canvasLive.js";
 import { requireUserOr401 } from "./_auth.js";
-import { canonicalUniversityId } from "./_universityId.js";
-
-/**
- * The reader's canonical university id (PRD Gap 8). Prefers the backfilled users.university_id
- * column, falls back to deriving it from users.canvas_base_url. Returns null when the reader's
- * school can't be determined — callers must then SKIP university scoping (see profile()) rather
- * than scope to an empty string, which would match nothing.
- */
-async function readerUniversityId(userId: string): Promise<string | null> {
-  const { url, headers } = sb();
-  const r = await fetch(
-    `${url}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=university_id,canvas_base_url&limit=1`,
-    { headers },
-  );
-  if (!r.ok) return null;
-  const u = ((await r.json().catch(() => [])) as any[])[0];
-  return canonicalUniversityId(u?.university_id) ?? canonicalUniversityId(u?.canvas_base_url);
-}
 
 function sb() {
   const url = process.env.SUPABASE_URL;
@@ -138,7 +120,7 @@ async function contribute(res: any, userId: string, course: any) {
   const canvasCourseId = await resolveCanvasCourseId(userId, course);
   // Canonical institution key — normalized so a WRITE (here) and a READ (profile) agree by
   // construction. No-op on hosts the old `new URL(creds.host).hostname` path already produced.
-  const universityId = canonicalUniversityId(creds.host) ?? new URL(creds.host).hostname;
+  const universityId = new URL(creds.host).hostname;           // canonical institution key
   const c = await canvasGET(creds, `/courses/${canvasCourseId}`, { "include[]": ["syllabus_body", "teachers"] });
   const professors = (c.teachers ?? []).map((t: any) => t.display_name).filter(Boolean);
   const professor = professors[0] ?? null;
@@ -180,15 +162,16 @@ async function profile(res: any, userId: string, course: any, professor: any) {
   const { url, headers } = sb();
   let rows: any[] = [];
   let scope = "";
-  // PRD Gap 8: scope every read to the reader's school so cross-school canvas_course_id / professor
-  // collisions can't leak. When the reader's school is unknown, SKIP the filter (unscoped, old
-  // behavior) rather than scope to an empty string — an empty filter would match nothing.
-  const uni = await readerUniversityId(userId);
+  // BR-02 (Gap 8): scope every course_content read to the caller's own institution so a
+  // course/professor lookup can't surface another school's facts. Degrade to unscoped when the
+  // caller has no Canvas connected (uni === null) — the professor read below otherwise matched
+  // EVERY "Prof <name>" on the whole platform.
+  const uni = await userUniversityId(userId);
   const uniFilter = uni ? `&university_id=eq.${encodeURIComponent(uni)}` : "";
   if (course != null && course !== "") {
     // Resolve through the READER's own synced courses — no Canvas token needed.
     const canvasCourseId = await resolveCanvasCourseId(userId, course);
-    scope = `course ${canvasCourseId}${uni ? ` @ ${uni}` : " (unscoped: unknown school)"}`;
+    scope = `course ${canvasCourseId}`;
     const r = await fetch(`${url}/rest/v1/course_content?canvas_course_id=eq.${encodeURIComponent(String(canvasCourseId))}${uniFilter}&is_private=not.is.true&select=content_type,professor_name,summary,concepts,seen_by_count,last_seen_at&order=last_seen_at.desc.nullslast&limit=20`, { headers });
     if (!r.ok) throw new Error(`library read failed (${r.status}): ${(await r.text()).slice(0, 150)}`);
     rows = await r.json();
@@ -196,7 +179,7 @@ async function profile(res: any, userId: string, course: any, professor: any) {
     // Normalize: strip honorifics ("Professor Kepe" must match "Thembela Kepe"), and if
     // the full query misses, retry on the last name alone.
     const name = String(professor).replace(/\b(professor|prof\.?|dr\.?|mr\.?|ms\.?|mrs\.?)\b/gi, "").trim();
-    scope = `professor ${name || professor}${uni ? ` @ ${uni}` : " (unscoped: unknown school)"}`;
+    scope = `professor ${name || professor}`;
     const search = async (q: string) => {
       const r = await fetch(`${url}/rest/v1/course_content?professor_name=ilike.${encodeURIComponent("*" + q + "*")}${uniFilter}&is_private=not.is.true&select=content_type,professor_name,summary,concepts,seen_by_count,last_seen_at,course_id,canvas_course_id&order=last_seen_at.desc.nullslast&limit=30`, { headers });
       if (!r.ok) throw new Error(`library read failed (${r.status}): ${(await r.text()).slice(0, 150)}`);
