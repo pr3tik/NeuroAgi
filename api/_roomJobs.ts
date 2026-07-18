@@ -17,6 +17,7 @@ import {
 } from "./_contracts.js";
 import type { BrainProfile, QuizItem } from "./_contracts.js";
 import { registerHandler } from "./jobs.js";
+import { warmBrainContext } from "./_brainWarm.js";
 
 // ── DB (PostgREST over fetch; service key — these tables are RLS-on deny-all) ──
 // NB on idempotency: I do NOT use PostgREST on_conflict upserts here. Of the three target
@@ -299,4 +300,5 @@ export function registerRoomJobHandlers() {
   registerHandler(JOB_TYPES.summary, generateSessionSummary);
   registerHandler(JOB_TYPES.quiz, generateQuiz);
   registerHandler(JOB_TYPES.brainProposal, proposeBrainUpdate);
+  registerHandler(JOB_TYPES.warmBrain, warmBrainContext);
 }

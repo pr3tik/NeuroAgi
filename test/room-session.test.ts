@@ -151,6 +151,38 @@ describe("room-session start", () => {
     expect(wire).not.toContain("participant_summaries");
   });
 
+  it("A5: fresh start enqueues a warm_brain_context job per participant (fire-and-forget)", async () => {
+    const calls = stubDb((u, m) => {
+      if (m === "GET") {
+        if (isMemberLookup(u)) return R(member);
+        if (u.includes("room_ai_sessions?") && u.includes("state=eq.active")) return R([]);
+        if (u.includes("study_rooms?")) return R([{ id: ROOM, course_id: 123 }]);
+        if (u.includes("room_configs?")) return R([]);
+        if (isMemberList(u)) return R([{ user_id: "stu-1" }, { user_id: "stu-2" }]);
+        if (u.includes("users?")) return R([
+          { id: "stu-1", name: "Ryan Lin", learning_style: "visual", help_seeking: "asks_early" },
+          { id: "stu-2", name: "Ana B", learning_style: "practice", help_seeking: "waits" },
+        ]);
+        if (u.includes("student_brains?")) return R([]);
+        if (u.includes("deck_profiles?")) return R([]);
+      }
+      if (m === "POST" && u.includes("room_ai_sessions")) return R([{ id: SESSION, started_at: "2026-07-16T00:00:00Z" }]);
+      return undefined;
+    });
+    const h = await load(); const res = makeRes();
+    await h({ method: "POST", query: { action: "start" }, body: { roomId: ROOM } }, res);
+    expect(res.statusCode).toBe(200);
+
+    const warm = posts(calls, "/rest/v1/jobs");
+    expect(warm).toHaveLength(2); // one per joined participant
+    expect(warm.every(w => w.body.type === JOB_TYPES.warmBrain)).toBe(true);
+    expect(warm.map(w => w.body.payload.userId).sort()).toEqual(["stu-1", "stu-2"]);
+    // idempotency key is (type:room:user:bucket) — dedups a burst of starts within the window
+    expect(warm[0].body.idempotency_key).toMatch(new RegExp(`^${JOB_TYPES.warmBrain}:${ROOM}:stu-\\d:\\d+$`));
+    // the warm never blocks the response contract
+    expect(res.body).toMatchObject({ ok: true, resumed: false });
+  });
+
   it("an active session is resumed — no new room_ai_sessions insert, still no plan leakage", async () => {
     const calls = stubDb((u, m) => {
       if (m !== "GET") return undefined;

@@ -83,12 +83,14 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("registerRoomJobHandlers", () => {
-  it("registers the three job types the end-session flow enqueues", async () => {
+  it("registers the session-output job types plus the A5 warm-context handler", async () => {
     const { registerHandler } = await import("../api/jobs.ts");
     (registerHandler as any).mockClear?.();
     mod.registerRoomJobHandlers();
     const types = (registerHandler as any).mock.calls.map((c: any[]) => c[0]);
-    expect(new Set(types)).toEqual(new Set(["generate_session_summary", "generate_quiz", "propose_brain_update"]));
+    expect(new Set(types)).toEqual(new Set([
+      "generate_session_summary", "generate_quiz", "propose_brain_update", "warm_brain_context",
+    ]));
   });
 });
 
