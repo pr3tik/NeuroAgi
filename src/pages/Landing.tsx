@@ -2535,7 +2535,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
                 : "0 4px 16px rgba(0,113,227,0.24), 0 1px 4px rgba(0,113,227,0.12)",
             }}
           >
-            Join the waitlist
+            Claim your card
             {/* Shimmer sweep */}
             <span aria-hidden="true" style={{
               position: "absolute", inset: 0,
@@ -3274,7 +3274,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           }}
             onMouseEnter={e => { const a = e.currentTarget; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
             onMouseLeave={e => { const a = e.currentTarget; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
-          >Join the waitlist</button>
+          >Claim your card</button>
         </div>
       </div>
 
@@ -3307,7 +3307,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           }}
             onMouseEnter={e => { e.currentTarget.style.color = "#004499"; }}
             onMouseLeave={e => { e.currentTarget.style.color = "#0066cc"; }}
-          >Join the waitlist →</button>
+          >Claim your card →</button>
         </p>
       </div>
 
@@ -3397,7 +3397,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
                 onMouseEnter={e => { e.currentTarget.style.opacity = "0.86"; e.currentTarget.style.transform = "scale(1.02)"; }}
                 onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1)"; }}
               >
-                <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Join the waitlist</span>
+                <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Claim your card</span>
                 <HeroBtnCountdown />
               </button>
             </div>

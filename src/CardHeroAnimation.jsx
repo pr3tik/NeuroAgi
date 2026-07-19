@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const DARK_IMGS = {
   pink:   "/cards/dark-anim-pink.png",
@@ -32,9 +32,21 @@ const CARD_SHADOW = "inset 1px 1px 2px 2px rgba(0,0,0,0.25)";
 const CARD_BORDER = "1px solid rgba(255,255,255,0.4)";
 const CARD_DROP   = "-20px 10px 8px 5px rgba(0,0,0,0.21)";
 
-export default function CardHeroAnimation({ dark = false }) {
+export default function CardHeroAnimation({ dark = false, scale = 0.38 }) {
   const containerRef = useRef(null);
   const BG = dark ? "#000" : "#fefefe";
+
+  // Numeric desktop scale. The previous CSS-only version —
+  // scale(calc(min(100vw/1440, 100vh/960) * 0.38)) — is invalid CSS (scale()
+  // needs a number, the calc yields a length), so the transform was silently
+  // dropped and the cards rendered unscaled. Compute the number in JS instead.
+  const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight });
+  useEffect(() => {
+    const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const desktopScale = Math.min(vp.w / 1440, vp.h / 960) * scale;
 
   return (
     <div ref={containerRef} style={{ position:"absolute", inset:0 }}>
@@ -47,7 +59,7 @@ export default function CardHeroAnimation({ dark = false }) {
         width:1440, height:960,
         top:"50%", left:"50%",
         marginLeft:-720, marginTop:-480,
-        transform:"scale(calc(min(calc(100vw / 1440), calc(100vh / 960)) * 0.38))",
+        transform:`scale(${desktopScale})`,
         transformOrigin:"center center",
         filter:"drop-shadow(-40px 75px 50px rgba(0,0,0,0.49))",
         display:"var(--desktop-show, block)",
