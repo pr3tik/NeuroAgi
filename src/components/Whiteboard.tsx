@@ -1108,11 +1108,11 @@ export default function Whiteboard({
   }
 
   // ── Small UI helpers ────────────────────────────────────────────────────────
-  const chip = (active: boolean, accent = "#c49a3c"): React.CSSProperties => ({
+  const chip = (active: boolean, accent = "var(--gold)"): React.CSSProperties => ({
     padding: "6px 10px", fontSize: "12px", borderRadius: "8px", cursor: "pointer",
     fontFamily: "inherit", lineHeight: 1, whiteSpace: "nowrap",
-    background: active ? "rgba(196,154,60,0.14)" : "rgba(255,255,255,0.05)",
-    border: `1px solid ${active ? "rgba(196,154,60,0.35)" : "rgba(255,255,255,0.09)"}`,
+    background: active ? "rgba(var(--gold-rgb), 0.14)" : "rgba(255,255,255,0.05)",
+    border: `1px solid ${active ? "rgba(var(--gold-rgb), 0.35)" : "rgba(255,255,255,0.09)"}`,
     color: active ? accent : "var(--text-dim)",
   });
 
@@ -1165,16 +1165,16 @@ export default function Whiteboard({
 
   return (
     <div style={{
-      border: "1px solid rgba(196,154,60,0.2)", borderRadius: "14px",
-      background: "rgba(196,154,60,0.03)", marginBottom: "20px", overflow: "hidden",
+      border: "1px solid rgba(var(--gold-rgb), 0.2)", borderRadius: "14px",
+      background: "rgba(var(--gold-rgb), 0.03)", marginBottom: "20px", overflow: "hidden",
       touchAction: "none", overscrollBehavior: "none",
     }}>
       <style>{`@keyframes laserFade{to{opacity:0;transform:translate(-50%,-50%) scale(2.5)}}`}</style>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid rgba(196,154,60,0.12)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.12)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-          <span style={{ display: "flex", color: "#c49a3c" }}><Pen size={15} /></span>
-          <span style={{ fontSize: "13px", fontWeight: 600, color: "#c49a3c" }}>Whiteboard</span>
+          <span style={{ display: "flex", color: "var(--gold)" }}><Pen size={15} /></span>
+          <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--gold)" }}>Whiteboard</span>
           <span style={{ fontSize: "11px", color: "var(--text-dim)", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
             clears when everyone leaves
           </span>
@@ -1197,7 +1197,7 @@ export default function Whiteboard({
       {/* ── Primary tool rail ─────────────────────────────────────────────────
            8 core tools + Shapes group + Undo/Redo.
            Kept short so it never wraps even on a 320px mobile screen. */}
-      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
         <button style={chip(tool === "pen")}          onClick={() => onToolChange("pen")}          title="Pen"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Pencil size={14} />Pen</span></button>
         <button style={chip(tool === "stroke-erase")} onClick={() => onToolChange("stroke-erase")} title="Tap a line to delete the whole stroke"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Eraser size={14} />Erase</span></button>
         <button style={chip(tool === "area-erase")}   onClick={() => onToolChange("area-erase")}   title="Drag to rub out an area"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Circle size={14} />Area</span></button>
@@ -1252,7 +1252,7 @@ export default function Whiteboard({
       </div>
 
       {/* ── Secondary controls row — backgrounds + export/clear (always visible) ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "8px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "8px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
         <span style={{ fontSize: "11px", color: "var(--text-dim)" }}>BG</span>
         {BACKGROUNDS.map(b => (
           <button
@@ -1262,7 +1262,7 @@ export default function Whiteboard({
             style={{
               width: "20px", height: "20px", borderRadius: "5px", cursor: "pointer", padding: 0,
               background: b.value,
-              border: bg === b.value ? "2px solid #c49a3c" : "2px solid rgba(255,255,255,0.18)",
+              border: bg === b.value ? "2px solid var(--gold)" : "2px solid rgba(255,255,255,0.18)",
             }}
           />
         ))}
@@ -1299,7 +1299,7 @@ export default function Whiteboard({
 
       {/* Pen: style + thickness + colour */}
       {isPen && (
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
           {PEN_STYLES.map(ps => (
             <button key={ps.value} style={chip(style === ps.value)} onClick={() => onStyleChange(ps.value)}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ps.icon size={14} />{ps.label}</span>
@@ -1309,7 +1309,7 @@ export default function Whiteboard({
           {PEN_WIDTHS.map((w, i) => (
             <button key={w} onClick={() => onPenWidthChange(w)} title={`Thickness ${i + 1}`}
               style={{ ...chip(penWidth === w), width: "30px", display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 0" }}>
-              <span style={{ display: "block", width: `${Math.min(18, w + 2)}px`, height: `${Math.max(2, Math.round(w / 2))}px`, borderRadius: "99px", background: penWidth === w ? "#c49a3c" : "var(--text-dim)" }} />
+              <span style={{ display: "block", width: `${Math.min(18, w + 2)}px`, height: `${Math.max(2, Math.round(w / 2))}px`, borderRadius: "99px", background: penWidth === w ? "var(--gold)" : "var(--text-dim)" }} />
             </button>
           ))}
           <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
@@ -1317,7 +1317,7 @@ export default function Whiteboard({
             <button key={c} onClick={() => onColorChange(c)} title={c}
               style={{ width: "20px", height: "20px", borderRadius: "50%", cursor: "pointer", padding: 0, background: c,
                 border: color === c ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)",
-                outline: color === c ? "1px solid rgba(196,154,60,0.6)" : "none" }} />
+                outline: color === c ? "1px solid rgba(var(--gold-rgb), 0.6)" : "none" }} />
           ))}
           <label title="Custom color" style={{ position: "relative", width: "20px", height: "20px", cursor: "pointer", flexShrink: 0 }}>
             <input type="color" value={isCustomColor ? color : "#000000"} onChange={e => onColorChange(e.target.value)}
@@ -1325,19 +1325,19 @@ export default function Whiteboard({
             <div style={{ width: "20px", height: "20px", borderRadius: "50%",
               background: "conic-gradient(red, yellow, lime, cyan, blue, magenta, red)",
               border: isCustomColor ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)",
-              outline: isCustomColor ? "1px solid rgba(196,154,60,0.6)" : "none", pointerEvents: "none" }} />
+              outline: isCustomColor ? "1px solid rgba(var(--gold-rgb), 0.6)" : "none", pointerEvents: "none" }} />
           </label>
         </div>
       )}
 
       {/* Text: size + colour + hint */}
       {isText && (
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
           <span style={{ fontSize: "11px", color: "var(--text-dim)" }}>Size</span>
           {PEN_WIDTHS.map((w, i) => (
             <button key={w} onClick={() => onPenWidthChange(w)} title={`Size ${i + 1}`}
               style={{ ...chip(penWidth === w), minWidth: "30px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span style={{ fontSize: `${10 + i * 3}px`, lineHeight: 1, color: penWidth === w ? "#c49a3c" : "var(--text-dim)" }}>A</span>
+              <span style={{ fontSize: `${10 + i * 3}px`, lineHeight: 1, color: penWidth === w ? "var(--gold)" : "var(--text-dim)" }}>A</span>
             </button>
           ))}
           <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
@@ -1345,7 +1345,7 @@ export default function Whiteboard({
             <button key={c} onClick={() => onColorChange(c)} title={c}
               style={{ width: "20px", height: "20px", borderRadius: "50%", cursor: "pointer", padding: 0, background: c,
                 border: color === c ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)",
-                outline: color === c ? "1px solid rgba(196,154,60,0.6)" : "none" }} />
+                outline: color === c ? "1px solid rgba(var(--gold-rgb), 0.6)" : "none" }} />
           ))}
           <label title="Custom color" style={{ position: "relative", width: "20px", height: "20px", cursor: "pointer", flexShrink: 0 }}>
             <input type="color" value={isCustomColor ? color : "#000000"} onChange={e => onColorChange(e.target.value)}
@@ -1353,7 +1353,7 @@ export default function Whiteboard({
             <div style={{ width: "20px", height: "20px", borderRadius: "50%",
               background: "conic-gradient(red, yellow, lime, cyan, blue, magenta, red)",
               border: isCustomColor ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)",
-              outline: isCustomColor ? "1px solid rgba(196,154,60,0.6)" : "none", pointerEvents: "none" }} />
+              outline: isCustomColor ? "1px solid rgba(var(--gold-rgb), 0.6)" : "none", pointerEvents: "none" }} />
           </label>
           <span style={{ fontSize: "11px", color: "var(--text-dim)", marginLeft: "4px" }}>Click canvas to place · Enter to commit · Esc to cancel</span>
         </div>
@@ -1361,7 +1361,7 @@ export default function Whiteboard({
 
       {/* Shapes: sub-type picker + thickness + colour */}
       {isShape && (
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
           <button style={chip(tool === "rect")}   onClick={() => onToolChange("rect")}   title="Rectangle"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Square size={14} />Rect</span></button>
           <button style={chip(tool === "circle")} onClick={() => onToolChange("circle")} title="Circle / Ellipse"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Circle size={14} />Circle</span></button>
           <button style={chip(tool === "line")}   onClick={() => onToolChange("line")}   title="Straight line"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Minus size={14} />Line</span></button>
@@ -1371,7 +1371,7 @@ export default function Whiteboard({
           {PEN_WIDTHS.map((w, i) => (
             <button key={w} onClick={() => onPenWidthChange(w)} title={`Thickness ${i + 1}`}
               style={{ ...chip(penWidth === w), width: "30px", display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 0" }}>
-              <span style={{ display: "block", width: `${Math.min(18, w + 2)}px`, height: `${Math.max(2, Math.round(w / 2))}px`, borderRadius: "99px", background: penWidth === w ? "#c49a3c" : "var(--text-dim)" }} />
+              <span style={{ display: "block", width: `${Math.min(18, w + 2)}px`, height: `${Math.max(2, Math.round(w / 2))}px`, borderRadius: "99px", background: penWidth === w ? "var(--gold)" : "var(--text-dim)" }} />
             </button>
           ))}
           <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
@@ -1379,7 +1379,7 @@ export default function Whiteboard({
             <button key={c} onClick={() => onColorChange(c)} title={c}
               style={{ width: "20px", height: "20px", borderRadius: "50%", cursor: "pointer", padding: 0, background: c,
                 border: color === c ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)",
-                outline: color === c ? "1px solid rgba(196,154,60,0.6)" : "none" }} />
+                outline: color === c ? "1px solid rgba(var(--gold-rgb), 0.6)" : "none" }} />
           ))}
           <label title="Custom color" style={{ position: "relative", width: "20px", height: "20px", cursor: "pointer", flexShrink: 0 }}>
             <input type="color" value={isCustomColor ? color : "#000000"} onChange={e => onColorChange(e.target.value)}
@@ -1387,19 +1387,19 @@ export default function Whiteboard({
             <div style={{ width: "20px", height: "20px", borderRadius: "50%",
               background: "conic-gradient(red, yellow, lime, cyan, blue, magenta, red)",
               border: isCustomColor ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)",
-              outline: isCustomColor ? "1px solid rgba(196,154,60,0.6)" : "none", pointerEvents: "none" }} />
+              outline: isCustomColor ? "1px solid rgba(var(--gold-rgb), 0.6)" : "none", pointerEvents: "none" }} />
           </label>
         </div>
       )}
 
       {/* Area-eraser: size picker */}
       {tool === "area-erase" && (
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
           <span style={{ fontSize: "11px", color: "var(--text-dim)" }}>Eraser size</span>
           {ERASER_SIZES.map((w, i) => (
             <button key={w} onClick={() => onEraserSizeChange(w)} title={`Size ${i + 1}`}
               style={{ ...chip(eraserSize === w), width: "34px", display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 0" }}>
-              <span style={{ display: "block", width: `${Math.min(22, 8 + i * 4)}px`, height: `${Math.min(22, 8 + i * 4)}px`, borderRadius: "50%", border: `2px solid ${eraserSize === w ? "#c49a3c" : "var(--text-dim)"}` }} />
+              <span style={{ display: "block", width: `${Math.min(22, 8 + i * 4)}px`, height: `${Math.min(22, 8 + i * 4)}px`, borderRadius: "50%", border: `2px solid ${eraserSize === w ? "var(--gold)" : "var(--text-dim)"}` }} />
             </button>
           ))}
         </div>

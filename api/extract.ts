@@ -428,6 +428,35 @@ async function pdfOcrViaOpenAI(base64: string) {
   return text ? [{ page: 1, text }] : [];
 }
 
+// The dispatch below matches extensions with a LEADING DOT (\.ppt\b, \.docx\b, \.(jpe?g)\b, …) or a
+// MIME substring. But callers like api/lms-ingest.ts send `file_type` as a BARE extension ("ppt",
+// "jpg", "docx") from deriveFileType(); a bare token matches none of the dotted patterns, so the file
+// fell through to the plain-text fallback and its binary bytes were stored as UTF-8 mojibake (the RAG
+// "binary chunks" bug — legacy .ppt/.jpg/.docx from the LMS path). Normalize a bare extension to a
+// dotted one so the real extractor runs. MIME strings ("image/jpeg", "application/vnd.ms-powerpoint")
+// and filenames pass through untouched; name is used only when file_type is absent.
+export function resolveExtHint(file_type?: string, name?: string): string {
+  const ft = String(file_type || "").toLowerCase().trim();
+  if (!ft) return String(name || "").toLowerCase();
+  return /^[a-z0-9]{1,5}$/.test(ft) ? "." + ft : ft;
+}
+
+// Safety net: an unrecognized BINARY file (legacy office format, image, archive) decodes to text
+// full of U+FFFD replacement chars, NULs, and control bytes. Never ingest that as "text" — it poisons
+// retrieval. True when a decoded string is mostly non-text and should be dropped rather than stored.
+export function looksBinaryText(s: string): boolean {
+  if (!s) return false;
+  const n = Math.min(s.length, 4000);
+  if (n < 8) return false;
+  let bad = 0;
+  for (let i = 0; i < n; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0xfffd || c === 0) bad++;                          // replacement char / NUL
+    else if (c < 32 && c !== 9 && c !== 10 && c !== 13) bad++;   // control chars (allow tab/LF/CR)
+  }
+  return bad / n > 0.1; // >10% non-text bytes → binary, not text
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -471,7 +500,7 @@ export default async function handler(req, res) {
     catch { return res.status(400).json({ error: "invalid base64" }); }
   }
 
-  const ext = String(file_type || name || "").toLowerCase();
+  const ext = resolveExtHint(file_type, name);
   const isImage = /image\/|\.(png|jpe?g|webp|gif|bmp|tiff?)\b/.test(ext);
   const isMedia = /audio\/|video\/|\.(mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|mpeg|mpga)\b/.test(ext);
   try {
@@ -500,10 +529,17 @@ export default async function handler(req, res) {
       pages = await transcribeToPages(bytes, name, file_type);
     } else {
       // Plain text / html / md — strip tags, decode utf-8, keep line structure.
-      let text = Buffer.from(bytes).toString("utf8").replace(/<[^>]+>/g, " ");
-      if (text.length > SAFETY_CHARS) { text = text.slice(0, SAFETY_CHARS); truncated = true; }
-      text = text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
-      pages = text ? [{ page: 1, text }] : [];
+      let text = Buffer.from(bytes).toString("utf8");
+      // Safety net: if this is actually an unrecognized BINARY file (legacy office, image, archive)
+      // that reached the fallback, the decode is mojibake. Drop it rather than poison RAG with it.
+      if (looksBinaryText(text)) {
+        pages = [];
+      } else {
+        text = text.replace(/<[^>]+>/g, " ");
+        if (text.length > SAFETY_CHARS) { text = text.slice(0, SAFETY_CHARS); truncated = true; }
+        text = text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+        pages = text ? [{ page: 1, text }] : [];
+      }
     }
 
     const combined = pages.map(p => p.text).join("\n\n");

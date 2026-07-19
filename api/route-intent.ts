@@ -4,11 +4,16 @@
 // any error/parse failure returns {type:'none', keyword:null} (same as the inline impl).
 // Contract: fschoolai_tool_contracts.md §F (route.intent).
 import { callModel } from "./_gateway.js";
+import { rateLimit } from "./_ratelimit.js";
 
 const TYPES = ["assignment_detail", "course_grades", "missing_late", "flashcard_detail", "file_lookup", "none"];
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  // This endpoint reaches the paid gateway (callModel) but has no auth (public: used in
+  // logged-out/demo flows). Rate-limit before any model call so it can't be used as an
+  // unthrottled LLM proxy (SEC-01 F-2). Same limits as api/claude.ts.
+  if (!(await rateLimit(req, res, "route-intent", { anonMax: 20, authMax: 120 }))) return;
   const { userMessage } = req.body ?? {};
   if (!userMessage || !String(userMessage).trim()) {
     return res.status(400).json({ error: "userMessage is required" });

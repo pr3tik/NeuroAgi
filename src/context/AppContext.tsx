@@ -352,8 +352,13 @@ export function AppProvider({ children }) {
 
   /** Save Canvas credentials to Supabase and trigger a fresh sync. */
   const saveCanvasCredentials = useCallback(async (token, baseUrl) => {
+    // BR-02 (Gap 8): also store the canonical institution key = the sanitized Canvas hostname,
+    // so this user's Course Brain reads scope to their school automatically — no backfill needed
+    // for new users. Same derivation as the migration + api helpers (strip to valid host chars).
+    let university_id = null;
+    try { university_id = new URL(baseUrl).hostname.toLowerCase().replace(/[^a-z0-9.-]/g, "") || null; } catch { /* leave null */ }
     await supabase.from("users").upsert(
-      { id: userId, canvas_token: token, canvas_base_url: baseUrl },
+      { id: userId, canvas_token: token, canvas_base_url: baseUrl, ...(university_id ? { university_id } : {}) },
       { onConflict: "id" }
     );
     setCanvasToken(token);

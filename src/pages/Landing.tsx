@@ -4,6 +4,7 @@
 // --sk-fill-tertiary: #f5f5f7  --sk-glyph-gray-secondary: rgb(110,110,115)
 
 import React, { useState, useEffect, useRef } from "react";
+import { tealAlpha } from "../lib/theme";
 
 // ── naroai.co + Apple hybrid design tokens ────────────────────────────────────
 // naroai reference: --foreground: 0 0% 8% = #141414, --muted-foreground: 0 0% 45% = #737373
@@ -1596,7 +1597,7 @@ function ThreeMoments({ t }: { t: typeof DARK }) {
 // stroke-dashoffset draws edges in on scroll. Nodes pulse at staggered rates.
 
 const KM_NODES = [
-  { id:"hub",    x:300, y:220, r:38, fill:"#0d0d0f", stroke:"rgba(0,210,190,0.8)",  sw:2.5, label:"",            sub:"" },
+  { id:"hub",    x:300, y:220, r:38, fill:"#0d0d0f", stroke:tealAlpha(0.8),  sw:2.5, label:"",            sub:"" },
   // courses
   { id:"biol",   x:170, y:108, r:26, fill:"rgba(168,130,220,0.14)", stroke:"#a882dc", sw:1.5, label:"BIOL 201",    sub:"Cell Biology" },
   { id:"comp",   x:390, y:82,  r:26, fill:"rgba(148,196,240,0.14)", stroke:"#94c4f0", sw:1.5, label:"COMP 101",    sub:"Intro to CS" },
@@ -1604,10 +1605,10 @@ const KM_NODES = [
   { id:"hist",   x:390, y:355, r:26, fill:"rgba(240,164,120,0.14)", stroke:"#f0a478", sw:1.5, label:"HIST 104",    sub:"Modern History" },
   { id:"chem",   x:155, y:330, r:26, fill:"rgba(240,120,160,0.14)", stroke:"#f078a0", sw:1.5, label:"CHEM 110",    sub:"Organic Chem" },
   // resources
-  { id:"flash",  x:92,  y:210, r:18, fill:"rgba(0,210,190,0.08)",   stroke:"rgba(0,210,190,0.5)", sw:1, label:"47 flashcards", sub:"" },
-  { id:"lec",    x:246, y:48,  r:18, fill:"rgba(0,210,190,0.08)",   stroke:"rgba(0,210,190,0.5)", sw:1, label:"Lecture 4",     sub:"" },
-  { id:"assign", x:500, y:340, r:18, fill:"rgba(0,210,190,0.08)",   stroke:"rgba(0,210,190,0.5)", sw:1, label:"Due Friday",    sub:"" },
-  { id:"notes",  x:310, y:390, r:18, fill:"rgba(0,210,190,0.08)",   stroke:"rgba(0,210,190,0.5)", sw:1, label:"Smart notes",   sub:"" },
+  { id:"flash",  x:92,  y:210, r:18, fill:tealAlpha(0.08),   stroke:tealAlpha(0.5), sw:1, label:"47 flashcards", sub:"" },
+  { id:"lec",    x:246, y:48,  r:18, fill:tealAlpha(0.08),   stroke:tealAlpha(0.5), sw:1, label:"Lecture 4",     sub:"" },
+  { id:"assign", x:500, y:340, r:18, fill:tealAlpha(0.08),   stroke:tealAlpha(0.5), sw:1, label:"Due Friday",    sub:"" },
+  { id:"notes",  x:310, y:390, r:18, fill:tealAlpha(0.08),   stroke:tealAlpha(0.5), sw:1, label:"Smart notes",   sub:"" },
 ];
 // Hub edges (animated data flow), then resource→course connections
 const KM_EDGES = [
@@ -1640,7 +1641,7 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
       <div aria-hidden="true" style={{
         position: "absolute", top: "20%", left: "50%", transform: "translateX(-50%)",
         width: "60%", height: 300,
-        background: "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(0,210,190,0.05) 0%, transparent 100%)",
+        background: "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(var(--teal-rgb), 0.05) 0%, transparent 100%)",
         pointerEvents: "none",
       }} />
 
@@ -1664,8 +1665,8 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
           <defs>
             {/* Gradient for data-packet dots */}
             <radialGradient id="packetGrad">
-              <stop offset="0%" stopColor="rgba(0,210,190,1)" />
-              <stop offset="100%" stopColor="rgba(0,210,190,0)" />
+              <stop offset="0%" stopColor={tealAlpha(1)} />
+              <stop offset="100%" stopColor={tealAlpha(0)} />
             </radialGradient>
             {/* Edge paths (needed for animateMotion) */}
             {KM_EDGES.map(({ from, to }) => {
@@ -1685,7 +1686,7 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
             return (
               <line key={`e-${from}-${to}`}
                 x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke={isHub ? "rgba(0,210,190,0.22)" : "rgba(0,210,190,0.12)"}
+                stroke={isHub ? tealAlpha(0.22) : tealAlpha(0.12)}
                 strokeWidth={isHub ? 1.2 : 0.8}
                 strokeDasharray={`${len} ${len}`}
                 strokeDashoffset={inView ? 0 : len}
@@ -1722,7 +1723,7 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
                 {/* Outer glow ring for hub */}
                 {isHub && (
                   <circle cx={node.x} cy={node.y} r={node.r + 10}
-                    fill="none" stroke="rgba(0,210,190,0.12)" strokeWidth={8}
+                    fill="none" stroke={tealAlpha(0.12)} strokeWidth={8}
                     style={{ animation: "centerOrb 3s ease-in-out infinite" }}
                   />
                 )}
@@ -1750,7 +1751,7 @@ function KnowledgeMap({ t, chromaStyle }: { t: typeof DARK; chromaStyle: React.C
                     fontSize={isResource ? 8 : 9}
                     fontWeight={600}
                     letterSpacing="0.02em"
-                    fill={isResource ? "rgba(0,210,190,0.7)" : "rgba(255,255,255,0.75)"}
+                    fill={isResource ? tealAlpha(0.7) : "rgba(255,255,255,0.75)"}
                     fontFamily="inherit"
                   >{node.label}</text>
                 )}
@@ -2375,7 +2376,7 @@ function NeuralCoreSection({ t }: { t: typeof DARK }) {
         {/* LEFT — stats + copy */}
         <div style={{ flex: "1 1 300px" }}>
           <Reveal>
-            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(0,210,190,0.65)", marginBottom: 22 }}>Intelligence Layer</p>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(var(--teal-rgb), 0.65)", marginBottom: 22 }}>Intelligence Layer</p>
             <h2 style={{ fontSize: "clamp(28px,4.5vw,50px)", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.1, color: "#f5f5f5", margin: "0 0 20px" }}>
               Every course.<br />Every lecture.<br />One mind.
             </h2>
@@ -2422,8 +2423,8 @@ function NeuralCoreSection({ t }: { t: typeof DARK }) {
                   </div>
                 ))}
                 <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
-                  <span style={{ color: "rgba(0,210,190,0.55)", fontSize: 12 }}>›</span>
-                  <div style={{ width: 7, height: 13, background: "rgba(0,210,190,0.55)", borderRadius: 1, animation: "micPulse 1s step-end infinite" }} />
+                  <span style={{ color: "rgba(var(--teal-rgb), 0.55)", fontSize: 12 }}>›</span>
+                  <div style={{ width: 7, height: 13, background: "rgba(var(--teal-rgb), 0.55)", borderRadius: 1, animation: "micPulse 1s step-end infinite" }} />
                 </div>
               </div>
             </div>
@@ -2906,7 +2907,7 @@ function WaitlistModal({ onClose, onLogin }: { onClose: () => void; onLogin: () 
               <p style={{ fontSize: 15, color: "#6e6e73", lineHeight: 1.55, marginBottom: 14 }}>
                 Click it to lock in your spot — you're not officially on the list until you confirm. The link is valid for 7 days.
               </p>
-              <p style={{ fontSize: 14, color: "#6e6e73", lineHeight: 1.55, marginBottom: 28, background: "rgba(196,154,60,0.10)", border: "1px solid rgba(196,154,60,0.25)", borderRadius: 10, padding: "10px 14px" }}>
+              <p style={{ fontSize: 14, color: "#6e6e73", lineHeight: 1.55, marginBottom: 28, background: "rgba(var(--gold-rgb), 0.10)", border: "1px solid rgba(var(--gold-rgb), 0.25)", borderRadius: 10, padding: "10px 14px" }}>
                 Don't see it? <strong style={{ color: "#1d1d1f", fontWeight: 600 }}>Check your spam folder</strong> — and if it's there, mark it "Not spam" so your invite reaches your inbox later.
               </p>
               <button className="wl-btn-primary" onClick={submit} style={{ marginBottom: 10 }}>
@@ -3095,7 +3096,7 @@ const FAQ_DATA = [
   { q: "What's the Founding Card?", a: "A physical NFC titanium card for the first 1,000 members. It holds your AI identity, student number, and lifetime Pro access. See the Card page." },
 ];
 
-export default function Landing({ onEnter, initialAuthMode = null, onTryDemo, onLearnMore }: { onEnter: (args: any) => Promise<void>; initialAuthMode?: "login" | "signup" | null; onTryDemo?: () => void; onLearnMore?: () => void }) {
+export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: { onEnter: (args: any) => Promise<void>; initialAuthMode?: "login" | "signup" | null; onTryDemo?: () => void }) {
   // Light-primary — no toggle. DARK tokens used directly in the card-preview section.
   const t = LIGHT;
   const [authMode, setAuthMode] = useState<"login"|"signup"|null>(initialAuthMode);
@@ -3196,7 +3197,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo, on
         @keyframes marqueeL    { from{transform:translateX(0)} to{transform:translateX(-50%)} }
         @keyframes marqueeR    { from{transform:translateX(-50%)} to{transform:translateX(0)} }
         @keyframes statCount   { from{opacity:0;transform:translateY(20px) scale(0.96)} to{opacity:1;transform:translateY(0) scale(1)} }
-        @keyframes pulseGlow   { 0%,100%{box-shadow:0 0 0 0 rgba(0,210,190,0.4)} 50%{box-shadow:0 0 0 6px rgba(0,210,190,0)} }
+        @keyframes pulseGlow   { 0%,100%{box-shadow:0 0 0 0 rgba(var(--teal-rgb), 0.4)} 50%{box-shadow:0 0 0 6px rgba(var(--teal-rgb), 0)} }
         @keyframes confettiFall { 0%{transform:translateY(-20px) rotate(0deg);opacity:1} 100%{transform:translateY(110vh) rotate(720deg);opacity:0} }
         @keyframes checkIn     { 0%{stroke-dashoffset:60} 100%{stroke-dashoffset:0} }
         @keyframes successPop  { 0%{opacity:0;transform:scale(0.8)} 60%{transform:scale(1.04)} 100%{opacity:1;transform:scale(1)} }
@@ -3264,16 +3265,6 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo, on
           Founding Card
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => onLearnMore?.()} style={{
-            borderRadius: 980, border: "none",
-            padding: "7px 17px", fontSize: 13, fontWeight: 400,
-            color: "#fff", background: "#0071e3", cursor: "pointer", fontFamily: FONT,
-            display: "inline-flex", alignItems: "center",
-            transition: "opacity 0.15s",
-          }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = "0.84"; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
-          >Learn more</button>
           <button onClick={() => setWaitlistOpen(true)} style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
             padding: "7px 17px", fontSize: 13, fontWeight: 400,
@@ -3409,17 +3400,6 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo, on
                 <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Join the waitlist</span>
                 <HeroBtnCountdown />
               </button>
-              <button
-                onClick={() => onLearnMore?.()}
-                style={{
-                  background: "transparent", border: "none", padding: 0, cursor: "pointer",
-                  color: "#0066cc", fontSize: 17, fontWeight: 400,
-                  display: "inline-flex", alignItems: "center",
-                  fontFamily: FONT, transition: "color 0.15s",
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#004c99"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "#0066cc"; }}
-              >Learn more <span style={{ fontSize: 15 }}>›</span></button>
             </div>
 
             {/* Subtle stat pills */}

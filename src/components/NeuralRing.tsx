@@ -26,6 +26,7 @@ import { createSentenceChunker } from "../lib/ttsChunker";
 import { streamReggie } from "../lib/reggieStream";
 import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play, Mic } from "lucide-react";
 import { createDictation } from "../lib/dictation";
+import { GOLD, CREAM, INK_WARM, GOLD_RGB } from "../lib/theme";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -130,7 +131,7 @@ STRICT RULES — breaking any of these will cause a crash:
      RadarChart, Radar, ScatterChart, Scatter, Cell, XAxis, YAxis, CartesianGrid,
      Tooltip, Legend, ResponsiveContainer, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 6. Use realistic sample data when no real data is provided.
-7. Design language: dark background #1a1814, gold accent #C49A3C, cream text #F6F2E9. NEVER neon green, neon yellow, or bright saturated accents.
+7. Design language: dark background ${INK_WARM}, gold accent ${GOLD}, cream text ${CREAM}. NEVER neon green, neon yellow, or bright saturated accents.
 8. Make it interactive where it makes sense (buttons, sliders, hover effects).
 9. Return ONLY the <artifact> block — no explanation, no markdown fences, nothing else.`;
 
@@ -603,7 +604,7 @@ function InlineQuiz({ cards, userId, courseId }) {
 
   const wrap = {
     background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(196,154,60,0.35)",
+    border: "1px solid rgba(var(--gold-rgb),0.35)",
     borderRadius: "14px",
     padding: "16px",
     marginTop: "8px",
@@ -623,10 +624,10 @@ function InlineQuiz({ cards, userId, courseId }) {
         </div>
         {!saved
           ? <button onClick={saveCards} disabled={saving}
-              style={{ background: "rgba(196,154,60,0.12)", border: "1px solid rgba(196,154,60,0.28)", borderRadius: "8px", padding: "7px 14px", color: "#C49A3C", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ background: "rgba(var(--gold-rgb),0.12)", border: "1px solid rgba(var(--gold-rgb),0.28)", borderRadius: "8px", padding: "7px 14px", color: "var(--gold)", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
               {saving ? "Saving…" : "Save to flashcards"}
             </button>
-          : <p style={{ color: "#C49A3C", fontSize: "12px", display:"flex", alignItems:"center", gap:5 }}><Check size={13} />Saved to flashcards</p>
+          : <p style={{ color: "var(--gold)", fontSize: "12px", display:"flex", alignItems:"center", gap:5 }}><Check size={13} />Saved to flashcards</p>
         }
       </div>
     );
@@ -634,7 +635,7 @@ function InlineQuiz({ cards, userId, courseId }) {
 
   return (
     <div style={wrap}>
-      <p style={{ color: "rgba(196,154,60,0.55)", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "10px" }}>
+      <p style={{ color: "rgba(var(--gold-rgb),0.55)", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "10px" }}>
         {idx + 1} / {cards.length}
       </p>
       <div style={{ minHeight: "58px", marginBottom: "12px" }}>
@@ -645,7 +646,7 @@ function InlineQuiz({ cards, userId, courseId }) {
           </>
         ) : (
           <>
-            <p style={{ color: "rgba(196,154,60,0.55)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>Answer</p>
+            <p style={{ color: "rgba(var(--gold-rgb),0.55)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>Answer</p>
             <p style={{ color: "var(--text-primary)", fontSize: "14px", lineHeight: "1.6" }}>{card.a}</p>
           </>
         )}
@@ -1133,8 +1134,8 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
           to   { opacity: 1; transform: none; }
         }
         @keyframes nrBorderPulse {
-          0%   { box-shadow: 0 0 0 1px rgba(196,154,60,0.55); }
-          100% { box-shadow: 0 0 0 1px rgba(196,154,60,0); }
+          0%   { box-shadow: 0 0 0 1px rgba(var(--gold-rgb),0.55); }
+          100% { box-shadow: 0 0 0 1px rgba(var(--gold-rgb),0); }
         }
         @keyframes nrDot {
           0%, 60%, 100% { transform: scale(0.75); opacity: 0.35; }
@@ -1142,17 +1143,17 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
         }
         .nr-msg-in  { animation: nrMsgIn 0.24s cubic-bezier(0.22,1,0.36,1) both; }
         .nr-msg-new { animation: nrBorderPulse 1.2s ease-out both; }
-        .nr-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #C49A3C; }
+        .nr-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
         .nr-dot:nth-child(1) { animation: nrDot 0.9s ease-in-out infinite 0s; }
         .nr-dot:nth-child(2) { animation: nrDot 0.9s ease-in-out infinite 0.15s; }
         .nr-dot:nth-child(3) { animation: nrDot 0.9s ease-in-out infinite 0.30s; }
       }
-      .nr-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #C49A3C; }
+      .nr-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
 
       /* ── Markdown styles ── */
       .nr-md p            { margin: 0 0 6px; }
       .nr-md p:last-child  { margin: 0; }
-      .nr-md strong        { color: #C49A3C; font-weight: 600; }
+      .nr-md strong        { color: var(--gold); font-weight: 600; }
       .nr-md ul            { margin: 4px 0; padding-left: 18px; }
       .nr-md li            { margin: 3px 0; }
     `;
@@ -1194,9 +1195,9 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       const mix = colorMixRef.current;
 
       // Interpolate RGB: white(255,255,255) → gold(196,154,60)
-      const cr = Math.round(255 + (196 - 255) * mix);
-      const cg = Math.round(255 + (154 - 255) * mix);
-      const cb = Math.round(255 + (60  - 255) * mix);
+      const cr = Math.round(255 + (GOLD_RGB.r - 255) * mix);
+      const cg = Math.round(255 + (GOLD_RGB.g - 255) * mix);
+      const cb = Math.round(255 + (GOLD_RGB.b - 255) * mix);
 
       const projected = NODES.map(({ x, y, z }) => {
         const rx = x * Math.cos(rot) + z * Math.sin(rot);
@@ -1252,9 +1253,9 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       ctx.clearRect(0, 0, VOICE_SIZE, VOICE_SIZE);
       const rot  = rotRef.current;
       const mix  = colorMixRef.current;
-      const cr   = Math.round(255 + (196 - 255) * mix);
-      const cg   = Math.round(255 + (154 - 255) * mix);
-      const cb   = Math.round(255 + (60  - 255) * mix);
+      const cr   = Math.round(255 + (GOLD_RGB.r - 255) * mix);
+      const cg   = Math.round(255 + (GOLD_RGB.g - 255) * mix);
+      const cb   = Math.round(255 + (GOLD_RGB.b - 255) * mix);
       const pulse = sphereStateRef.current === "speaking"
         ? Math.sin(pulseSineRef.current) * 0.06 : 0;
       const R    = VOICE_RADIUS * (1 + pulse);
@@ -1321,7 +1322,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       if (rms > 0.04) {
         ctx.beginPath();
         ctx.arc(cx, cy, R + 5 + rms * 8, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(196,154,60,${Math.min(rms * 0.9, 0.6).toFixed(2)})`;
+        ctx.strokeStyle = `rgba(${GOLD_RGB.r},${GOLD_RGB.g},${GOLD_RGB.b},${Math.min(rms * 0.9, 0.6).toFixed(2)})`;
         ctx.lineWidth = 1.5 + rms * 2;
         ctx.stroke();
       }
@@ -2333,9 +2334,10 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     logChat(userId, "user", userMsg.content, null, convId);
 
     // ── Brain behavioral signal (fire-and-forget) ─────────────────────────────
-    // Every student message is a data point for the brain.
-    // The brain_scheduler reads these signals to update context_window.
-    if (userData?.brain_person_id) {
+    // Every student message is a data point for the brain. Fire whenever we have a signed-in
+    // user — the server derives the brain identity from the JWT (installApiAuth attaches it),
+    // so we don't gate on a possibly-stale client-side brain_person_id.
+    if (userId) {
       const msgLen   = userMsg.content.length;
       const hour     = new Date().getHours();
       const timeSlot = hour < 6 ? 'late_night' : hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : hour < 22 ? 'evening' : 'late_night';
@@ -2908,9 +2910,9 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     display: "flex", alignItems: "center", gap: 5, padding: "0 10px", height: 32, flexShrink: 0,
                     borderRadius: 20, cursor: "pointer", outline: "none", WebkitTapHighlightColor: "transparent",
                     fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase",
-                    background: reggieMode ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.06)",
-                    border: `1px solid ${reggieMode ? "rgba(196,154,60,0.5)" : "rgba(255,255,255,0.12)"}`,
-                    color: reggieMode ? "#C49A3C" : "rgba(255,255,255,0.4)",
+                    background: reggieMode ? "rgba(var(--gold-rgb),0.18)" : "rgba(255,255,255,0.06)",
+                    border: `1px solid ${reggieMode ? "rgba(var(--gold-rgb),0.5)" : "rgba(255,255,255,0.12)"}`,
+                    color: reggieMode ? "var(--gold)" : "rgba(255,255,255,0.4)",
                   }}
                 >
                   🤖 Reggie
@@ -3089,8 +3091,8 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                           onClick={() => { setArtifactType(m.artifactType || "viz"); setArtifactOpen(true); }}
                           style={{
                             display: "block", marginTop: "10px",
-                            background: "rgba(196,154,60,0.1)", border: "1px solid rgba(196,154,60,0.3)",
-                            borderRadius: "8px", padding: "7px 14px", color: "#C49A3C",
+                            background: "rgba(var(--gold-rgb),0.1)", border: "1px solid rgba(var(--gold-rgb),0.3)",
+                            borderRadius: "8px", padding: "7px 14px", color: "var(--gold)",
                             fontSize: "12px", fontWeight: "600", cursor: "pointer",
                             fontFamily: "inherit", width: "100%", textAlign: "center",
                           }}
@@ -3263,7 +3265,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     cursor: "pointer", flexShrink: 0, color: "rgba(255,255,255,0.4)",
                     fontSize: "24px", lineHeight: 1, outline: "none", transition: "color 0.15s",
                   }}
-                  onMouseEnter={e => e.currentTarget.style.color = "#C49A3C"}
+                  onMouseEnter={e => e.currentTarget.style.color = "var(--gold)"}
                   onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.4)"}
                 ><Plus size={20} strokeWidth={2.2} /></button>
                 {/* Subtle waveform glyph — enters voice mode */}
@@ -3275,7 +3277,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     cursor: "pointer", flexShrink: 0, color: "rgba(255,255,255,0.28)",
                     transition: "color 0.15s", outline: "none",
                   }}
-                  onMouseEnter={e => e.currentTarget.style.color = "#C49A3C"}
+                  onMouseEnter={e => e.currentTarget.style.color = "var(--gold)"}
                   onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.28)"}
                 >
                   {/* Waveform glyph — three bars of different heights */}
@@ -3296,11 +3298,11 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     background: dictState === "listening" ? "rgba(255,80,80,0.16)" : "none",
                     border: dictState === "listening" ? "1px solid rgba(255,80,80,0.35)" : "1px solid transparent",
                     borderRadius: 8, padding: "6px 6px", cursor: "pointer", flexShrink: 0,
-                    color: dictState === "listening" ? "#ff6b5a" : dictState === "processing" ? "#C49A3C" : "rgba(255,255,255,0.28)",
+                    color: dictState === "listening" ? "#ff6b5a" : dictState === "processing" ? "var(--gold)" : "rgba(255,255,255,0.28)",
                     transition: "color 0.15s, background 0.15s", outline: "none",
                     animation: dictState === "listening" ? "fsPulseRing 1.4s ease-out infinite" : "none",
                   }}
-                  onMouseEnter={e => { if (dictState === "idle") e.currentTarget.style.color = "#C49A3C"; }}
+                  onMouseEnter={e => { if (dictState === "idle") e.currentTarget.style.color = "var(--gold)"; }}
                   onMouseLeave={e => { if (dictState === "idle") e.currentTarget.style.color = "rgba(255,255,255,0.28)"; }}
                 >
                   <Mic size={16} strokeWidth={2.2} />
@@ -3353,7 +3355,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
                     pointerEvents: "none",
                   }}>
-                    <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "10px", fontVariant: "small-caps", letterSpacing: "0.14em", color: "rgba(196,154,60,0.65)" }}>
+                    <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "10px", fontVariant: "small-caps", letterSpacing: "0.14em", color: "rgba(var(--gold-rgb),0.65)" }}>
                       question {voiceQuizProgress.current} / {voiceQuizProgress.total}
                     </span>
                     <div style={{ display: "flex", gap: "5px" }}>
@@ -3361,9 +3363,9 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                         <div key={i} style={{
                           width: 6, height: 6, borderRadius: "50%",
                           background: i < voiceQuizProgress.current - 1
-                            ? "rgba(196,154,60,0.55)"
+                            ? "rgba(var(--gold-rgb),0.55)"
                             : i === voiceQuizProgress.current - 1
-                              ? "#C49A3C"
+                              ? "var(--gold)"
                               : "rgba(255,255,255,0.1)",
                           transition: "background 0.3s ease",
                         }} />
@@ -3393,7 +3395,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     position: "absolute",
                     inset: `-${8 + Math.round((voiceRmsRef.current ?? 0) * 10)}px`,
                     borderRadius: "50%",
-                    border: `1.5px solid rgba(196,154,60,${Math.min((voiceRmsRef.current ?? 0) * 0.75, 0.5).toFixed(2)})`,
+                    border: `1.5px solid rgba(var(--gold-rgb),${Math.min((voiceRmsRef.current ?? 0) * 0.75, 0.5).toFixed(2)})`,
                     pointerEvents: "none",
                     transition: "inset 0.06s linear, border-color 0.06s linear",
                   }} />
@@ -3414,7 +3416,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                   letterSpacing: "0.14em",
                   marginBottom: "32px",
                   minHeight: "1em",
-                  color: micDenied ? "rgba(255,100,90,0.5)" : "rgba(246,242,233,0.22)",
+                  color: micDenied ? "rgba(255,100,90,0.5)" : "rgba(var(--cream-rgb),0.22)",
                   transition: "opacity 0.35s ease, color 0.35s ease",
                   opacity: (micDenied || speaking || loading || isRecording) ? 1 : 0,
                 }}>
@@ -3446,10 +3448,10 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                           }}
                           style={{
                             flexShrink: 0,
-                            background: isActive ? "rgba(196,154,60,0.1)" : "rgba(255,255,255,0.04)",
-                            border: `1px solid ${isActive ? "rgba(196,154,60,0.35)" : "rgba(255,255,255,0.07)"}`,
+                            background: isActive ? "rgba(var(--gold-rgb),0.1)" : "rgba(255,255,255,0.04)",
+                            border: `1px solid ${isActive ? "rgba(var(--gold-rgb),0.35)" : "rgba(255,255,255,0.07)"}`,
                             borderRadius: "20px", padding: "5px 11px",
-                            color: isActive ? "#C49A3C" : "rgba(255,255,255,0.3)",
+                            color: isActive ? "var(--gold)" : "rgba(255,255,255,0.3)",
                             fontSize: "11px", fontWeight: isActive ? "600" : "400",
                             cursor: "pointer", fontFamily: "inherit",
                             display: "flex", alignItems: "center", gap: "5px",

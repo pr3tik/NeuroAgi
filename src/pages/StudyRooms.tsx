@@ -29,6 +29,7 @@ import {
 } from "../api/roomSession";
 import * as Y from "yjs";
 import { SupabaseBroadcastProvider } from "../lib/yjsSupabaseProvider";
+import { GOLD } from "../lib/theme";
 import Whiteboard, { PEN_COLORS, PEN_WIDTHS, ERASER_SIZES, DEFAULT_BG } from "../components/Whiteboard";
 import type { Tool } from "../components/Whiteboard";
 import StudyOrb from "../components/StudyOrb";
@@ -68,8 +69,8 @@ function FilterBadges({ filters, small = false }: { filters?: AccessFilters | nu
             display: "inline-flex", alignItems: "center", gap: "4px",
             fontSize: small ? "10px" : "11px", fontWeight: 600,
             padding: small ? "2px 7px" : "3px 9px", borderRadius: "6px",
-            background: "rgba(196,154,60,0.08)", color: "var(--color-accent)",
-            border: "1px solid rgba(196,154,60,0.18)", whiteSpace: "nowrap",
+            background: "rgba(var(--gold-rgb), 0.08)", color: "var(--color-accent)",
+            border: "1px solid rgba(var(--gold-rgb), 0.18)", whiteSpace: "nowrap",
           }}>
             <meta.icon size={small ? 12 : 13} /> {meta.label}
           </span>
@@ -98,8 +99,8 @@ function AccessToggles({ value, onChange, hasCourse }: {
               display: "flex", alignItems: "center", gap: "10px", textAlign: "left",
               padding: "10px 12px", borderRadius: "10px", cursor: disabled ? "not-allowed" : "pointer",
               fontFamily: "inherit", width: "100%",
-              background: on ? "rgba(196,154,60,0.12)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${on ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.08)"}`,
+              background: on ? "rgba(var(--gold-rgb), 0.12)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${on ? "rgba(var(--gold-rgb), 0.3)" : "rgba(255,255,255,0.08)"}`,
               opacity: disabled ? 0.4 : 1, transition: "all 0.15s",
             }}
           >
@@ -554,11 +555,11 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
           {totalOnline > 0 && (
             <div style={{
               display:"inline-flex", alignItems:"center", gap:"6px", marginTop:"8px",
-              background:"rgba(196,154,60,0.08)", border:"1px solid rgba(196,154,60,0.2)",
+              background:"rgba(var(--gold-rgb), 0.08)", border:"1px solid rgba(var(--gold-rgb), 0.2)",
               borderRadius:"20px", padding:"4px 10px 4px 8px",
             }}>
               <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--color-accent)", flexShrink:0,
-                display:"inline-block", boxShadow:"0 0 0 2px rgba(196,154,60,0.2)" }} />
+                display:"inline-block", boxShadow:"0 0 0 2px rgba(var(--gold-rgb), 0.2)" }} />
               <span style={{ fontSize:"13px", fontWeight:"700", color:"var(--color-accent)" }}>
                 {totalOnline} {totalOnline === 1 ? "student" : "students"} studying now
               </span>
@@ -581,11 +582,11 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
         <p style={{ fontSize:"11px", color:"var(--text-dim)", letterSpacing:"1.5px", textTransform:"uppercase", marginBottom:"8px" }}>Have a room code?</p>
         <div style={{
           display:"flex", gap:"10px", alignItems:"center",
-          background:"rgba(196,154,60,0.04)", border:"1px solid rgba(196,154,60,0.18)",
+          background:"rgba(var(--gold-rgb), 0.04)", border:"1px solid rgba(var(--gold-rgb), 0.18)",
           borderRadius:"14px", padding:"12px 16px", transition:"border-color 0.15s, box-shadow 0.15s",
         }}
-          onFocusCapture={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.45)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "0 0 0 3px rgba(196,154,60,0.08)"; }}
-          onBlurCapture={e  => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.18)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "none"; }}
+          onFocusCapture={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(var(--gold-rgb), 0.45)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "0 0 0 3px rgba(var(--gold-rgb), 0.08)"; }}
+          onBlurCapture={e  => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(var(--gold-rgb), 0.18)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "none"; }}
         >
           <span style={{ display:"flex", flexShrink:0, color:"var(--color-accent)" }}><KeyRound size={18} /></span>
           <input
@@ -627,7 +628,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
         <div style={{ display:"flex", flexDirection:"column", gap:"8px", margin:"14px 0" }}>
           {pendingInvites.map(inv => (
             <div key={inv.id} style={{
-              background:"rgba(196,154,60,0.06)", border:"1px solid rgba(196,154,60,0.2)",
+              background:"rgba(var(--gold-rgb), 0.06)", border:"1px solid rgba(var(--gold-rgb), 0.2)",
               borderRadius:"12px", padding:"11px 16px",
               display:"flex", alignItems:"center", justifyContent:"space-between", gap:"12px",
             }}>
@@ -697,10 +698,10 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
               onClick={() => setActiveFilter(f)}
               style={{
                 padding:"5px 14px", borderRadius:"16px",
-                border: activeFilter === f ? "1px solid rgba(196,154,60,0.28)" : "1px solid transparent",
+                border: activeFilter === f ? "1px solid rgba(var(--gold-rgb), 0.28)" : "1px solid transparent",
                 fontSize:"12px", fontWeight: activeFilter === f ? "600" : "500",
                 cursor:"pointer", fontFamily:"inherit",
-                background: activeFilter === f ? "rgba(196,154,60,0.15)" : "transparent",
+                background: activeFilter === f ? "rgba(var(--gold-rgb), 0.15)" : "transparent",
                 color: activeFilter === f ? "var(--color-accent)" : "var(--text-secondary)",
                 transition:"all 0.15s",
               }}
@@ -848,9 +849,9 @@ function RoomCard({ room, liveCount, joining, pendingStatus, courseLabel, onJoin
             fontSize: "12px", fontWeight: "600",
             cursor: btnDisabled ? "default" : "pointer",
             fontFamily: "inherit", flexShrink: 0,
-            background: btnDisabled ? "rgba(255,255,255,0.04)" : "rgba(196,154,60,0.1)",
+            background: btnDisabled ? "rgba(255,255,255,0.04)" : "rgba(var(--gold-rgb), 0.1)",
             color: btnDisabled ? "var(--text-dim)" : "var(--color-accent)",
-            border: `1px solid ${btnDisabled ? "rgba(255,255,255,0.07)" : "rgba(196,154,60,0.25)"}`,
+            border: `1px solid ${btnDisabled ? "rgba(255,255,255,0.07)" : "rgba(var(--gold-rgb), 0.25)"}`,
             opacity: pendingStatus === "requested" ? 0.6 : 1,
             transition: "opacity 0.15s",
           }}
@@ -909,9 +910,9 @@ function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
             <button key={t} onClick={() => setRoomType(t)} style={{
               flex:1, padding:"9px 0", borderRadius:"9px",
               fontSize:"13px", fontWeight:"500", cursor:"pointer", fontFamily:"inherit",
-              background: roomType===t ? "rgba(196,154,60,0.14)" : "rgba(255,255,255,0.04)",
+              background: roomType===t ? "rgba(var(--gold-rgb), 0.14)" : "rgba(255,255,255,0.04)",
               color:      roomType===t ? "var(--color-accent)" : "var(--text-dim)",
-              border: `1px solid ${roomType===t ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.08)"}`,
+              border: `1px solid ${roomType===t ? "rgba(var(--gold-rgb), 0.3)" : "rgba(255,255,255,0.08)"}`,
               transition:"all 0.15s",
             }}>
               {t==="public"
@@ -981,6 +982,10 @@ function AccessSettingsModal({ initial, hasCourse, onSave, onClose }: {
 }
 
 const CURSOR_COLORS = ["#60a5fa","#f472b6","#34d399","#fbbf24","#a78bfa","#fb923c","#22d3ee","#e879f9"];
+// Quiet period before the board is snapshotted for the AI (AI-06). Long enough that a
+// normal writing burst produces one snapshot rather than one per stroke.
+const WB_SNAPSHOT_QUIET_MS = 4000;
+
 function cursorColor(uid: string) {
   let h = 0;
   for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0;
@@ -1048,6 +1053,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const yjsProviderRef  = useRef<SupabaseBroadcastProvider | null>(null);
   const yjsStrokesRef   = useRef<Y.Array<any> | null>(null);
   const yjsMetaRef      = useRef<Y.Map<any> | null>(null);
+  const wbSnapTimerRef    = useRef<any>(null);
+  const wbSnapInFlightRef = useRef(false);
 
   const channelRef          = useRef(null);
   const reqChRef            = useRef(null);
@@ -1673,6 +1680,43 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     setCanRedo(false);
   }
 
+  // ── AI-06 / BE-07: push an AI-readable board snapshot once the board goes quiet ──────
+  // The live board is a Yjs doc in browser memory and is never written to Postgres, so the
+  // server cannot read it — the client holding the doc has to push. whiteboard_snapshots is
+  // therefore the ONLY durable record of a board, and without this the room AI has no board
+  // context to cite (api/_board.ts explains the model in full).
+  //
+  // Every member emits: the board has no leader to elect, and electing one would stop
+  // snapshots dead the moment that member left. That is safe because the server dedupes on
+  // a content digest — the first push of a given board state writes the row and the rest are
+  // no-ops. `revision` is deliberately NOT sent: with concurrent editors no client can know
+  // the current revision, so the server assigns it.
+  useEffect(() => {
+    if (!room?.id || !strokes.length) return;
+    clearTimeout(wbSnapTimerRef.current);
+    wbSnapTimerRef.current = setTimeout(async () => {
+      if (wbSnapInFlightRef.current) return;   // never queue behind a slow push
+      wbSnapInFlightRef.current = true;
+      try {
+        // Read from Yjs, not React state: the doc is the source of truth and may have
+        // advanced since this effect was scheduled.
+        const current = (yjsStrokesRef.current?.toArray() as Stroke[]) ?? strokes;
+        if (!current.length) return;
+        await fetch("/api/room-board?action=snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },   // JWT added by installApiAuth
+          body: JSON.stringify({ roomId: room.id, strokes: current }),
+        });
+      } catch {
+        // Non-fatal by design: a dropped snapshot costs nothing a later milestone cannot
+        // recover, and a failed background push must never surface in a study session.
+      } finally {
+        wbSnapInFlightRef.current = false;
+      }
+    }, WB_SNAPSHOT_QUIET_MS);
+    return () => clearTimeout(wbSnapTimerRef.current);
+  }, [strokes, room?.id]);
+
   function handleEraseStroke(strokeId: string) {
     const arr = yjsStrokesRef.current;
     if (!arr) return;
@@ -1836,7 +1880,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         <div style={{ display:"flex", gap:"6px", alignItems:"center", flexWrap:"wrap" }}>
           {/* Panel toggles */}
           <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><MessageCircle size={13} />Chat</span></button>
-          <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(196,154,60,0.1)" : "none", borderColor: showBoard ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "#c49a3c" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Pen size={13} />Board</span></button>
+          <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(var(--gold-rgb), 0.1)" : "none", borderColor: showBoard ? "rgba(var(--gold-rgb), 0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "var(--gold)" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Pen size={13} />Board</span></button>
           <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Mic size={13} />Voice</span></button>
           <button onClick={() => setShowInvite(true)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Plus size={13} />Invite</span></button>
 
@@ -1903,7 +1947,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       {/* Collective focus strip */}
       {members.length > 1 && (
         <div style={{
-          background:"rgba(196,154,60,0.06)", border:"1px solid rgba(196,154,60,0.14)",
+          background:"rgba(var(--gold-rgb), 0.06)", border:"1px solid rgba(var(--gold-rgb), 0.14)",
           borderRadius:"10px", padding:"10px 16px", marginBottom:"18px",
           display:"flex", alignItems:"center", justifyContent:"space-between",
         }}>
@@ -2102,7 +2146,7 @@ const SPRINT_DURATIONS = [
 function sprintCtrlStyle(variant) {
   const v = {
     dim:    { bg:"rgba(255,255,255,0.05)", color:"var(--text-dim)",      border:"rgba(255,255,255,0.09)" },
-    accent: { bg:"rgba(196,154,60,0.12)", color:"#C49A3C",              border:"rgba(196,154,60,0.3)"   },
+    accent: { bg:"rgba(var(--gold-rgb), 0.12)", color:"var(--gold)",              border:"rgba(var(--gold-rgb), 0.3)"   },
     red:    { bg:"rgba(255,59,48,0.07)",  color:"rgba(255,100,90,0.7)", border:"rgba(255,59,48,0.18)"   },
   }[variant] || { bg:"rgba(255,255,255,0.05)", color:"var(--text-dim)", border:"rgba(255,255,255,0.09)" };
   return {
@@ -2121,13 +2165,13 @@ function FocusSprintPanel({ pomo, remaining, isHost, sprintDuration, onDurationC
 
   return (
     <div style={{
-      background: isFocus ? "rgba(196,154,60,0.05)" : "rgba(255,255,255,0.02)",
-      border: `1px solid ${isFocus ? "rgba(196,154,60,0.18)" : "rgba(255,255,255,0.07)"}`,
+      background: isFocus ? "rgba(var(--gold-rgb), 0.05)" : "rgba(255,255,255,0.02)",
+      border: `1px solid ${isFocus ? "rgba(var(--gold-rgb), 0.18)" : "rgba(255,255,255,0.07)"}`,
       borderRadius:"14px", padding:"20px 20px 16px", marginBottom:"18px",
       transition:"background 0.4s, border-color 0.4s",
     }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"10px" }}>
-        <span style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color: isFocus ? "#C49A3C" : "var(--text-dim)", fontWeight:"600" }}>
+        <span style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color: isFocus ? "var(--gold)" : "var(--text-dim)", fontWeight:"600" }}>
           <BookOpen size={12} style={{ verticalAlign:"-2px", marginRight:6 }} />Focus Sprint{isPaused ? " · Paused" : ""}
         </span>
         <span style={{ fontSize:"11px", color:"var(--text-dim)" }}>
@@ -2140,7 +2184,7 @@ function FocusSprintPanel({ pomo, remaining, isHost, sprintDuration, onDurationC
         <span style={{
           fontSize:"56px", fontWeight:"700", letterSpacing:"-2px",
           fontVariantNumeric:"tabular-nums", display:"block", lineHeight:1,
-          color: isIdle ? "rgba(255,255,255,0.15)" : "#C49A3C",
+          color: isIdle ? "rgba(255,255,255,0.15)" : "var(--gold)",
           opacity: isPaused ? 0.55 : 1,
           transition:"color 0.4s",
         }}>
@@ -2157,17 +2201,17 @@ function FocusSprintPanel({ pomo, remaining, isHost, sprintDuration, onDurationC
               <div style={{ display:"flex", gap:"4px", marginRight:"8px" }}>
                 {SPRINT_DURATIONS.map(d => (
                   <button key={d.secs} onClick={() => onDurationChange(d.secs)} style={{
-                    background: sprintDuration === d.secs ? "rgba(196,154,60,0.14)" : "rgba(255,255,255,0.04)",
-                    color: sprintDuration === d.secs ? "#C49A3C" : "var(--text-dim)",
-                    border: `1px solid ${sprintDuration === d.secs ? "rgba(196,154,60,0.35)" : "rgba(255,255,255,0.09)"}`,
+                    background: sprintDuration === d.secs ? "rgba(var(--gold-rgb), 0.14)" : "rgba(255,255,255,0.04)",
+                    color: sprintDuration === d.secs ? "var(--gold)" : "var(--text-dim)",
+                    border: `1px solid ${sprintDuration === d.secs ? "rgba(var(--gold-rgb), 0.35)" : "rgba(255,255,255,0.09)"}`,
                     borderRadius:"7px", padding:"5px 10px", fontSize:"11px",
                     cursor:"pointer", fontFamily:"inherit",
                   }}>{d.label}</button>
                 ))}
               </div>
               <button onClick={onStart} style={{
-                background:"rgba(196,154,60,0.14)", color:"#C49A3C",
-                border:"1px solid rgba(196,154,60,0.35)", borderRadius:"9px",
+                background:"rgba(var(--gold-rgb), 0.14)", color:"var(--gold)",
+                border:"1px solid rgba(var(--gold-rgb), 0.35)", borderRadius:"9px",
                 padding:"9px 24px", fontSize:"13px", fontWeight:"600",
                 cursor:"pointer", fontFamily:"inherit",
               }}>
@@ -2314,7 +2358,7 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
           <button
             onClick={() => onConfirm(true)}
             style={{
-              flex:1, background:"rgba(196,154,60,0.12)", border:"1px solid rgba(196,154,60,0.3)",
+              flex:1, background:"rgba(var(--gold-rgb), 0.12)", border:"1px solid rgba(var(--gold-rgb), 0.3)",
               borderRadius:"10px", padding:"12px", fontSize:"14px", fontWeight:"600",
               cursor:"pointer", fontFamily:"inherit", color:"var(--color-accent)",
             }}
@@ -2333,7 +2377,7 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function RequestCard({ request, onAccept, onDecline }) {
   const COLORS = [
-    { bg:"rgba(196,154,60,0.15)",  fg:"#C49A3C" },
+    { bg:"rgba(var(--gold-rgb), 0.15)",  fg:"var(--gold)" },
     { bg:"rgba(111,179,196,0.15)", fg:"#6fb3c4" },
     { bg:"rgba(127,174,110,0.15)", fg:"#7fae6e" },
     { bg:"rgba(196,100,100,0.15)", fg:"#d47878" },
@@ -2431,7 +2475,7 @@ function InviteModal({ room, userId, userData, onlineIds = [], onClose }) {
                 <div key={f.id} style={{ display:"flex", alignItems:"center", gap:"12px", padding:"10px 4px" }}>
                   <div style={{
                     width:34, height:34, borderRadius:"50%", flexShrink:0,
-                    background:"rgba(196,154,60,0.12)", color:"var(--color-accent)",
+                    background:"rgba(var(--gold-rgb), 0.12)", color:"var(--color-accent)",
                     fontWeight:"700", fontSize:"13px",
                     display:"flex", alignItems:"center", justifyContent:"center",
                   }}>
@@ -2526,8 +2570,8 @@ function ChatPanel({ messages, myUserId, input, sending, imageUploading, onInput
                   padding: isImg ? "4px" : "8px 12px",
                   wordBreak: "break-word",
                   borderRadius: isMe ? "12px 12px 3px 12px" : "12px 12px 12px 3px",
-                  background: isMe ? "rgba(196,154,60,0.14)" : "rgba(255,255,255,0.06)",
-                  border: `1px solid ${isMe ? "rgba(196,154,60,0.22)" : "rgba(255,255,255,0.09)"}`,
+                  background: isMe ? "rgba(var(--gold-rgb), 0.14)" : "rgba(255,255,255,0.06)",
+                  border: `1px solid ${isMe ? "rgba(var(--gold-rgb), 0.22)" : "rgba(255,255,255,0.09)"}`,
                   fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.5,
                   overflow: "hidden",
                 }}>
@@ -2627,7 +2671,7 @@ function MemberCard({ member, isMe, isSpeaking = false, handRaised = false }) {
     : `${m}:${String(s).padStart(2,"0")}`;
 
   const COLORS = [
-    { bg:"rgba(196,154,60,0.15)",  fg:"#C49A3C" },
+    { bg:"rgba(var(--gold-rgb), 0.15)",  fg: GOLD },
     { bg:"rgba(111,179,196,0.15)", fg:"#6fb3c4" },
     { bg:"rgba(127,174,110,0.15)", fg:"#7fae6e" },
     { bg:"rgba(196,100,100,0.15)", fg:"#d47878" },
@@ -2638,7 +2682,7 @@ function MemberCard({ member, isMe, isSpeaking = false, handRaised = false }) {
   return (
     <div style={{
       background:"var(--color-surface)",
-      border:`1px solid ${isMe ? "rgba(196,154,60,0.22)" : "var(--color-border)"}`,
+      border:`1px solid ${isMe ? "rgba(var(--gold-rgb), 0.22)" : "var(--color-border)"}`,
       borderRadius:"var(--radius-card)", boxShadow: isMe ? "var(--depth-line)" : "none",
       padding:"14px 16px", display:"flex", alignItems:"center", gap:"14px",
     }}>
@@ -2683,7 +2727,7 @@ function MemberCard({ member, isMe, isSpeaking = false, handRaised = false }) {
         </p>
       </div>
       <div style={{ textAlign:"right", flexShrink:0 }}>
-        <p style={{ fontSize:"14px", fontWeight:"700", color: elapsed >= 3600 ? "#f59e0b" : elapsed >= 1800 ? "#c49a3c" : "var(--color-accent)", fontVariantNumeric:"tabular-nums" }}>{time}</p>
+        <p style={{ fontSize:"14px", fontWeight:"700", color: elapsed >= 3600 ? "#f59e0b" : elapsed >= 1800 ? "var(--gold)" : "var(--color-accent)", fontVariantNumeric:"tabular-nums" }}>{time}</p>
         <p style={{ fontSize:"10px", color:"var(--text-dim)", marginTop:"2px" }}>
           {elapsed >= 3600
             ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}><Flame size={11} />focused</span>
@@ -2706,7 +2750,7 @@ const styles: Record<string, React.CSSProperties> = {
   emptyState:     { background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"var(--radius-card)", padding:"32px 24px", textAlign:"center" },
   input:          { display:"block", width:"100%", background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"10px", padding:"11px 14px", color:"var(--text-primary)", fontSize:"14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box", marginTop:"6px", marginBottom:"14px", transition:"border-color 0.15s" },
   primaryBtn:     { background:"var(--color-accent)", color:"#111", border:"none", borderRadius:"var(--radius-btn)", padding:"11px 18px", fontSize:"14px", fontWeight:"600", cursor:"pointer", fontFamily:"inherit", flexShrink:0 },
-  accentBtn:      { background:"rgba(196,154,60,0.1)", color:"var(--color-accent)", border:"1px solid rgba(196,154,60,0.28)", borderRadius:"8px", padding:"8px 18px", fontSize:"13px", fontWeight:"600", cursor:"pointer", fontFamily:"inherit", flexShrink:0 },
+  accentBtn:      { background:"rgba(var(--gold-rgb), 0.1)", color:"var(--color-accent)", border:"1px solid rgba(var(--gold-rgb), 0.28)", borderRadius:"8px", padding:"8px 18px", fontSize:"13px", fontWeight:"600", cursor:"pointer", fontFamily:"inherit", flexShrink:0 },
   ghostBtn:       { marginTop:"16px", background:"none", border:"1px solid rgba(255,255,255,0.09)", borderRadius:"8px", padding:"8px 16px", color:"var(--text-dim)", fontSize:"12px", cursor:"pointer", fontFamily:"inherit" },
   ghostBtnLarge:  { flex:1, background:"transparent", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"10px", padding:"12px", color:"var(--text-dim)", fontSize:"14px", cursor:"pointer", fontFamily:"inherit" },
   primaryBtnLarge:{ flex:2, background:"var(--color-accent)", color:"#111", border:"none", borderRadius:"10px", padding:"12px", fontSize:"14px", fontWeight:"600", cursor:"pointer", fontFamily:"inherit" },

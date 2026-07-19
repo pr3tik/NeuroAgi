@@ -5,8 +5,10 @@
 //
 //   node scripts/ai-eval.mjs
 //
-// The harness itself is plain vitest — `npx vitest run test/eval-harness.test.ts`
-// runs the same checks without writing the report.
+// It also runs test/brain-isolation.test.ts — the BR-06 service-boundary isolation proof
+// (A6): person-brain data never reaches a group/other-private thread or course_content, and
+// no course_content row crosses university_id. Both suites are plain vitest and can be run
+// directly (`npx vitest run test/eval-harness.test.ts test/brain-isolation.test.ts`).
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -15,7 +17,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const report = resolve(root, "eval-report.md");
 
-const r = spawnSync("npx", ["vitest", "run", "test/eval-harness.test.ts"], {
+const r = spawnSync("npx", ["vitest", "run", "test/eval-harness.test.ts", "test/brain-isolation.test.ts"], {
   cwd: root,
   env: { ...process.env, EVAL_REPORT: "1" },
   stdio: "inherit",

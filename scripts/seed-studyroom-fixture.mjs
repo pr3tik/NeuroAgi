@@ -8,8 +8,8 @@
 //
 // All ids are HARDCODED literal uuids so re-runs upsert onto the same rows.
 //
-//   node scripts/seed-studyroom-fixture.mjs           # upsert the fixture
-//   node scripts/seed-studyroom-fixture.mjs --clean    # delete all zfix rows (dependency order)
+//   npm run seed:fixture         (= node scripts/seed-studyroom-fixture.mjs)          # upsert the fixture
+//   npm run seed:fixture:clean   (= node scripts/seed-studyroom-fixture.mjs --clean)  # delete all zfix rows (dependency order)
 //
 // Writes go through PostgREST with the SERVICE key (RLS bypass). Secrets are never printed.
 //

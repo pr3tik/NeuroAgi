@@ -56,7 +56,7 @@ export default function DigestPanel({ digest }: { digest: Digest }) {
               <div key={i} style={{ background: "rgba(255,255,255,0.03)", borderRadius: "8px", padding: "10px 12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
                   {kp.timestamp_seconds != null && (
-                    <span style={{ fontSize: "10px", color: "rgba(0,210,190,0.8)", fontWeight: 600 }}>{formatTimestamp(kp.timestamp_seconds)}</span>
+                    <span style={{ fontSize: "10px", color: "rgba(var(--teal-rgb), 0.8)", fontWeight: 600 }}>{formatTimestamp(kp.timestamp_seconds)}</span>
                   )}
                   <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{kp.heading}</span>
                 </div>
@@ -109,7 +109,7 @@ export default function DigestPanel({ digest }: { digest: Digest }) {
                     {q.options.map((o, oi) => <li key={oi} style={{ fontSize: "12px", color: "var(--text-secondary)" }}>{o}</li>)}
                   </ul>
                 )}
-                <p style={{ fontSize: "12px", color: "rgba(0,210,190,0.85)", marginTop: "8px", marginBottom: 0 }}>Answer: {q.answer}</p>
+                <p style={{ fontSize: "12px", color: "rgba(var(--teal-rgb), 0.85)", marginTop: "8px", marginBottom: 0 }}>Answer: {q.answer}</p>
               </details>
             ))}
           </div>

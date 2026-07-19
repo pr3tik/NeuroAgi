@@ -822,10 +822,16 @@ export default function Study() {
         const selectedCourseObj = liveCourses.find(c => `${c.courseCode} — ${c.name}` === course);
         const canvasCourseId = selectedCourseObj?.canvasCourseId ?? String(selectedCourseObj?.id ?? "");
         if (canvasCourseId) {
-          const { data: libraryRows } = await supabase
+          // BR-02 (Gap 8): scope the shared course library to the student's own institution so
+          // course facts can't cross schools. university_id is on the loaded profile (users.* is
+          // selected in AppContext); skip the filter if absent (no Canvas → degrade to unscoped).
+          const uni = userData?.university_id;
+          let ccQuery = supabase
             .from("course_content")
             .select("content_type, summary, concepts, text, week_number, module_name, professor_name")
-            .eq("canvas_course_id", canvasCourseId)
+            .eq("canvas_course_id", canvasCourseId);
+          if (uni) ccQuery = ccQuery.eq("university_id", uni);
+          const { data: libraryRows } = await ccQuery
             .order("week_number", { ascending: false, nullsFirst: false })
             .limit(8);
           if (libraryRows?.length) {

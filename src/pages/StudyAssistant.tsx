@@ -23,10 +23,13 @@ import { supabase } from "../api/supabase";
 import { loadRecentMessages } from "../api/chat";
 import { sanitizeApiMessages } from "../lib/chatMessages";
 import { renderMessageHTML } from "../lib/markdown";
+import { tealAlpha } from "../lib/theme";
 
-const ACCENT = "rgba(0,210,190,0.9)";
-const ACCENT_DIM = "rgba(0,210,190,0.18)";
-const ACCENT_BORDER = "rgba(0,210,190,0.3)";
+// Concrete rgba (not var()) — ACCENT also feeds an SVG stroke= presentation
+// attribute (send-arrow icon), where CSS var() doesn't resolve.
+const ACCENT = tealAlpha(0.9);
+const ACCENT_DIM = "rgba(var(--teal-rgb), 0.18)";
+const ACCENT_BORDER = "rgba(var(--teal-rgb), 0.3)";
 const PAGE = "study-assistant";
 // Bound how much persisted history we replay into Claude's context per turn —
 // full history still renders on screen, this only caps what's sent upstream.
@@ -203,8 +206,8 @@ function AssistantBubble({ text, sources }: { text: string; sources?: { title: s
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
         <div style={{
           width: 22, height: 22, borderRadius: "50%",
-          background: "radial-gradient(circle at 35% 35%, rgba(0,210,190,0.8), rgba(0,100,100,0.6))",
-          boxShadow: "0 0 8px rgba(0,210,190,0.3)",
+          background: "radial-gradient(circle at 35% 35%, rgba(var(--teal-rgb), 0.8), rgba(0,100,100,0.6))",
+          boxShadow: "0 0 8px rgba(var(--teal-rgb), 0.3)",
           flexShrink: 0,
         }} />
         <span style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "0.5px", fontWeight: 600 }}>
@@ -263,7 +266,7 @@ function CommandMenu({ commands, highlightedIndex, onSelect }: {
           onMouseDown={e => { e.preventDefault(); onSelect(cmd); }}
           style={{
             padding: "10px 14px",
-            background: i === highlightedIndex ? "rgba(0,210,190,0.1)" : "transparent",
+            background: i === highlightedIndex ? "rgba(var(--teal-rgb), 0.1)" : "transparent",
             cursor: "pointer",
             borderBottom: i < commands.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
           }}
@@ -353,8 +356,8 @@ function ThinkingBubble() {
     <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}>
       <div style={{
         width: 22, height: 22, borderRadius: "50%",
-        background: "radial-gradient(circle at 35% 35%, rgba(0,210,190,0.8), rgba(0,100,100,0.6))",
-        boxShadow: "0 0 8px rgba(0,210,190,0.3)",
+        background: "radial-gradient(circle at 35% 35%, rgba(var(--teal-rgb), 0.8), rgba(0,100,100,0.6))",
+        boxShadow: "0 0 8px rgba(var(--teal-rgb), 0.3)",
         flexShrink: 0,
       }} />
       <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
@@ -642,11 +645,11 @@ export default function StudyAssistant() {
         .sa-input::placeholder { color: rgba(255,255,255,0.28); }
         .sa-input:focus { outline: none; }
         .sa-suggestion:hover {
-          background: rgba(0,210,190,0.1) !important;
-          border-color: rgba(0,210,190,0.28) !important;
-          color: rgba(0,210,190,0.9) !important;
+          background: rgba(var(--teal-rgb), 0.1) !important;
+          border-color: rgba(var(--teal-rgb), 0.28) !important;
+          color: rgba(var(--teal-rgb), 0.9) !important;
         }
-        .sa-send:hover:not(:disabled) { background: rgba(0,210,190,0.85) !important; }
+        .sa-send:hover:not(:disabled) { background: rgba(var(--teal-rgb), 0.85) !important; }
         .sa-send:disabled { opacity: 0.4; cursor: default; }
       `}</style>
 
@@ -665,8 +668,8 @@ export default function StudyAssistant() {
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
             <div style={{
               width: 52, height: 52, borderRadius: "50%",
-              background: "radial-gradient(circle at 35% 35%, rgba(0,210,190,0.85), rgba(0,80,80,0.7))",
-              boxShadow: "0 0 32px rgba(0,210,190,0.25), 0 0 0 1px rgba(0,210,190,0.2)",
+              background: "radial-gradient(circle at 35% 35%, rgba(var(--teal-rgb), 0.85), rgba(0,80,80,0.7))",
+              boxShadow: "0 0 32px rgba(var(--teal-rgb), 0.25), 0 0 0 1px rgba(var(--teal-rgb), 0.2)",
             }} />
             <div style={{ textAlign: "center" }}>
               <h2 style={{
@@ -809,7 +812,7 @@ function InputBox({ value, onChange, onKeyDown, onSend, thinking, inputRef, cent
       borderRadius: "16px",
       padding: "12px 14px",
       boxSizing: "border-box",
-      boxShadow: centered ? "0 8px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,210,190,0.06)" : undefined,
+      boxShadow: centered ? "0 8px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(var(--teal-rgb), 0.06)" : undefined,
       transition: "border-color 0.15s",
     }}
       onFocus={() => {}} // border highlight handled via CSS if needed
@@ -843,7 +846,7 @@ function InputBox({ value, onChange, onKeyDown, onSend, thinking, inputRef, cent
         style={{
           width: 34, height: 34, flexShrink: 0,
           borderRadius: "10px",
-          background: value.trim() && !thinking ? ACCENT : "rgba(0,210,190,0.15)",
+          background: value.trim() && !thinking ? ACCENT : "rgba(var(--teal-rgb), 0.15)",
           border: "none",
           cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center",

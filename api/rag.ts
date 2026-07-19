@@ -9,6 +9,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
+import { rateLimit } from "./_ratelimit.js";
 
 const EMBED_MODEL = "text-embedding-3-small"; // 1536 dims — must match the vector() column
 const EMBED_DIM   = 1536;
@@ -540,6 +541,16 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // This endpoint is unauthenticated and every ?action=query runs a paid OpenAI embedding
+  // (+ rerank on hits). Without a throttle it is an open, unbounded credit drain (SEC-01 audit
+  // finding #4). Rate-limit before any paid work. Generous authMax so large doc uploads (embed
+  // fires in batches) never hit the ceiling; tight anonMax since that is the abuse surface.
+  // NOTE: this closes the denial-of-wallet half only. The read-IDOR (?action=query trusts a body
+  // userId and returns that user's document text) still needs requireUserOr401 + session-derived
+  // userId — deferred because rag is also reached by the logged-out guest demo (API-SECURITY.md),
+  // so adding auth needs the same caller-migration care as the extension family.
+  if (!(await rateLimit(req, res, "rag", { anonMax: 20, authMax: 240 }))) return;
 
   if (!process.env.SUPABASE_URL || !(process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY))
     return res.status(500).json({ error: "Supabase env not configured" });

@@ -132,7 +132,7 @@ export default function OfficeHoursPanel({ userId, courseId, courseName }: Props
             <button onClick={copyAll} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", padding: "10px", color: "var(--text-secondary)", fontSize: "12px", cursor: "pointer", fontFamily: "inherit" }}>
               {copied ? <Check size={13} /> : <Copy size={13} />}{copied ? "Copied" : "Copy all"}
             </button>
-            <button onClick={() => setSavedMsg("")} style={{ flex: 1, background: "rgba(0,210,190,0.1)", border: "1px solid rgba(0,210,190,0.2)", borderRadius: "8px", padding: "10px", color: "rgba(0,210,190,0.85)", fontSize: "12px", cursor: "pointer", fontFamily: "inherit" }}>
+            <button onClick={() => setSavedMsg("")} style={{ flex: 1, background: "rgba(var(--teal-rgb), 0.1)", border: "1px solid rgba(var(--teal-rgb), 0.2)", borderRadius: "8px", padding: "10px", color: "rgba(var(--teal-rgb), 0.85)", fontSize: "12px", cursor: "pointer", fontFamily: "inherit" }}>
               I'm done — capture what I learned
             </button>
           </div>
@@ -148,14 +148,14 @@ export default function OfficeHoursPanel({ userId, courseId, courseName }: Props
             placeholder="Tell me what was clarified…"
             style={{ width: "100%", minHeight: "80px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "10px 12px", color: "var(--text-primary)", fontSize: "12px", fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", marginBottom: "8px" }}
           />
-          <button onClick={saveCapture} disabled={!notes.trim() || capturing} style={{ width: "100%", background: "rgba(0,210,190,0.1)", border: "1px solid rgba(0,210,190,0.2)", borderRadius: "8px", padding: "10px", color: "rgba(0,210,190,0.85)", fontSize: "12px", cursor: notes.trim() ? "pointer" : "default", fontFamily: "inherit", opacity: capturing ? 0.6 : 1 }}>
+          <button onClick={saveCapture} disabled={!notes.trim() || capturing} style={{ width: "100%", background: "rgba(var(--teal-rgb), 0.1)", border: "1px solid rgba(var(--teal-rgb), 0.2)", borderRadius: "8px", padding: "10px", color: "rgba(var(--teal-rgb), 0.85)", fontSize: "12px", cursor: notes.trim() ? "pointer" : "default", fontFamily: "inherit", opacity: capturing ? 0.6 : 1 }}>
             {capturing ? "Saving…" : "Save & Close"}
           </button>
         </>
       )}
 
       {savedMsg && savedMsg !== "" && (
-        <p style={{ fontSize: "12px", color: savedMsg.startsWith("Saved") ? "rgba(0,210,190,0.85)" : "#ff6961" }}>{savedMsg}</p>
+        <p style={{ fontSize: "12px", color: savedMsg.startsWith("Saved") ? "rgba(var(--teal-rgb), 0.85)" : "#ff6961" }}>{savedMsg}</p>
       )}
     </div>
   );

@@ -289,11 +289,11 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
         onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
         onClick={() => !busy && fileRef.current?.click()}
         style={{
-          border: `1.5px dashed ${dragging ? "rgba(196,154,60,0.6)" : "rgba(255,255,255,0.13)"}`,
+          border: `1.5px dashed ${dragging ? "rgba(var(--gold-rgb), 0.6)" : "rgba(255,255,255,0.13)"}`,
           borderRadius: "var(--radius-btn)",
           padding: "22px 16px",
           textAlign:"center", cursor: busy ? "default" : "pointer",
-          background: dragging ? "rgba(196,154,60,0.05)" : "rgba(255,255,255,0.02)",
+          background: dragging ? "rgba(var(--gold-rgb), 0.05)" : "rgba(255,255,255,0.02)",
           transition:"all 0.18s",
           marginBottom:12,
         }}
@@ -357,9 +357,9 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
           disabled={busy || !ytUrl.trim()}
           style={{
             padding:"9px 14px", borderRadius:"var(--radius-btn)",
-            background: busy || !ytUrl.trim() ? "rgba(255,255,255,0.06)" : "rgba(196,154,60,0.14)",
-            border:     busy || !ytUrl.trim() ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(196,154,60,0.3)",
-            color:      busy || !ytUrl.trim() ? "var(--text-dim)" : "#C49A3C",
+            background: busy || !ytUrl.trim() ? "rgba(255,255,255,0.06)" : "rgba(var(--gold-rgb), 0.14)",
+            border:     busy || !ytUrl.trim() ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(var(--gold-rgb), 0.3)",
+            color:      busy || !ytUrl.trim() ? "var(--text-dim)" : "var(--gold)",
             fontSize:13, fontWeight:600, cursor: busy || !ytUrl.trim() ? "default" : "pointer",
             fontFamily:"inherit", transition:"all 0.15s", whiteSpace:"nowrap",
           }}
@@ -373,7 +373,7 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
         <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:12 }}>
           <span style={{
             width:11, height:11, borderRadius:"50%",
-            border:"2px solid rgba(255,255,255,0.1)", borderTopColor:"#C49A3C",
+            border:"2px solid rgba(255,255,255,0.1)", borderTopColor:"var(--gold)",
             animation:"f-spin 0.7s linear infinite", display:"inline-block", flexShrink:0,
           }} />
           <span style={{ fontSize:12, color:"var(--text-dim)" }}>{state.message}</span>
@@ -385,7 +385,7 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
           {state.message}
           <button onClick={() => setState({ phase:"idle" })}
             style={{ marginLeft:8, background:"none", border:"none",
-              color:"#C49A3C", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
+              color:"var(--gold)", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
             Dismiss
           </button>
         </p>
@@ -602,12 +602,12 @@ function DocCard({ file, color, onOpen, userId }: {
               onClick={e => { e.stopPropagation(); setShowSpaceModal(true); }}
               style={{
                 fontSize:10, fontWeight:600, padding:"3px 8px", borderRadius:6,
-                background:"rgba(196,154,60,0.08)", border:"1px solid rgba(196,154,60,0.2)",
-                color:"rgba(196,154,60,0.8)", cursor:"pointer", fontFamily:"inherit",
+                background:"rgba(var(--gold-rgb), 0.08)", border:"1px solid rgba(var(--gold-rgb), 0.2)",
+                color:"rgba(var(--gold-rgb), 0.8)", cursor:"pointer", fontFamily:"inherit",
                 transition:"all 0.12s", marginLeft:"auto",
               }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(196,154,60,0.15)"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(196,154,60,0.08)"; }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--gold-rgb), 0.15)"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--gold-rgb), 0.08)"; }}
             >
               + Space
             </button>
@@ -652,8 +652,8 @@ function FileRow({ file, color, onOpenReader }: { file:any; color:string; onOpen
           {hasReader && (
             <span style={{
               fontSize:9, fontWeight:700, letterSpacing:"0.5px", textTransform:"uppercase",
-              padding:"2px 6px", borderRadius:4, background:"rgba(196,154,60,0.1)",
-              color:"#C49A3C", border:"1px solid rgba(196,154,60,0.22)", flexShrink:0,
+              padding:"2px 6px", borderRadius:4, background:"rgba(var(--gold-rgb), 0.1)",
+              color:"var(--gold)", border:"1px solid rgba(var(--gold-rgb), 0.22)", flexShrink:0,
             }}>Read</span>
           )}
         </div>

@@ -91,7 +91,7 @@ export default function SelectionToolbar({ rect, selectedText, preferBelow = fal
                 fontSize: "12px", fontWeight: "600", color: "rgba(255,255,255,0.7)",
                 transition: "background 0.1s, color 0.1s", whiteSpace: "nowrap",
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = "rgba(196,154,60,0.16)"; e.currentTarget.style.color = "#C49A3C"; }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(var(--gold-rgb), 0.16)"; e.currentTarget.style.color = "var(--gold)"; }}
               onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "rgba(255,255,255,0.7)"; }}
             >
               {label}

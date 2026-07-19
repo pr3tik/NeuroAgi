@@ -39,7 +39,6 @@ const Onboarding   = lazy(() => import("./pages/Onboarding"));
 const Spaces       = lazy(() => import("./pages/Spaces"));
 const Connections  = lazy(() => import("./pages/Connections"));
 const StudyAssistant = lazy(() => import("./pages/StudyAssistant"));
-const Card            = lazy(() => import("./pages/Card")); // logged-out-only Founding Card page, reached via Landing's "Learn more"
 
 const PAGES = {
   work:        Work,
@@ -146,7 +145,6 @@ export default function App() {
   // left mid-demo — or arrived in a fresh/incognito browser — got the demo "instead of
   // the landing page" on the next visit. That forced interstitial is removed.)
   const [showPreSignupDemo, setShowPreSignupDemo] = useState(false);
-  const [showFoundingCard, setShowFoundingCard] = useState(false);
   const [showOnboarding,      setShowOnboarding]     = useState(false);
   const [onboardingEmail,     setOnboardingEmail]    = useState("");
   const [onboardingInitName,  setOnboardingInitName] = useState("");
@@ -789,12 +787,8 @@ export default function App() {
     return (<>{overlays}{oauthToast}<PreSignupDemo onEnter={handleEnter} /></>);
   }
 
-  if (!isLoggedIn && showFoundingCard) {
-    return (<>{overlays}{oauthToast}<Suspense fallback={<PageLoader />}><Card onBack={() => setShowFoundingCard(false)} /></Suspense></>);
-  }
-
   if (!isLoggedIn) {
-    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} onTryDemo={() => setShowPreSignupDemo(true)} onLearnMore={() => setShowFoundingCard(true)} /><SiteGuide /></>);
+    return (<>{overlays}{oauthToast}<Landing onEnter={handleEnter} onTryDemo={() => setShowPreSignupDemo(true)} /><SiteGuide /></>);
   }
 
   // ── Email verification gate ───────────────────────────────────────────────
@@ -891,11 +885,11 @@ export default function App() {
                     onMouseEnter={e => (e.currentTarget.style.opacity = "0.72")}
                     onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
                   >
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#C49A3C", display: "inline-block", flexShrink: 0 }} />
-                    <span style={{ color: "#C49A3C", fontSize: "11px", fontWeight: "600", letterSpacing: "-0.1px" }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--gold)", display: "inline-block", flexShrink: 0 }} />
+                    <span style={{ color: "var(--gold)", fontSize: "11px", fontWeight: "600", letterSpacing: "-0.1px" }}>
                       {tokenSummary.points}
                     </span>
-                    <span style={{ color: "rgba(196,154,60,0.45)", fontSize: "10px", margin: "0 1px" }}>·</span>
+                    <span style={{ color: "rgba(var(--gold-rgb), 0.45)", fontSize: "10px", margin: "0 1px" }}>·</span>
                     <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", letterSpacing: "0.3px" }}>
                       {tokenSummary.tier}
                     </span>
@@ -916,7 +910,7 @@ export default function App() {
                   border: "none",
                   background: showBell ? "rgba(255,255,255,0.08)" : "transparent",
                   cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                  color: unreadCount > 0 ? "#C49A3C" : "rgba(255,255,255,0.38)",
+                  color: unreadCount > 0 ? "var(--gold)" : "rgba(255,255,255,0.38)",
                   position: "relative",
                   transition: "background 0.15s, color 0.15s",
                 }}
@@ -938,7 +932,7 @@ export default function App() {
                       style={{
                         position: "absolute", top: "3px", right: "3px",
                         minWidth: "15px", height: "15px",
-                        background: "#C49A3C", color: "#111",
+                        background: "var(--gold)", color: "#111",
                         borderRadius: "8px", fontSize: "9px", fontWeight: "700",
                         display: "flex", alignItems: "center", justifyContent: "center",
                         padding: "0 3px", lineHeight: 1,

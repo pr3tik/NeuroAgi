@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Medal, ClipboardList, PenLine, BookOpen, Check, X } from "lucide-react";
 import { supabase } from "../api/supabase";
+import { GOLD } from "../lib/theme";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -92,7 +93,7 @@ function wait(ms: number) { return new Promise<void>(r => setTimeout(r, ms)); }
 
 function scoreColor(s: number) {
   if (s >= 85) return "#4ade80";
-  if (s >= 70) return "#C49A3C";
+  if (s >= 70) return GOLD;
   if (s >= 55) return "#60a5fa";
   return "#f87171";
 }
@@ -459,8 +460,8 @@ function ExamCard({ exam, attempt, onTake, onViewResults }: {
       ) : (
         <button onClick={onTake} style={{
           padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, flexShrink: 0,
-          background: "rgba(196,154,60,0.12)", border: "1px solid rgba(196,154,60,0.3)",
-          color: "#C49A3C", cursor: "pointer", fontFamily: "inherit",
+          background: "rgba(var(--gold-rgb), 0.12)", border: "1px solid rgba(var(--gold-rgb), 0.3)",
+          color: "var(--gold)", cursor: "pointer", fontFamily: "inherit",
         }}>Take →</button>
       )}
     </motion.div>
@@ -501,7 +502,7 @@ function ExamSession({ exam, userId, attemptId, onSubmit }: {
         </div>
         <div style={{ height: 3, borderRadius: 2, background: "rgba(255,255,255,0.07)", overflow: "hidden" }}>
           <motion.div animate={{ width: `${pct}%` }} transition={{ duration: 0.3, ease: EASE }}
-            style={{ height: "100%", background: "rgba(196,154,60,0.7)", borderRadius: 2 }} />
+            style={{ height: "100%", background: "rgba(var(--gold-rgb), 0.7)", borderRadius: 2 }} />
         </div>
       </div>
 
@@ -515,7 +516,7 @@ function ExamSession({ exam, userId, attemptId, onSubmit }: {
           <p style={{
             fontSize: 10, fontWeight: 600, letterSpacing: "1.5px",
             textTransform: "uppercase",
-            color: q.type === "written" ? "rgba(148,163,184,0.8)" : "rgba(196,154,60,0.8)",
+            color: q.type === "written" ? "rgba(148,163,184,0.8)" : "rgba(var(--gold-rgb), 0.8)",
             marginBottom: 12,
           }}>
             {q.type === "mcq" ? "Multiple Choice" : q.type === "truefalse" ? "True / False" : "Short Answer"}
@@ -535,18 +536,18 @@ function ExamSession({ exam, userId, attemptId, onSubmit }: {
                     style={{
                       display: "flex", alignItems: "center", gap: 12,
                       padding: "12px 14px", borderRadius: 12, textAlign: "left",
-                      background: chosen ? "rgba(196,154,60,0.12)" : "rgba(255,255,255,0.04)",
-                      border: `1.5px solid ${chosen ? "rgba(196,154,60,0.45)" : "rgba(255,255,255,0.08)"}`,
+                      background: chosen ? "rgba(var(--gold-rgb), 0.12)" : "rgba(255,255,255,0.04)",
+                      border: `1.5px solid ${chosen ? "rgba(var(--gold-rgb), 0.45)" : "rgba(255,255,255,0.08)"}`,
                       cursor: "pointer", fontFamily: "inherit", transition: "all 0.14s",
                     }}
                   >
                     <span style={{
                       width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
-                      background: chosen ? "rgba(196,154,60,0.2)" : "rgba(255,255,255,0.06)",
-                      border: `1.5px solid ${chosen ? "rgba(196,154,60,0.6)" : "rgba(255,255,255,0.14)"}`,
+                      background: chosen ? "rgba(var(--gold-rgb), 0.2)" : "rgba(255,255,255,0.06)",
+                      border: `1.5px solid ${chosen ? "rgba(var(--gold-rgb), 0.6)" : "rgba(255,255,255,0.14)"}`,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 11, fontWeight: 700,
-                      color: chosen ? "#C49A3C" : "var(--text-dim)",
+                      color: chosen ? "var(--gold)" : "var(--text-dim)",
                     }}>{String.fromCharCode(65 + i)}</span>
                     <span style={{ fontSize: 14, color: chosen ? "var(--text-primary)" : "var(--text-secondary)", lineHeight: 1.5 }}>
                       {opt}
@@ -615,7 +616,7 @@ function ExamSession({ exam, userId, attemptId, onSubmit }: {
           {exam.questions.map((qq, i) => (
             <button key={qq.id} onClick={() => setQIdx(i)} style={{
               width: i === qIdx ? 18 : 7, height: 7, borderRadius: 4,
-              background: answers[qq.id] !== undefined ? "rgba(196,154,60,0.7)"
+              background: answers[qq.id] !== undefined ? "rgba(var(--gold-rgb), 0.7)"
                 : i === qIdx ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.15)",
               border: "none", cursor: "pointer", transition: "all 0.2s",
               padding: 0,
@@ -625,9 +626,9 @@ function ExamSession({ exam, userId, attemptId, onSubmit }: {
         {isLast ? (
           <button onClick={() => allAnswered && onSubmit(answers)} disabled={!allAnswered} style={{
             padding: "12px 20px", borderRadius: 12,
-            background: allAnswered ? "rgba(196,154,60,0.14)" : "rgba(255,255,255,0.04)",
-            border: `1px solid ${allAnswered ? "rgba(196,154,60,0.38)" : "rgba(255,255,255,0.07)"}`,
-            color: allAnswered ? "#C49A3C" : "var(--text-tertiary)",
+            background: allAnswered ? "rgba(var(--gold-rgb), 0.14)" : "rgba(255,255,255,0.04)",
+            border: `1px solid ${allAnswered ? "rgba(var(--gold-rgb), 0.38)" : "rgba(255,255,255,0.07)"}`,
+            color: allAnswered ? "var(--gold)" : "var(--text-tertiary)",
             fontSize: 14, fontWeight: 600,
             cursor: allAnswered ? "pointer" : "default",
             fontFamily: "inherit", transition: "all 0.15s", whiteSpace: "nowrap",
@@ -739,10 +740,10 @@ function ExamScorecard({ exam, attempt, onDone }: {
           transition={{ delay: 1.05, duration: 0.3, ease: EASE }}
           style={{
             padding: "12px 16px", borderRadius: 14, marginBottom: 16,
-            background: "rgba(196,154,60,0.06)", border: "1px solid rgba(196,154,60,0.15)",
+            background: "rgba(var(--gold-rgb), 0.06)", border: "1px solid rgba(var(--gold-rgb), 0.15)",
           }}
         >
-          <p style={{ fontSize: 12, color: "#C49A3C", fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><BookOpen size={14} />Suggested study areas</p>
+          <p style={{ fontSize: 12, color: "var(--gold)", fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><BookOpen size={14} />Suggested study areas</p>
           {toReview.map(t => (
             <p key={t} style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 3 }}>· {t}</p>
           ))}
@@ -1059,9 +1060,9 @@ Return ONLY valid JSON (no markdown fences):
               style={{
                 display: "flex", alignItems: "center", gap: 5,
                 padding: "8px 14px", borderRadius: "var(--radius-pill)",
-                background: docRefs.length ? "rgba(196,154,60,0.12)" : "rgba(255,255,255,0.04)",
-                border: `1px solid ${docRefs.length ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.07)"}`,
-                color: docRefs.length ? "#C49A3C" : "var(--text-tertiary)",
+                background: docRefs.length ? "rgba(var(--gold-rgb), 0.12)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${docRefs.length ? "rgba(var(--gold-rgb), 0.3)" : "rgba(255,255,255,0.07)"}`,
+                color: docRefs.length ? "var(--gold)" : "var(--text-tertiary)",
                 fontSize: 13, fontWeight: 600,
                 cursor: docRefs.length ? "pointer" : "default",
                 fontFamily: "inherit", transition: "all 0.14s",
@@ -1136,7 +1137,7 @@ Return ONLY valid JSON (no markdown fences):
         >
           <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }}
             style={{ width: 52, height: 52, borderRadius: "50%",
-              border: "2px solid rgba(255,255,255,0.08)", borderTopColor: "#C49A3C", marginBottom: 24 }}
+              border: "2px solid rgba(255,255,255,0.08)", borderTopColor: "var(--gold)", marginBottom: 24 }}
           />
           <p style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>Grading your exam…</p>
           <p style={{ fontSize: 13, color: "var(--text-dim)", textAlign: "center", lineHeight: 1.6 }}>

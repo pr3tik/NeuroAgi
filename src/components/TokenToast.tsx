@@ -78,8 +78,8 @@ export default function TokenToast() {
         left:      "50%",
         transform: `translateX(-50%) translateY(${visible ? "0" : "14px"})`,
         zIndex:    99999,
-        background: "#1a1814",
-        border:    "1px solid rgba(196,154,60,0.38)",
+        background: "var(--ink-warm)",
+        border:    "1px solid rgba(var(--gold-rgb), 0.38)",
         borderRadius: "12px",
         padding:   "9px 16px",
         display:   "flex",
@@ -92,15 +92,15 @@ export default function TokenToast() {
         whiteSpace: "nowrap",
       }}
     >
-      <span style={{ color: "#C49A3C", fontSize: "13px", fontWeight: "700", letterSpacing: "-0.2px" }}>
+      <span style={{ color: "var(--gold)", fontSize: "13px", fontWeight: "700", letterSpacing: "-0.2px" }}>
         +{current.tokens}
       </span>
-      <span style={{ color: "rgba(246,242,233,0.72)", fontSize: "12px" }}>
+      <span style={{ color: "rgba(var(--cream-rgb), 0.72)", fontSize: "12px" }}>
         {label}
       </span>
-      {TierIcon && <TierIcon size={13} style={{ color: "#C49A3C", flexShrink: 0 }} />}
+      {TierIcon && <TierIcon size={13} style={{ color: "var(--gold)", flexShrink: 0 }} />}
       {current.milestone && (
-        <span style={{ color: "rgba(196,154,60,0.55)", fontSize: "11px", marginLeft: "2px" }}>
+        <span style={{ color: "rgba(var(--gold-rgb), 0.55)", fontSize: "11px", marginLeft: "2px" }}>
           · {current.milestone}d
         </span>
       )}

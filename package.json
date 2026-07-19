@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed:fixture": "node scripts/seed-studyroom-fixture.mjs",
+    "seed:fixture:clean": "node scripts/seed-studyroom-fixture.mjs --clean"
   },
   "dependencies": {
     "@daily-co/daily-js": "^0.91.0",
