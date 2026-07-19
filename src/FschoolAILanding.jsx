@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import CardHeroAnimation from "./CardHeroAnimation";
 import NFCTapAnimation from "./NFCTapAnimation";
+import ColorwayDial from "./ColorwayDial";
 
 // ── Card image maps ───────────────────────────────────────────────────────────
 const CARD_IMAGES_LIGHT = {
@@ -139,6 +140,71 @@ const CardImg = ({ id, width = 160, style = {}, images = CARD_IMAGES_LIGHT }) =>
   );
 };
 
+// Apple-style laser deboss — per colorway tone + opposing inner shadows (no drop shadow).
+const ENGRAVE_STYLES = {
+  white:  { color: "rgba(98, 95, 88, 0.72)",   textShadow: "0 1px 0 rgba(255,255,255,0.92), 0 -1px 1px rgba(0,0,0,0.22), 0 1px 2px rgba(0,0,0,0.06)" },
+  violet: { color: "rgba(88, 72, 112, 0.74)",  textShadow: "0 1px 0 rgba(255,255,255,0.55), 0 -1px 1px rgba(40,20,60,0.3)" },
+  pink:   { color: "rgba(130, 78, 92, 0.74)",  textShadow: "0 1px 0 rgba(255,255,255,0.55), 0 -1px 1px rgba(80,30,45,0.28)" },
+  blue:   { color: "rgba(72, 98, 130, 0.74)",  textShadow: "0 1px 0 rgba(255,255,255,0.55), 0 -1px 1px rgba(30,50,80,0.28)" },
+  green:  { color: "rgba(82, 110, 72, 0.74)",  textShadow: "0 1px 0 rgba(255,255,255,0.55), 0 -1px 1px rgba(40,70,30,0.28)" },
+  black:  { color: "rgba(200, 198, 195, 0.52)", textShadow: "0 -1px 0 rgba(0,0,0,0.88), 0 1px 1px rgba(255,255,255,0.11)" },
+};
+
+function engraveFontSize(len) {
+  if (len <= 8) return 11;
+  if (len <= 12) return 10;
+  if (len <= 16) return 9;
+  if (len <= 22) return 8;
+  return 7;
+}
+
+/** Card mockup with live laser-engraving overlay (driven by the apply-form name field). */
+const EngravedCardPreview = ({ id, width = 240, images = CARD_IMAGES_LIGHT, name = "" }) => {
+  const radius = Math.round(width * (20 / 214));
+  const shadowW = width * 1.15;
+  const shadowH = shadowW * 0.13;
+  const text = (name || "").trim().toUpperCase();
+  const engrave = ENGRAVE_STYLES[id] || ENGRAVE_STYLES.white;
+  const fontSize = engraveFontSize(text.length);
+
+  return (
+    <div style={{ position: "relative", width, flexShrink: 0, margin: "0 auto", transition: "transform 0.4s ease" }}>
+      <div style={{ position: "relative", borderRadius: radius, overflow: "hidden" }}>
+        <img src={images[id]} alt={id + " card"} style={{ width: "100%", height: "auto", display: "block" }} />
+        <div style={{ position: "absolute", inset: 0, borderRadius: radius, boxShadow: CARD_SHADOW, pointerEvents: "none" }} />
+        <div style={{ position: "absolute", inset: 0, borderRadius: radius, border: CARD_BORDER, boxShadow: CARD_DROP, pointerEvents: "none" }} />
+        {text ? (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute", bottom: "11%", left: "10%", right: "10%",
+              display: "flex", justifyContent: "center", alignItems: "flex-end", pointerEvents: "none",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "'SF Pro Display', 'Inter', -apple-system, sans-serif",
+                fontSize, fontWeight: 590, letterSpacing: "0.14em", lineHeight: 1.15,
+                textAlign: "center", wordBreak: "break-word", maxWidth: "100%",
+                transition: "opacity 0.18s ease, font-size 0.12s ease",
+                ...engrave,
+              }}
+            >
+              {text}
+            </span>
+          </div>
+        ) : null}
+      </div>
+      <div style={{
+        position: "absolute", left: "50%", bottom: -shadowH * 0.45, transform: "translateX(-50%)",
+        width: shadowW, height: shadowH,
+        background: "radial-gradient(ellipse at center, rgba(0,0,0,0.32) 0%, rgba(0,0,0,0) 72%)",
+        filter: "blur(4px)", pointerEvents: "none",
+      }} />
+    </div>
+  );
+};
+
 // ── Countdown ─────────────────────────────────────────────────────────────────
 const useCountdown = (target) => {
   const [time, setTime] = useState({ d: 0, h: 0, m: 0, s: 0 });
@@ -270,12 +336,11 @@ const ShineBorder = ({ borderRadius = 24, borderWidth = 1.5, duration = 10, colo
   </div>
 );
 
-export default function FschoolAILanding() {
+export default function FschoolAILanding({ onBack } = {}) {
   const [dark, setDark] = useState(false);
   const t = dark ? DARK : LIGHT;
 
   const [activeColor, setActiveColor] = useState(0);
-  const [engrave, setEngrave] = useState(null);
   const [delivery, setDelivery] = useState("standard");
   const [form, setForm] = useState({ name:"", school:"", email:"" });
   const [submitted, setSubmitted] = useState(false);
@@ -325,7 +390,7 @@ export default function FschoolAILanding() {
 
       {/* NAV */}
       <nav style={{ position:"fixed", top:0, left:0, right:0, zIndex:100, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 20px", height:52, background:t.navBg, backdropFilter:"blur(20px)", borderBottom:`1px solid ${t.border}`, transition:"background 0.3s ease" }}>
-        <button style={{ background:"none", border:"none", color:t.textMuted, fontSize:14, cursor:"pointer" }}>‹ FschoolAI</button>
+        <button onClick={() => (onBack ? onBack() : (window.location.href = "/"))} style={{ background:"none", border:"none", color:t.textMuted, fontSize:14, cursor:"pointer" }}>‹ FschoolAI</button>
         <span style={{ fontSize:14, fontWeight:500, color:t.text }}>Founding Card</span>
         <div style={{ display:"flex", gap:10, alignItems:"center" }}>
           <span ref={themeToggleRef} style={{ display:"inline-flex" }}>
@@ -408,49 +473,20 @@ export default function FschoolAILanding() {
       </section>
 
       {/* COLORWAY SELECTOR */}
-      <section style={{ padding:"100px 20px", textAlign:"center" }}>
+      <section style={{ padding:"100px 20px 140px", textAlign:"center", minHeight:"115vh" }}>
         <Reveal>
           <Label>Colorway</Label>
           <h2 style={{ fontSize:"clamp(32px,5vw,52px)", fontWeight:700, letterSpacing:"-0.02em", marginBottom:8, transition:"all 0.3s ease", color:t.text }}>{cw.name}</h2>
           <p style={{ color:t.textMuted, fontSize:16, marginBottom:52 }}>{cw.tag}</p>
         </Reveal>
 
-        {/* Card fan selector */}
-        <div style={{ position:"relative", height:380, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:48, overflow:"hidden" }}>
-          {COLORWAYS.map((c, i) => {
-            const dist = i - activeColor;
-            const isActive = dist === 0;
-            const translateX = dist * 150;
-            const scale = isActive ? 1 : 0.72;
-            return (
-              <div key={c.id} onClick={() => setActiveColor(i)} style={{
-                position:"absolute",
-                transform:`translateX(${translateX}px) scale(${scale})`,
-                opacity: Math.abs(dist) > 2 ? 0 : isActive ? 1 : 0.32,
-                cursor:"pointer",
-                transition:"all 0.45s cubic-bezier(0.4,0,0.2,1)",
-                zIndex: isActive ? 5 : 3 - Math.abs(dist),
-              }}>
-                <CardImg id={c.id} width={160} images={CARD_IMAGES_LIGHT} style={{ display:"block" }} />
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Color dots */}
-        <div style={{ display:"flex", justifyContent:"center", gap:12 }}>
-          {COLORWAYS.map((c, i) => (
-            <button key={c.id} onClick={() => setActiveColor(i)} style={{
-              width:28, height:28, borderRadius:"50%", background:c.dot,
-              border: i===activeColor
-                ? `2.5px solid ${dark?"#fff":"#000"}`
-                : `1.5px solid ${c.id==="white" ? "rgba(0,0,0,0.2)" : "transparent"}`,
-              cursor:"pointer", padding:0,
-              boxShadow: i===activeColor ? `0 0 0 1px rgba(${dark?"255,255,255":"0,0,0"},0.25)` : "none",
-              transition:"all 0.2s ease", outline:"none"
-            }} />
-          ))}
-        </div>
+        <ColorwayDial
+          colorways={COLORWAYS}
+          activeColor={activeColor}
+          onSelect={setActiveColor}
+          images={CARD_IMAGES_LIGHT}
+          cardWidth={148}
+        />
       </section>
 
       {/* WHAT'S INSIDE */}
@@ -577,7 +613,6 @@ export default function FschoolAILanding() {
               const lines = [
                 { text:"Free delivery.", size:32, h:42 },
                 { text:"Cancel anytime.", size:40, h:52 },
-                { text:"Lifetime Pro included.", size:48, h:62 },
               ];
               const totalH = lines.reduce((s, l) => s + l.h, 0);
               const gradient = "radial-gradient(89.14% 93.09% at 51.74% 48.15%, #B4B4B4 12.98%, #A891B1 34.62%, #94B197 42%, #7E9DB4 46%, #B58888 50%)";
@@ -621,14 +656,18 @@ export default function FschoolAILanding() {
 
               {/* LEFT column */}
               <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-                {/* Header + card preview, merged into one panel */}
-                <div style={{ background:t.formSection, borderRadius:20, padding:"clamp(18px,5vw,24px) clamp(14px,4vw,20px) clamp(24px,7vw,32px)", boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
+                {/* Card preview — live engraving from the apply-form name field */}
+                <div style={{ background:t.formSection, borderRadius:20, padding:"clamp(20px,5vw,28px) clamp(14px,4vw,20px) clamp(28px,7vw,36px)", boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
                   <p style={{ fontSize:13, color:t.formTextMuted, marginBottom:4 }}>FschoolAI</p>
                   <h3 style={{ fontSize:"clamp(24px,7vw,36px)", fontWeight:700, letterSpacing:"-0.02em", marginBottom:4, color:t.formText }}>{delivery==="founder" ? "Exclusive Card" : "Founding Card"}</h3>
-                  <p style={{ fontSize:14, color:t.formTextMuted, marginBottom:24 }}>{delivery==="founder" ? "Exclusive Edition · Only 5" : "Founding Edition · Only 500"}</p>
-                  <div style={{ display:"flex", justifyContent:"center" }}>
-                    <CardImg id={delivery==="founder" ? "black" : cw.id} width={200} style={{ transition:"all 0.4s ease" }} images={CARD_IMAGES_LIGHT} />
-                  </div>
+                  <p style={{ fontSize:14, color:t.formTextMuted, marginBottom:8 }}>{delivery==="founder" ? "Exclusive Edition · Only 5" : "Founding Edition · Only 500"}</p>
+                  <p style={{ fontSize:12, color:t.formTextMuted, marginBottom:20, textAlign:"center" }}>Engraving preview · updates as you type</p>
+                  <EngravedCardPreview
+                    id={delivery==="founder" ? "black" : cw.id}
+                    width={240}
+                    images={CARD_IMAGES_LIGHT}
+                    name={form.name}
+                  />
                 </div>
 
                 {/* Colorway picker */}
@@ -646,20 +685,6 @@ export default function FschoolAILanding() {
                   </div>
                 </div>
 
-                {/* Personalize */}
-                <div style={{ background:t.formSection, borderRadius:20, padding:"clamp(16px,5vw,24px)", boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
-                  <h3 style={{ fontSize:"clamp(17px,4.5vw,20px)", fontWeight:700, color:t.formText, marginBottom:6 }}>Personalize for free</h3>
-                  <p style={{ fontSize:14, color:t.formTextMuted, marginBottom:20 }}>Engrave your name, student ID, or a short message. Free. Delivers just as fast.</p>
-                  {[{ v:"engrave", label:"Add Engraving", sub:"Engrave your name, initials, or student ID to make your card unmistakably yours.", badge:"Free" }, { v:"none", label:"No Engraving" }].map(opt => (
-                    <button key={opt.v} onClick={() => setEngrave(opt.v)} style={{ display:"block", width:"100%", background:t.formSection, border: engrave===opt.v ? "2px solid #0071e3" : `1px solid ${t.formBorder}`, borderRadius:12, padding:"clamp(12px,4vw,16px) clamp(12px,4vw,18px)", cursor:"pointer", textAlign:"left", marginBottom:10, transition:"all 0.2s", color:t.formText }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
-                        <span style={{ fontSize:15, fontWeight:600 }}>{opt.label}</span>
-                        {opt.badge && <span style={{ fontSize:13, color:t.formTextMuted }}>{opt.badge}</span>}
-                      </div>
-                      {opt.sub && <p style={{ fontSize:13, color:t.formTextMuted, marginTop:4, lineHeight:1.5 }}>{opt.sub}</p>}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               {/* RIGHT column */}

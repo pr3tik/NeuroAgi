@@ -3265,7 +3265,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           Founding Card
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => setWaitlistOpen(true)} style={{
+          <button onClick={() => { window.location.href = "/card"; }} style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
             padding: "7px 17px", fontSize: 13, fontWeight: 400,
             color: "#0066cc", background: "transparent", cursor: "pointer", fontFamily: FONT,
@@ -3300,7 +3300,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
             Lifetime Pro&nbsp;· guaranteed founding number&nbsp;· express delivery
           </span>
           {" · "}
-          <button onClick={() => setWaitlistOpen(true)} style={{
+          <button onClick={() => { window.location.href = "/card"; }} style={{
             color: "#0066cc", background: "none", border: "none", cursor: "pointer",
             fontFamily: FONT, fontSize: "inherit", padding: 0,
             transition: "color 0.12s",
@@ -3383,10 +3383,10 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
               The AI that reads your Canvas, explains your lectures, and builds your exam prep, grounded in your actual notes.
             </p>
 
-            {/* Hero CTAs — waitlist pill + learn more ghost */}
+            {/* Hero CTA — routes to /card (Founding Card learn-more page + waitlist form) */}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
               <button
-                onClick={() => setWaitlistOpen(true)}
+                onClick={() => { window.location.href = "/card"; }}
                 style={{
                   display: "inline-flex", alignItems: "center",
                   background: "#0071e3", color: "#fff", border: "none",
@@ -3462,7 +3462,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
       <ThreeMoments t={t} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
-      <PremiumCTA onSignup={() => setWaitlistOpen(true)} onLogin={() => setWaitlistOpen(true)} />
+      <PremiumCTA onSignup={() => { window.location.href = "/card"; }} onLogin={() => setWaitlistOpen(true)} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
       {/* ── FAQ — clean solid tile ── */}
