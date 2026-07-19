@@ -79,6 +79,24 @@ async function memberOf(db: ReturnType<typeof sb>, roomId: string, userId: strin
   return rows[0] ?? null;
 }
 
+// A5 — enqueue one fire-and-forget warm_brain_context job per participant. The idempotency key is
+// bucketed to a 5-minute window per (room,user) so a burst of starts warms at most once per window,
+// and the `jobs.idempotency_key` UNIQUE constraint dedups the rest. Never throws: a failed enqueue
+// must not fail room start (the warm is an optimization, not a correctness requirement).
+const WARM_BUCKET_MS = 5 * 60 * 1000;
+async function enqueueWarmJobs(db: ReturnType<typeof sb>, roomId: string, userIds: string[], now = Date.now()) {
+  const bucket = Math.floor(now / WARM_BUCKET_MS);
+  for (const uid of [...new Set(userIds)].filter(Boolean)) {
+    try {
+      await db.insert("jobs", {
+        type: JOB_TYPES.warmBrain,
+        idempotency_key: `${JOB_TYPES.warmBrain}:${roomId}:${uid}:${bucket}`,
+        payload: { userId: uid, roomId },
+      }, false);
+    } catch { /* duplicate key within the window → already warming */ }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Room teaching plan composer (v1 — deterministic, no LLM call; AI-02 contract).
 // Sources, in priority order, ALL of which already exist in production:
@@ -267,6 +285,11 @@ export default async function handler(req: any, res: any) {
       await db.insert("activity_events", {
         session_id: session.id, room_id: roomId, user_id: userId, type: "session_started",
       }, false).catch(() => {});
+
+      // A5: warm each participant's brain context_window (fire-and-forget). Only on a FRESH start —
+      // this is the join/compose event; resume deliberately writes nothing. The heavy warm runs in
+      // the jobs worker; enqueue must never fail the start, so errors are swallowed per row.
+      await enqueueWarmJobs(db, roomId, plan.participants.map(p => p.user_id));
 
       const prefs = [...new Set(plan.participants.flatMap(p => p.teaching_preferences))].slice(0, 6);
       return res.status(200).json({

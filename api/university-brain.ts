@@ -113,6 +113,21 @@ async function upsertArtifact(row: {
   return { id: ((await ins.json()) as any[])[0]?.id, deduped: false };
 }
 
+// BR-03 — the fact categories the Course Brain aims to make demo-visible. Kept as a named list so
+// the prompt and the tests describe the same contract.
+export const EXTRACTION_CATEGORIES = [
+  "grading breakdown / component weights",
+  "late & makeup policy",
+  "exam dates, times, and format",
+  "topic or weekly schedule outline",
+  "submission mechanics (how/where work is handed in, allowed formats, individual vs group)",
+  "required / recommended materials",
+  "office hours & contact method",
+  "professor's PUBLISHED course-conduct style (only what the syllabus states about how the course runs)",
+] as const;
+
+const MAX_FACTS = 14;
+
 const UB_SOURCE = "university-brain"; // sentinel: rows THIS endpoint owns (never clobber extension rows)
 
 /** BR-03 snapshot upsert: exactly one current row per (university_id, course_id, content_type) that
@@ -146,29 +161,52 @@ export async function upsertSnapshot(row: {
   return { id: ((await ins.json()) as any[])[0]?.id, replaced: false };
 }
 
-/** Mechanical-facts extraction: published policies only, never judgments. */
-async function extractFacts(syllabusText: string): Promise<{ summary: string | null; concepts: string[] | null }> {
+/**
+ * Mechanical-facts extraction — PUBLISHED facts only, never judgments. Broadened for BR-03 to the
+ * demo-visible fact set in EXTRACTION_CATEGORIES (adds exam dates, the schedule outline, submission
+ * mechanics, and the professor's published course-conduct style to the original grading/late/office
+ * set). Guardrails, unchanged in spirit and made explicit: only what the professor PUBLISHED; never
+ * opinions, difficulty judgments, or professor-quality commentary; never student-derived or aggregate
+ * claims ("students find X hard" is the blocked k>=10 tier); and paraphrase — facts over verbatim
+ * quotes (copyright, spec §10.2). Exported for unit testing of the parse/shape path.
+ */
+export async function extractFacts(syllabusText: string): Promise<{ summary: string | null; concepts: string[] | null }> {
   if (!syllabusText || syllabusText.length < 80) return { summary: null, concepts: null };
   const r = await callModel({
-    task: "summarize", max_tokens: 400,
+    task: "summarize", max_tokens: 700,
     system:
-      "Extract MECHANICAL FACTS from this course syllabus: grading breakdown, late policy, exam format/dates, attendance rules, contact/office hours, required materials. " +
-      "Rules: facts the professor PUBLISHED only — never opinions, difficulty judgments, or commentary about the professor. " +
-      'Reply as JSON: {"summary":"2-3 sentences of the key policies","facts":["fact 1","fact 2",...]} (max 8 facts).',
-    messages: [{ role: "user", content: syllabusText.slice(0, 12000) }],
+      "You extract MECHANICAL, PUBLISHED FACTS from a course syllabus for a shared course library. " +
+      "Cover, WHEN PRESENT: " + EXTRACTION_CATEGORIES.map((c, i) => `(${i + 1}) ${c}`).join(", ") + ". " +
+      "HARD RULES: only facts the professor actually PUBLISHED — never opinions, difficulty judgments, or commentary " +
+      "about the professor's quality; never student-derived or aggregate claims (e.g. 'students find this hard' is forbidden); " +
+      "paraphrase into short factual statements — do NOT copy sentences verbatim (facts over quotation). " +
+      "Each fact must be self-contained (include the number/date/component it refers to). " +
+      `Reply as JSON only: {"summary":"2-4 sentences of the key mechanics","facts":["fact 1","fact 2",...]} (max ${MAX_FACTS} facts).`,
+    messages: [{ role: "user", content: syllabusText.slice(0, 16000) }],
     metadata: { tool: "university-brain.extract" },
   });
   if (!r.ok) return { summary: null, concepts: null };
   try {
     const m = r.content.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(m ? m[0] : r.content);
-    return { summary: parsed.summary ?? null, concepts: Array.isArray(parsed.facts) ? parsed.facts.slice(0, 8) : null };
-  } catch { return { summary: r.content.slice(0, 400), concepts: null }; }
+    // Tolerate a model that returns objects instead of strings ({fact|text|...}); coerce to strings
+    // so course_content.concepts stays a clean string[] and profile()'s flatten keeps working.
+    const facts = Array.isArray(parsed.facts)
+      ? parsed.facts
+          .map((f: any) => (typeof f === "string" ? f : String(f?.fact ?? f?.text ?? f?.value ?? "")))
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+          .slice(0, MAX_FACTS)
+      : null;
+    return { summary: parsed.summary ?? null, concepts: facts && facts.length ? facts : null };
+  } catch { return { summary: r.content.slice(0, 500), concepts: null }; }
 }
 
 async function contribute(res: any, userId: string, course: any) {
   const creds = await canvasCreds(userId);                     // contributor's own token
   const canvasCourseId = await resolveCanvasCourseId(userId, course);
+  // Canonical institution key — normalized so a WRITE (here) and a READ (profile) agree by
+  // construction. No-op on hosts the old `new URL(creds.host).hostname` path already produced.
   const universityId = new URL(creds.host).hostname;           // canonical institution key
   const c = await canvasGET(creds, `/courses/${canvasCourseId}`, { "include[]": ["syllabus_body", "teachers"] });
   const professors = (c.teachers ?? []).map((t: any) => t.display_name).filter(Boolean);
