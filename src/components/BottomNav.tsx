@@ -26,8 +26,17 @@ const ITEMS = {
   connections: { label: "Connections", short: "Connect" },
 };
 
-const PRIMARY   = ["work", "canvas", "study", "leaderboard", "identity"];
-const SECONDARY = ["assignment", "toolkit", "files", "rooms", "spaces", "studyAssistant", "connections"];
+// Demo build: set VITE_DEMO_NAV=1 to trim the nav to the 6 core demo features
+// (Work · Canvas · Files · Study · Reggie · Rooms). Off by default = full nav.
+// Reverting is just unsetting the env — no code change, nothing deleted (all
+// pages stay routable, we only hide the extra nav doors).
+const DEMO_NAV = import.meta.env.VITE_DEMO_NAV === "1";
+const PRIMARY   = DEMO_NAV
+  ? ["work", "canvas", "files", "study", "studyAssistant", "rooms"]
+  : ["work", "canvas", "study", "leaderboard", "identity"];
+const SECONDARY = DEMO_NAV
+  ? []
+  : ["assignment", "toolkit", "files", "rooms", "spaces", "studyAssistant", "connections"];
 const SECONDARY_SET = new Set(SECONDARY);
 
 // Re-render when crossing the web/mobile breakpoint.
