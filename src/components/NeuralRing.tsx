@@ -910,11 +910,16 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   const [muted,        setMuted]        = useState(() => {
     try { return localStorage.getItem("fschool_muted") === "1"; } catch { return false; }
   });
-  // ── Reggie mode (beta): route the tutor through the agent-manager loop (router +
-  //    tools + brain) instead of the direct Claude/Groq path. Off by default; toggled
-  //    from the chat header; persisted. Fully reversible — off === original behavior.
+  // ── Reggie mode: route the tutor through the agent-manager loop (router + tools +
+  //    brain + live Canvas) instead of the direct Claude/Groq path. Default ON — an
+  //    explicit toggle-off (localStorage "0") is still respected; only an unset value
+  //    (new users) defaults to on. Toggled from the chat header; persisted. Fully
+  //    reversible — set to "0" === original direct-path behavior.
   const [reggieMode,   setReggieMode]   = useState(() => {
-    try { return localStorage.getItem("fschool_reggie_mode") === "1"; } catch { return false; }
+    try {
+      const v = localStorage.getItem("fschool_reggie_mode");
+      return v === null ? true : v === "1";
+    } catch { return true; }
   });
   const reggieModeRef = useRef(reggieMode);
   useEffect(() => {
