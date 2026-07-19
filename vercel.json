@@ -11,7 +11,8 @@
     }
   },
   "crons": [
-    { "path": "/api/jobs?action=run",       "schedule": "* * * * *"     },
+    { "path": "/api/jobs?action=run",         "schedule": "* * * * *"     },
+    { "path": "/api/room-triggers?action=tick", "schedule": "* * * * *"   },
     { "path": "/api/assignment-reminder",   "schedule": "0 8 * * *"    },
     { "path": "/api/brain-scheduler-fast",  "schedule": "*/5 * * * *"  },
     { "path": "/api/brain-scheduler",       "schedule": "0 * * * *"    },
