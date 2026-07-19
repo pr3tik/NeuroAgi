@@ -675,6 +675,7 @@ export default defineConfig({
     handlerProxy("/api/library-agent",    () => import("./api/library-agent.js")),
     handlerProxy("/api/university-brain", () => import("./api/university-brain.js"), [...HANDLER_ENV, "GROQ_KEY"]),
     handlerProxy("/api/room-session",     () => import("./api/room-session.js")),
+    handlerProxy("/api/rooms", () => import("./api/rooms.js")),
     handlerProxy("/api/waitlist",         () => import("./api/waitlist.js"),        [...HANDLER_ENV, "RESEND_API_KEY", "CRON_SECRET"]),
     handlerProxy("/api/nudge",            () => import("./api/nudge.js"),         [...HANDLER_ENV, "RESEND_API_KEY"]),
     handlerProxy("/api/guest-demo",       () => import("./api/guest-demo.js"),    HANDLER_ENV)],

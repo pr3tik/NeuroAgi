@@ -1,8 +1,8 @@
 // rooms.ts — client wrappers for the server-enforced Study Room RPCs
 // (supabase-room-access-migration.sql). All room_members writes go through these
 // SECURITY DEFINER functions; direct table writes are revoked for the anon key.
-// The acting user's id is the localStorage uuid, passed explicitly (same trust
-// model as friends.js).
+// Room joining goes through the protected backend endpoint, which derives the
+// authenticated user's profile ID from their Supabase JWT.
 
 import { supabase } from "./supabase";
 
@@ -23,13 +23,73 @@ export async function listAccessibleRooms(userId: string) {
   return data ?? [];
 }
 
-/** Attempt to join. `code` bypasses room type + filters when it matches. */
-export async function joinRoom(userId: string, roomId: string, code: string | null = null): Promise<JoinStatus> {
-  const { data, error } = await supabase.rpc("join_room", {
-    p_user: userId, p_room: roomId, p_code: code,
+export type CreateRoomInput = {
+  name: string;
+  courseId?: string | number | null;
+  roomType: "public" | "invite";
+  accessFilters?: AccessFilters;
+};
+
+export async function createRoom(input: CreateRoomInput) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error("Authentication required.");
+  }
+
+  const response = await fetch("/api/rooms?action=create", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(input),
   });
-  if (error) throw error;
-  return (data ?? "denied") as JoinStatus;
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result.error || "Could not create the room.");
+  }
+
+  return result.room;
+}
+
+/** Attempt to join. `code` bypasses room type + filters when it matches. */
+export async function joinRoom(
+  _userId: string,
+  roomId: string,
+  code: string | null = null,
+): Promise<JoinStatus> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error("Authentication required.");
+  }
+
+  const response = await fetch("/api/rooms?action=join", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      roomId,
+      code,
+    }),
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result.error || "Could not join the room.");
+  }
+
+  return (result.status ?? "denied") as JoinStatus;
 }
 
 /** Host accepts/declines a pending request. */
