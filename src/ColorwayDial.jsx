@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { animate } from "framer-motion";
 
-const CARD_SHADOW = "inset 1px 1px 2px 2px rgba(0,0,0,0.25)";
+const CARD_SHADOW = "inset 1px 1px 2px 2px rgba(0,0,0,0.18)";
 const CARD_BORDER = "1px solid rgba(255,255,255,0.4)";
-const CARD_DROP   = "-20px 10px 8px 5px rgba(0,0,0,0.21)";
+// Keep drop shadow tight — a huge offset shadow was painting over neighbors and muddying colors
+const CARD_DROP   = "0 14px 22px rgba(0,0,0,0.16)";
 
 const N = 5;
 const WHITE_INDEX = 0;
@@ -87,7 +88,7 @@ function stackPose(i) {
     y: isWhite ? 0 : 5 + i * 3.5,
     rotate: isWhite ? 0 : (i - 1) * 4,
     scale: isWhite ? 0.96 : 0.84,
-    opacity: isWhite ? 1 : 0.9 - i * 0.03,
+    opacity: 1,
     zIndex: 40 - i,
   };
 }
@@ -115,13 +116,15 @@ function sunrisePose(slot, { isHovered = false, vis = 1 } = {}) {
   const rotate = slot * TILT_STEP;
   const y = Math.pow(abs, 1.3) * ARC_DROP - centerBlend * CENTER_LIFT;
   let scale = 0.84 + centerBlend * 0.26;
-  let opacity = (0.78 + centerBlend * 0.22) * vis;
   let lift = y;
+
+  // Full opacity while on-stage — translucent cards over white (or each other)
+  // wash out / invent muddy “new” colours. Only tunnel exit uses vis < 1.
+  let opacity = vis >= 0.98 ? 1 : vis;
 
   if (isHovered && vis > 0.4) {
     lift -= 12;
     scale += 0.03;
-    opacity = Math.min(1, opacity + 0.06);
   }
 
   return {
@@ -130,7 +133,11 @@ function sunrisePose(slot, { isHovered = false, vis = 1 } = {}) {
     rotate,
     scale,
     opacity,
-    zIndex: Math.round(36 - abs * 4.5) + Math.round(centerBlend * 6) + (vis < 0.05 ? -10 : 0),
+    // Fading tunnel cards go behind so they never blend with the fan
+    zIndex:
+      Math.round(36 - abs * 4.5) +
+      Math.round(centerBlend * 6) +
+      (vis < 0.98 ? -30 : 0),
   };
 }
 
@@ -371,8 +378,9 @@ export default function ColorwayDial({
           transform: `scale(${dialScale})`,
           transformOrigin: "center center",
           overflow: "visible",
-          WebkitMaskImage: `linear-gradient(to right, transparent 0%, #000 7%, #000 93%, transparent 100%)`,
-          maskImage: `linear-gradient(to right, transparent 0%, #000 7%, #000 93%, transparent 100%)`,
+          /* Soft clip only at the extreme edges — a wide mask washed cards to near-white */
+          WebkitMaskImage: `linear-gradient(to right, transparent 0%, #000 2.5%, #000 97.5%, transparent 100%)`,
+          maskImage: `linear-gradient(to right, transparent 0%, #000 2.5%, #000 97.5%, transparent 100%)`,
         }}>
           {colorways.map((c, i) => {
             const s = cardStyle(i);
