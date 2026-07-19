@@ -178,8 +178,8 @@ function usePrefersReducedMotion() {
 }
 
 /**
- * Signature claim preview: magnetic 3D tilt, specular sheen, soft engrave fade,
- * colorway atmosphere, and a calm success lift.
+ * Signature claim preview: magnetic 3D tilt, specular sheen,
+ * live per-keystroke engrave, colorway atmosphere, calm success lift.
  */
 const EngravedCardPreview = ({
   id,
@@ -194,27 +194,17 @@ const EngravedCardPreview = ({
   const targetRef = useRef({ x: 0, y: 0 });
   const currentRef = useRef({ x: 0, y: 0 });
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
-  const [etchKey, setEtchKey] = useState(0);
-  const [displayName, setDisplayName] = useState(name);
   const prevIdRef = useRef(id);
   const [fadingOut, setFadingOut] = useState(null);
 
   const radius = Math.round(width * (20 / 214));
   const shadowW = width * 1.15;
   const shadowH = shadowW * 0.13;
-  const text = (displayName || "").trim().toUpperCase();
+  // Live — no debounce; each keystroke engraves immediately
+  const text = (name || "").trim().toUpperCase();
   const engrave = ENGRAVE_STYLES[id] || ENGRAVE_STYLES.white;
   const fontSize = engraveFontSize(text.length);
   const atmosphere = COLOR_ATMOSPHERE[id] || COLOR_ATMOSPHERE.white;
-
-  // Laser-etch when the engraved name changes (debounced while typing)
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      setDisplayName(name);
-      setEtchKey((k) => k + 1);
-    }, 180);
-    return () => window.clearTimeout(t);
-  }, [name]);
 
   // Soft crossfade when colorway / founder card swaps
   useEffect(() => {
@@ -381,10 +371,9 @@ const EngravedCardPreview = ({
           <div style={{ position: "absolute", inset: 0, borderRadius: radius, boxShadow: CARD_SHADOW, pointerEvents: "none", zIndex: 4 }} />
           <div style={{ position: "absolute", inset: 0, borderRadius: radius, border: CARD_BORDER, boxShadow: CARD_DROP, pointerEvents: "none", zIndex: 4 }} />
 
-          {/* Engraved name — soft fade, no laser scan */}
+          {/* Engraved name — each keystroke pops onto the card live */}
           {text ? (
             <div
-              key={etchKey}
               aria-hidden
               style={{
                 position: "absolute",
@@ -394,26 +383,29 @@ const EngravedCardPreview = ({
                 display: "flex",
                 justifyContent: "center",
                 alignItems: "flex-end",
+                flexWrap: "wrap",
                 pointerEvents: "none",
                 zIndex: 5,
+                fontFamily: "'SF Pro Display', 'Inter', -apple-system, sans-serif",
+                fontSize,
+                fontWeight: 590,
+                letterSpacing: "0.14em",
+                lineHeight: 1.15,
+                textAlign: "center",
+                wordBreak: "break-word",
+                maxWidth: "100%",
+                ...engrave,
               }}
             >
-              <span
-                className={reducedMotion ? undefined : "claim-engrave-in"}
-                style={{
-                  fontFamily: "'SF Pro Display', 'Inter', -apple-system, sans-serif",
-                  fontSize,
-                  fontWeight: 590,
-                  letterSpacing: "0.14em",
-                  lineHeight: 1.15,
-                  textAlign: "center",
-                  wordBreak: "break-word",
-                  maxWidth: "100%",
-                  ...engrave,
-                }}
-              >
-                {text}
-              </span>
+              {Array.from(text).map((ch, i) => (
+                <span
+                  key={`${i}-${ch}`}
+                  className={reducedMotion ? undefined : "claim-engrave-char"}
+                  style={{ display: "inline-block" }}
+                >
+                  {ch === " " ? "\u00A0" : ch}
+                </span>
+              ))}
             </div>
           ) : (
             <div
@@ -890,18 +882,12 @@ export default function FschoolAILanding({ onBack } = {}) {
             display:grid;
             grid-template-columns:1.1fr 1fr;
             gap:28px;
-            align-items:stretch;
+            align-items:start;
           }
           .claim-col {
             display:flex;
             flex-direction:column;
             gap:16px;
-            min-height:100%;
-          }
-          .claim-col > .claim-card:last-child {
-            flex:1;
-            display:flex;
-            flex-direction:column;
           }
         }
         /* Content ON glass = solid fills (skill: never glass on glass) */
@@ -930,18 +916,20 @@ export default function FschoolAILanding({ onBack } = {}) {
           from { opacity: 1; }
           to { opacity: 0; }
         }
-        @keyframes claimEngraveIn {
-          0% { opacity: 0; }
-          100% { opacity: 1; }
+        @keyframes claimEngraveChar {
+          0% { opacity: 0; transform: translateY(5px) scale(0.82); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
         }
         @keyframes claimSuccessRing {
           0% { transform: scale(0.72); opacity: 0.55; }
           100% { transform: scale(1.28); opacity: 0; }
         }
-        .claim-engrave-in { animation: claimEngraveIn 0.35s ease both; }
+        .claim-engrave-char {
+          animation: claimEngraveChar 0.16s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+        }
         .claim-success-ring { animation: claimSuccessRing 1.1s cubic-bezier(0.22, 1, 0.36, 1) both; }
         @media (prefers-reduced-motion: reduce) {
-          .claim-engrave-in, .claim-success-ring { animation: none !important; }
+          .claim-engrave-char, .claim-success-ring { animation: none !important; }
         }
         @media (prefers-reduced-transparency: reduce) {
           .mkyours-section::before { display: none; }
