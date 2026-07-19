@@ -15,8 +15,11 @@ const isWaitlistDash =
   window.location.pathname.startsWith("/waitlist-dashboard");
 
 if (window.location.pathname === "/card") {
-  // /card is retired — no public access. Bounce to the landing page.
-  window.location.replace("/");
+  // /card — white Founding Card page (CardHeroAnimation + NFCTapAnimation). Standalone —
+  // rendered without AppProvider/Supabase.
+  import("./pages/Card").then(({ default: Card }) => {
+    ReactDOM.createRoot(document.getElementById("root")).render(<Card />);
+  });
 } else if (isWaitlistDash) {
   // Internal waitlist admin dashboard — served at the waitlist.* subdomain (routed here by
   // hostname) and at /waitlist-dashboard for testing before DNS. No AppProvider/Supabase

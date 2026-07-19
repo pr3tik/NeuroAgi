@@ -2535,7 +2535,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
                 : "0 4px 16px rgba(0,113,227,0.24), 0 1px 4px rgba(0,113,227,0.12)",
             }}
           >
-            Join the waitlist
+            Claim your card
             {/* Shimmer sweep */}
             <span aria-hidden="true" style={{
               position: "absolute", inset: 0,
@@ -3265,7 +3265,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           Founding Card
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => setWaitlistOpen(true)} style={{
+          <button onClick={() => { window.location.href = "/card"; }} style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
             padding: "7px 17px", fontSize: 13, fontWeight: 400,
             color: "#0066cc", background: "transparent", cursor: "pointer", fontFamily: FONT,
@@ -3274,7 +3274,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           }}
             onMouseEnter={e => { const a = e.currentTarget; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
             onMouseLeave={e => { const a = e.currentTarget; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
-          >Join the waitlist</button>
+          >Claim your card</button>
         </div>
       </div>
 
@@ -3300,14 +3300,14 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
             Lifetime Pro&nbsp;· guaranteed founding number&nbsp;· express delivery
           </span>
           {" · "}
-          <button onClick={() => setWaitlistOpen(true)} style={{
+          <button onClick={() => { window.location.href = "/card"; }} style={{
             color: "#0066cc", background: "none", border: "none", cursor: "pointer",
             fontFamily: FONT, fontSize: "inherit", padding: 0,
             transition: "color 0.12s",
           }}
             onMouseEnter={e => { e.currentTarget.style.color = "#004499"; }}
             onMouseLeave={e => { e.currentTarget.style.color = "#0066cc"; }}
-          >Join the waitlist →</button>
+          >Claim your card →</button>
         </p>
       </div>
 
@@ -3383,10 +3383,10 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
               The AI that reads your Canvas, explains your lectures, and builds your exam prep, grounded in your actual notes.
             </p>
 
-            {/* Hero CTAs — waitlist pill + learn more ghost */}
+            {/* Hero CTA — routes to /card (Founding Card learn-more page + waitlist form) */}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
               <button
-                onClick={() => setWaitlistOpen(true)}
+                onClick={() => { window.location.href = "/card"; }}
                 style={{
                   display: "inline-flex", alignItems: "center",
                   background: "#0071e3", color: "#fff", border: "none",
@@ -3397,7 +3397,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
                 onMouseEnter={e => { e.currentTarget.style.opacity = "0.86"; e.currentTarget.style.transform = "scale(1.02)"; }}
                 onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1)"; }}
               >
-                <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Join the waitlist</span>
+                <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Claim your card</span>
                 <HeroBtnCountdown />
               </button>
             </div>
@@ -3462,7 +3462,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
       <ThreeMoments t={t} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
-      <PremiumCTA onSignup={() => setWaitlistOpen(true)} onLogin={() => setWaitlistOpen(true)} />
+      <PremiumCTA onSignup={() => { window.location.href = "/card"; }} onLogin={() => setWaitlistOpen(true)} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
       {/* ── FAQ — clean solid tile ── */}
