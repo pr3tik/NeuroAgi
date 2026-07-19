@@ -27,7 +27,7 @@ import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
   Timer, Coins, ThumbsUp, ThumbsDown, Image as ImageIcon, Hand, Zap, Hourglass,
-  RefreshCw, LogOut,
+  RefreshCw, LogOut, Sparkles,
 } from "lucide-react";
 
 // ── Access filters ────────────────────────────────────────────────────────────
@@ -1744,6 +1744,56 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     setCanRedo(false);
   }
 
+  // ── In-room private Reggie (B1) — your own 1-on-1 tutor inside the room. Scoped
+  //    server-side to YOUR Brain + your own thread; the reply returns only in your HTTP
+  //    response (never broadcast), so nothing leaks to the group. Group @Reggie is later.
+  const [showReggie,  setShowReggie]  = useState(false);
+  const [reggieMsgs,  setReggieMsgs]  = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [reggieInput, setReggieInput] = useState("");
+  const [reggieBusy,  setReggieBusy]  = useState(false);
+  const reggieSessionRef = useRef(false); // ensured an active AI session for this room yet?
+
+  // room-ai requires an active AI session for the room. Idempotent — resumes if one exists.
+  async function ensureRoomAiSession(token: string) {
+    if (reggieSessionRef.current) return;
+    const r = await fetch("/api/room-session?action=start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ roomId: room.id }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e?.error || `Couldn't start Reggie's session (${r.status})`);
+    }
+    reggieSessionRef.current = true;
+  }
+
+  async function askRoomReggie() {
+    const q = reggieInput.trim();
+    if (!q || reggieBusy) return;
+    setReggieInput("");
+    setReggieMsgs(m => [...m, { role: "user", content: q }]);
+    setReggieBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Sign in to use Reggie.");
+      await ensureRoomAiSession(token);
+      const r = await fetch("/api/room-ai?action=private", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ roomId: room.id, message: q }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error || `Reggie couldn't respond (${r.status})`);
+      setReggieMsgs(m => [...m, { role: "assistant", content: String(d?.message ?? "(no answer)") }]);
+    } catch (err) {
+      setReggieMsgs(m => [...m, { role: "assistant", content: `⚠️ ${(err as Error)?.message || "Reggie is unavailable right now."}` }]);
+    } finally {
+      setReggieBusy(false);
+    }
+  }
+
   async function sendChatMessage() {
     const body = chatInput.trim();
     if (!body || chatSending) return;
@@ -1822,6 +1872,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><MessageCircle size={13} />Chat</span></button>
           <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(var(--gold-rgb), 0.1)" : "none", borderColor: showBoard ? "rgba(var(--gold-rgb), 0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "var(--gold)" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Pen size={13} />Board</span></button>
           <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Mic size={13} />Voice</span></button>
+          <button onClick={() => setShowReggie(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showReggie ? "rgba(167,139,250,0.12)" : "none", borderColor: showReggie ? "rgba(167,139,250,0.35)" : "rgba(255,255,255,0.09)", color: showReggie ? "#a78bfa" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Sparkles size={13} />Reggie</span></button>
           <button onClick={() => setShowInvite(true)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Plus size={13} />Invite</span></button>
 
           {/* ⋯ overflow — admin actions + leave */}
@@ -1996,6 +2047,42 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           onImageUpload={handleImageUpload}
           onClose={() => setShowChat(false)}
         />
+      )}
+
+      {/* In-room private Reggie (B1) — your own 1-on-1 tutor; only you see this thread */}
+      {showReggie && (
+        <div style={{ position: "fixed", right: 20, bottom: 20, width: 360, maxWidth: "calc(100vw - 40px)", height: 460, maxHeight: "70vh", display: "flex", flexDirection: "column", background: "var(--card, #16151c)", border: "1px solid rgba(167,139,250,0.25)", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.45)", zIndex: 60, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+            <Sparkles size={15} color="#a78bfa" />
+            <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text, #ECEBF0)" }}>Reggie</span>
+            <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 2 }}>· private to you</span>
+            <button onClick={() => setShowReggie(false)} aria-label="Close Reggie" style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", display: "inline-flex" }}><X size={16} /></button>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+            {reggieMsgs.length === 0 && (
+              <div style={{ color: "var(--text-dim)", fontSize: 13, lineHeight: 1.5, marginTop: 8 }}>
+                Ask Reggie about your courses, an assignment, or what to study next — grounded in your own materials. Only you see this.
+              </div>
+            )}
+            {reggieMsgs.map((m, i) => (
+              <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", padding: "8px 11px", borderRadius: 12, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", background: m.role === "user" ? "rgba(167,139,250,0.16)" : "rgba(255,255,255,0.05)", color: "var(--text, #ECEBF0)" }}>
+                {m.content}
+              </div>
+            ))}
+            {reggieBusy && <div style={{ alignSelf: "flex-start", color: "var(--text-dim)", fontSize: 13 }}>Reggie is thinking…</div>}
+          </div>
+          <div style={{ display: "flex", gap: 8, padding: 12, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+            <input
+              value={reggieInput}
+              onChange={e => setReggieInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askRoomReggie(); } }}
+              placeholder="Ask Reggie…"
+              disabled={reggieBusy}
+              style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "9px 11px", color: "var(--text, #ECEBF0)", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+            />
+            <button onClick={askRoomReggie} disabled={reggieBusy || !reggieInput.trim()} style={{ background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (reggieBusy || !reggieInput.trim()) ? "default" : "pointer", opacity: (reggieBusy || !reggieInput.trim()) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
+          </div>
+        </div>
       )}
 
       {/* Whiteboard panel — session-only, clears when everyone leaves */}
