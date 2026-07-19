@@ -686,6 +686,7 @@ export default defineConfig({
     // Group AI turn (AI-04): OPENAI_API_KEY for the retrieval embed, GROQ_KEY for the
     // gateway's cross-provider fallback.
     handlerProxy("/api/room-ai",          () => import("./api/room-ai.js"),       [...HANDLER_ENV, "OPENAI_API_KEY", "GROQ_KEY", "ANTHROPIC_MODEL"]),
+    handlerProxy("/api/room-activity",    () => import("./api/room-activity.js")),
     handlerProxy("/api/waitlist",         () => import("./api/waitlist.js"),        [...HANDLER_ENV, "RESEND_API_KEY", "CRON_SECRET"]),
     handlerProxy("/api/nudge",            () => import("./api/nudge.js"),         [...HANDLER_ENV, "RESEND_API_KEY"]),
     handlerProxy("/api/guest-demo",       () => import("./api/guest-demo.js"),    HANDLER_ENV)],
