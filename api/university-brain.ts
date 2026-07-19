@@ -22,6 +22,7 @@
 import crypto from "node:crypto";
 import { callModel } from "./_gateway.js";
 import { canvasCreds, canvasGET, resolveCanvasCourseId, stripHtml, trim, userUniversityId } from "./_reggie/canvasLive.js";
+import { assertCourseFact } from "./course-fact-guard.js";
 import { requireUserOr401 } from "./_auth.js";
 
 function sb() {
@@ -103,9 +104,10 @@ async function upsertArtifact(row: {
     });
     return { id: hit.id, deduped: true };
   }
+  const insertRow = assertCourseFact({ ...row, content_hash, is_private: false, text: row.text.slice(0, 50000), last_seen_at: new Date().toISOString() }, { screenText: false });
   const ins = await fetch(`${url}/rest/v1/course_content`, {
     method: "POST", headers: { ...headers, Prefer: "return=representation" },
-    body: JSON.stringify({ ...row, content_hash, is_private: false, text: row.text.slice(0, 50000), last_seen_at: new Date().toISOString() }),
+    body: JSON.stringify(insertRow),
   });
   if (!ins.ok) throw new Error(`library insert failed (${ins.status}): ${(await ins.text()).slice(0, 200)}`);
   return { id: ((await ins.json()) as any[])[0]?.id, deduped: false };
@@ -138,10 +140,10 @@ export async function upsertSnapshot(row: {
 }): Promise<{ id: any; replaced: boolean }> {
   const { url, headers } = sb();
   const content_hash = hashOf(row.university_id, row.course_id, `snapshot:${row.content_type}`, row.text);
-  const body = {
+  const body = assertCourseFact({
     ...row, content_hash, source_url: UB_SOURCE, is_private: false,
     text: row.text.slice(0, 50000), last_seen_at: new Date().toISOString(),
-  };
+  }, { screenText: false });
   const q = `${url}/rest/v1/course_content?university_id=eq.${encodeURIComponent(row.university_id)}` +
             `&course_id=eq.${encodeURIComponent(row.course_id)}` +
             `&content_type=eq.${encodeURIComponent(row.content_type)}` +

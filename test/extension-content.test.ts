@@ -106,3 +106,25 @@ describe("extension-content handler", () => {
     expect(calls.some(c => c.table === "course_content" && c.op === "insert")).toBe(true);
   });
 });
+
+describe("BR-06: extension-content guard", () => {
+  const okBase = {
+    userId: "u1", universityId: "q.utoronto.ca", courseId: "BIO130", canvasCourseId: "123",
+    contentType: "syllabus",
+    text: "Weekly topics, readings, and lecture schedule for the course across the term.",
+    sourceUrl: "https://q.utoronto.ca/courses/1",
+  };
+  it("rejects a scrape whose text carries person data — no insert", async () => {
+    const { handler, calls } = await loadHandler((ctx) => {
+      if (ctx.table === "course_content" && ctx.op === "select") return { data: null, error: null };
+      if (ctx.table === "course_content" && ctx.op === "insert") return { data: { id: "new-1" }, error: null };
+      return { data: null, error: null };
+    });
+    const res = makeRes();
+    const tainted = "Your grade: 18/20 on the midterm. You submitted at 11:59pm — late submission. "
+      + "Additional benign course notes and reading material to exceed any minimum length. ".repeat(4);
+    await handler(post({ ...okBase, text: tainted }), res);
+    expect(res.body.status).toBe("rejected");
+    expect(calls.some(c => c.table === "course_content" && c.op === "insert")).toBe(false);
+  });
+});

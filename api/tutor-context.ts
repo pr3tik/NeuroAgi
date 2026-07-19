@@ -47,6 +47,7 @@ import { requireUserOr401 } from "./_auth.js";
 // Safe to import statically — these build no Supabase client at module load (raw fetch only).
 import { postgrestStore, recall, renderStudentBrainState } from "./_brain/kernel.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
+import { courseSourceBoost, courseSourceLabel } from "./course-source.js";
 import { userUniversityId } from "./_reggie/canvasLive.js";
 
 export default async function handler(req, res) {
@@ -152,7 +153,7 @@ export default async function handler(req, res) {
           const uni = await userUniversityId(userId);
           const uniFilter = uni ? `&university_id=eq.${encodeURIComponent(uni)}` : "";
 
-          const libUrl = `${supabaseUrl}/rest/v1/course_content?${courseFilter}${uniFilter}&is_private=eq.false&select=content_type,text,summary,module_name,week_number,seen_by_count&order=seen_by_count.desc&limit=20`;
+          const libUrl = `${supabaseUrl}/rest/v1/course_content?${courseFilter}${uniFilter}&is_private=eq.false&select=id,content_type,text,summary,module_name,week_number,seen_by_count&order=seen_by_count.desc&limit=20`;
           const libResp = await fetch(libUrl, { headers: sbHeaders });
           if (!libResp.ok) return null;
 
@@ -164,24 +165,22 @@ export default async function handler(req, res) {
             const searchText = `${row.text || ""} ${row.summary || ""} ${row.module_name || ""}`.toLowerCase();
             let score = keywords.reduce((s, kw) => s + (searchText.match(new RegExp(kw, "g")) || []).length * 2, 0);
             score += Math.log1p(row.seen_by_count || 0) * 0.5;
-            if (row.content_type === "syllabus") score += 5;
-            if (row.content_type === "lecture") score += 3;
-            if (row.content_type === "announcement") score += 2;
+            score += courseSourceBoost(row.content_type);
             return { ...row, score };
           }).filter(r => r.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
 
           if (!scored.length) return null;
 
           const snippets = scored.map(r => {
-            const src = r.content_type === "syllabus" ? "Course Syllabus"
-              : r.content_type === "lecture" ? `Lecture Notes${r.week_number ? ` (Week ${r.week_number})` : ""}${r.module_name ? ` — ${r.module_name}` : ""}`
-              : r.content_type === "announcement" ? "Course Announcement"
-              : r.content_type;
+            const src = courseSourceLabel(r);
             const text = r.summary || (r.text ? r.text.slice(0, 400) : "");
             return `[${src}]: ${text}`;
           });
 
-          return snippets.join("\n\n");
+          return {
+            text: snippets.join("\n\n"),
+            sources: scored.map(r => ({ id: r.id, type: r.content_type, label: courseSourceLabel(r) })),
+          };
         } catch { return null; }
       })()
     : Promise.resolve(null);
@@ -340,9 +339,10 @@ Examples:
 
   // Build library context block
   let libraryContext = null;
-  if (librarySnippets) {
-    libraryContext = `COURSE LIBRARY (from your actual course materials):\n${librarySnippets}`;
+  if (librarySnippets?.text) {
+    libraryContext = `COURSE LIBRARY (from your actual course materials):\n${librarySnippets.text}`;
   }
+  const librarySources = librarySnippets?.sources ?? [];
 
   // A hint, never a script — the tutor may draw on it, not required to follow it.
   // strategyHintId/strategyHintKind are returned separately (not embedded in the
@@ -358,7 +358,7 @@ Examples:
   if (queryType === "none") {
     // Even if no DB query needed, return brain + library + strategy context if available
     const parts = [brainContext, libraryContext, strategyContext].filter(Boolean);
-    return res.status(200).json({ context: parts.length ? parts.join("\n\n") : null, strategyHintId, strategyHintKind });
+    return res.status(200).json({ context: parts.length ? parts.join("\n\n") : null, sources: librarySources, strategyHintId, strategyHintKind });
   }
 
   // ── 2. Fetch relevant data ─────────────────────────────────────────────────
@@ -476,5 +476,5 @@ Examples:
 
   // Merge all context layers: brain + library + strategy hint + DB
   const contextParts = [brainContext, libraryContext, strategyContext, context].filter(Boolean);
-  return res.status(200).json({ context: contextParts.length ? contextParts.join("\n\n") : null, strategyHintId, strategyHintKind });
+  return res.status(200).json({ context: contextParts.length ? contextParts.join("\n\n") : null, sources: librarySources, strategyHintId, strategyHintKind });
 }

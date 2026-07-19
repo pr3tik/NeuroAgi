@@ -30,6 +30,7 @@
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { resolveAndEnrichCourse, normalizeCourseCode } from "./course-resolver.js";
+import { assertCourseFact, CourseFactRejected } from "./course-fact-guard.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -125,6 +126,27 @@ export default async function handler(req, res) {
   // ── Build content hash ──────────────────────────────────────────────────────
   const contentHash = buildContentHash(universityId, normalizedCourseKey, contentType, text);
 
+  // BR-06: this raw-text scrape door is slated for removal (410) once callers are confirmed gone.
+  res.setHeader("Deprecation", "true");
+  console.warn("[extension-content] DEPRECATED (BR-06) — pending 410; use the API-first sync path.");
+
+  // BR-06: guard the row before any DB op. Rebuilds from allowlist + screens person data.
+  let guardedRow: Record<string, unknown>;
+  try {
+    guardedRow = assertCourseFact({
+      university_id: universityId, course_id: normalizedCourseKey, canvas_course_id: canvasCourseId || null,
+      content_type: contentType, content_hash: contentHash, text: text.slice(0, 50000),
+      week_number: weekNumber || null, module_name: moduleName || fileName || null,
+      professor_name: professorName || null, source_url: sourceUrl || null, seen_by_count: 1,
+    });
+  } catch (e) {
+    if (e instanceof CourseFactRejected) {
+      console.warn("[extension-content] BR-06 guard rejected write:", e.reason);
+      return res.status(200).json({ status: "rejected", reason: "content_screen", contentHash });
+    }
+    throw e;
+  }
+
   // ── Dedup check: does this content already exist? ───────────────────────────
   const { data: existing, error: fetchErr } = await supabase
     .from("course_content")
@@ -158,19 +180,7 @@ export default async function handler(req, res) {
 
   const { data: inserted, error: insertErr } = await supabase
     .from("course_content")
-    .insert({
-      university_id:    universityId,
-      course_id:        normalizedCourseKey,
-      canvas_course_id: canvasCourseId || null,
-      content_type:     contentType,
-      content_hash:     contentHash,
-      text:             truncatedText,
-      week_number:      weekNumber || null,
-      module_name:      moduleName || fileName || null,
-      professor_name:   professorName || null,
-      source_url:       sourceUrl || null,
-      seen_by_count:    1,
-    })
+    .insert(guardedRow)
     .select("id")
     .single();
 
