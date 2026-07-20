@@ -110,8 +110,50 @@ async function loadHistory(userId: string): Promise<Message[]> {
 }
 
 /** Fire-and-forget log — never blocks the chat UI on a slow/failed write. */
-function logMessage(userId: string, role: string, content: string) {
-  supabase.from("chat_logs").insert({ user_id: userId, role, content, page: PAGE }).then(() => {}, () => {});
+function logMessage(userId: string, role: string, content: string, conversationId: string | null = null) {
+  supabase.from("chat_logs").insert({ user_id: userId, role, content, page: PAGE, conversation_id: conversationId }).then(() => {}, () => {});
+}
+
+// ── Conversations — the SAME chat_conversations threads the orb uses, so Reggie has
+//    one history everywhere. "legacy" is a sentinel for the page's old un-threaded rows.
+async function listConversations(userId: string) {
+  try {
+    const { data } = await supabase.from("chat_conversations")
+      .select("id, title, updated_at").eq("user_id", userId)
+      .order("updated_at", { ascending: false }).limit(30);
+    return data ?? [];
+  } catch { return []; }
+}
+async function loadConvMessages(convId: string): Promise<Message[]> {
+  try {
+    const { data } = await supabase.from("chat_logs")
+      .select("role, content").eq("conversation_id", convId)
+      .order("created_at", { ascending: true }).limit(200);
+    return (data ?? []).map(r => ({ role: r.role as Message["role"], content: r.content }));
+  } catch { return []; }
+}
+async function createConversation(userId: string, title: string): Promise<string | null> {
+  try {
+    const { data } = await supabase.from("chat_conversations")
+      .insert({ user_id: userId, title: title.slice(0, 60) }).select("id").single();
+    return data?.id ?? null;
+  } catch { return null; }
+}
+function touchConversation(convId: string) {
+  supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId).then(() => {}, () => {});
+}
+async function deleteConversation(convId: string) {
+  await supabase.from("chat_conversations").delete().eq("id", convId); // chat_logs cascade
+}
+function relTime(iso: string | null): string {
+  if (!iso) return "";
+  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 2) return "now";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? "1d" : `${d}d`;
 }
 
 /** Delete this page's persisted chat history. Does not touch tutor_mind/tutor_impressions. */
@@ -390,6 +432,35 @@ export default function StudyAssistant() {
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
 
+  // ── Conversations: null = fresh new chat · "legacy" = the old un-threaded history ──
+  const [convs, setConvs] = useState<{ id: string; title: string | null; updated_at: string | null }[]>([]);
+  const [convId, setConvIdState] = useState<string | null>(() => {
+    try { return localStorage.getItem("sa_conv_id") || "legacy"; } catch { return "legacy"; }
+  });
+  const convIdRef = useRef(convId);
+  const setConvId = (v: string | null) => {
+    convIdRef.current = v; setConvIdState(v);
+    try { v ? localStorage.setItem("sa_conv_id", v) : localStorage.removeItem("sa_conv_id"); } catch {}
+  };
+  const [hasLegacy, setHasLegacy] = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+    listConversations(userId).then(setConvs);
+    supabase.from("chat_logs").select("id").eq("user_id", userId).eq("page", PAGE).is("conversation_id", null).limit(1)
+      .then(({ data }) => setHasLegacy(!!data?.length), () => {});
+  }, [userId]);
+
+  function startNewChat() {
+    if (thinking) return;
+    setConvId(null); setMessages([]); setHistoryLoaded(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+  function selectConversation(id: string) {
+    if (thinking || id === convIdRef.current) return;
+    setConvId(id); setHistoryLoaded(false);
+  }
+
   // Slash-command popup ("/" menu) + pending destructive-action confirmation.
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -436,15 +507,17 @@ export default function StudyAssistant() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Hydrate persisted history once we know who the user is.
+  // Hydrate the SELECTED conversation (or the legacy un-threaded history).
   useEffect(() => {
     let cancelled = false;
     if (!userId) { setHistoryLoaded(true); return; }
-    loadHistory(userId).then(hist => {
+    if (convId === null) { setMessages([]); setHistoryLoaded(true); return; }   // fresh chat
+    const load = convId === "legacy" ? loadHistory(userId) : loadConvMessages(convId);
+    load.then(hist => {
       if (!cancelled) { setMessages(hist); setHistoryLoaded(true); }
     });
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, convId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -469,7 +542,14 @@ export default function StudyAssistant() {
     const userMsg: Message = { role: "user", content: q };
     const priorMessages = messagesRef.current.filter(m => !m.system);
     setMessages(prev => [...prev, userMsg]);
-    if (userId) logMessage(userId, "user", q);
+    // Thread: a fresh chat materializes its conversation on first send, titled by it.
+    let convForLog: string | null = convIdRef.current && convIdRef.current !== "legacy" ? convIdRef.current : null;
+    if (userId && convIdRef.current === null) {
+      const id = await createConversation(userId, q);
+      if (id) { setConvId(id); convForLog = id; listConversations(userId).then(setConvs); }
+    }
+    if (userId) logMessage(userId, "user", q, convForLog);
+    if (convForLog) touchConversation(convForLog);
     setThinking(true);
 
     try {
@@ -561,11 +641,11 @@ export default function StudyAssistant() {
         : [];
 
       setMessages(prev => [...prev, { role: "assistant", content: reply, sources }]);
-      if (userId) logMessage(userId, "assistant", reply);
+      if (userId) logMessage(userId, "assistant", reply, convForLog);
     } catch {
       const fallback = "Sorry, something went wrong. Please try again.";
       setMessages(prev => [...prev, { role: "assistant", content: fallback }]);
-      if (userId) logMessage(userId, "assistant", fallback);
+      if (userId) logMessage(userId, "assistant", fallback, convForLog);
     } finally {
       setThinking(false);
     }
@@ -584,7 +664,15 @@ export default function StudyAssistant() {
     setClearing(true);
     try {
       if (cmd.id === "clear-chat" || cmd.id === "clear-all") {
-        await clearChatHistory(userId);
+        const cur = convIdRef.current;
+        if (cur && cur !== "legacy") {
+          // Threaded chat: delete the conversation (logs cascade) and start fresh.
+          await deleteConversation(cur);
+          setConvs(cs => cs.filter(c => c.id !== cur));
+          setConvId(null);
+        } else {
+          await clearChatHistory(userId);
+        }
       }
       if (cmd.id === "clear-memory" || cmd.id === "clear-all") {
         await clearMemory(userId);
@@ -655,7 +743,43 @@ export default function StudyAssistant() {
         }
         .sa-send:hover:not(:disabled) { background: rgba(var(--teal-rgb), 0.85) !important; }
         .sa-send:disabled { opacity: 0.4; cursor: default; }
+        .sa-rail { display: none; }
+        @media (min-width: 900px) { .sa-rail { display: flex; } }
+        .sa-conv-item:hover { background: rgba(255,255,255,0.05) !important; }
       `}</style>
+
+      {/* ── Two panes: conversation rail (desktop) + the chat itself ── */}
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+        <div className="sa-rail" style={{ width: 228, flexShrink: 0, flexDirection: "column", gap: 3, borderRight: "1px solid rgba(255,255,255,0.07)", padding: "2px 14px 12px 0", marginRight: 22, overflowY: "auto" }}>
+          <button onClick={startNewChat} style={{
+            display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+            background: "rgba(var(--teal-rgb),0.1)", border: "1px solid rgba(var(--teal-rgb),0.25)",
+            borderRadius: 10, padding: "9px 12px", fontSize: 13, fontWeight: 600,
+            color: "rgba(var(--teal-rgb),0.95)", cursor: "pointer", fontFamily: "inherit", marginBottom: 8,
+          }}>+ New chat</button>
+          {convs.map(c => (
+            <button key={c.id} className="sa-conv-item" onClick={() => selectConversation(c.id)} style={{
+              display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left",
+              background: convId === c.id ? "rgba(255,255,255,0.07)" : "transparent",
+              border: "1px solid " + (convId === c.id ? "rgba(255,255,255,0.12)" : "transparent"),
+              borderRadius: 9, padding: "8px 11px", cursor: "pointer", fontFamily: "inherit",
+            }}>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5, color: convId === c.id ? "var(--text-primary)" : "var(--text-secondary)" }}>{c.title || "New chat"}</span>
+              <span style={{ fontSize: 10, color: "var(--text-dim)", flexShrink: 0 }}>{relTime(c.updated_at)}</span>
+            </button>
+          ))}
+          {hasLegacy && (
+            <button className="sa-conv-item" onClick={() => selectConversation("legacy")} style={{
+              display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left",
+              background: convId === "legacy" ? "rgba(255,255,255,0.07)" : "transparent",
+              border: "1px solid " + (convId === "legacy" ? "rgba(255,255,255,0.12)" : "transparent"),
+              borderRadius: 9, padding: "8px 11px", cursor: "pointer", fontFamily: "inherit", marginTop: 4,
+            }}>
+              <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-dim)" }}>Earlier messages</span>
+            </button>
+          )}
+        </div>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
 
       {/* ── Empty state: centered input ───────────────────────────────── */}
       {isEmpty && historyLoaded && (
@@ -736,15 +860,10 @@ export default function StudyAssistant() {
       {/* ── Conversation view ─────────────────────────────────────────── */}
       {!isEmpty && (
         <>
-          <div style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "24px 20px 16px",
-            maxWidth: "680px",
-            width: "100%",
-            margin: "0 auto",
-            boxSizing: "border-box",
-          }}>
+          {/* Scroll container spans the FULL chat pane (scrollbar at the far edge, not
+              mid-page); the message column centers inside it with room to breathe. */}
+          <div style={{ flex: 1, overflowY: "auto", boxSizing: "border-box" }}>
+            <div style={{ maxWidth: "800px", width: "100%", margin: "0 auto", padding: "28px 24px 16px", boxSizing: "border-box" }}>
             {messages.map((m, i) =>
               m.system
                 ? <SystemNotice key={i} text={m.content} />
@@ -754,18 +873,16 @@ export default function StudyAssistant() {
             )}
             {thinking && <ThinkingBubble />}
             <div ref={bottomRef} />
+            </div>
           </div>
 
-          {/* Pinned bottom input */}
+          {/* Pinned bottom input — full-width strip, centered column inside */}
           <div style={{
-            padding: "12px 20px 20px",
+            padding: "12px 24px 20px",
             background: "linear-gradient(to top, var(--color-bg) 70%, transparent)",
-            maxWidth: "680px",
-            width: "100%",
-            margin: "0 auto",
             boxSizing: "border-box",
-            position: "relative",
           }}>
+          <div style={{ maxWidth: "800px", width: "100%", margin: "0 auto", boxSizing: "border-box", position: "relative" }}>
             {showCommandMenu && (
               <CommandMenu commands={filteredCommands} highlightedIndex={highlightedIndex} onSelect={selectCommand} />
             )}
@@ -779,8 +896,11 @@ export default function StudyAssistant() {
               centered={false}
             />
           </div>
+          </div>
         </>
       )}
+        </div>
+      </div>
 
       {pendingCommand && (
         <ConfirmDialog

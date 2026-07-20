@@ -13,14 +13,17 @@ beforeEach(() => {
 // The demo nav is the DEFAULT (VITE_DEMO_NAV unset → on): six destinations chaptered
 // by student intent (UI/UX spec v2). Other pages stay routable by key — they're just
 // not nav doors in the demo build (set VITE_DEMO_NAV=0 to restore the full nav).
-const DEMO_LABELS  = ["Today", "Reggie", "Study", "Canvas", "Files", "Rooms"];
-const GROUP_LABELS = ["Learn", "My courses", "Together"];
+const DEMO_LABELS = ["Today", "Reggie", "Study", "Canvas", "Files", "Rooms"];
 
 describe("BottomNav (web sidebar)", () => {
-  it("shows the six demo destinations chaptered by intent group", () => {
+  it("shows the six demo destinations — groups are divider-separated, no label text", () => {
     render(<BottomNav currentPage="work" onNavigate={vi.fn()} />);
-    for (const label of [...DEMO_LABELS, ...GROUP_LABELS])
+    for (const label of DEMO_LABELS)
       expect(screen.getByText(label), `sidebar missing "${label}"`).toBeInTheDocument();
+    // Groups are separated by mini dividers (Supabase-style), NOT text labels —
+    // labels appearing only when expanded made the rail jump on hover-open.
+    for (const old of ["Learn", "My courses", "Together"])
+      expect(screen.queryByText(old)).not.toBeInTheDocument();
     expect(screen.queryByText("More")).not.toBeInTheDocument();
   });
 

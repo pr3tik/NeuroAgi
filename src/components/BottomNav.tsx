@@ -4,7 +4,7 @@
 // here must match the 768px rule in App.jsx's SHELL_STYLES (and the 232px rail
 // width must match the 254px content offset there = 232 + 22 gutter).
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const ACCENT   = "rgba(var(--teal-rgb), 0.95)";
 const INACTIVE = "rgba(255,255,255,0.42)";
@@ -133,6 +133,13 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
   const isWide = useIsWide();
   const [moreOpen, setMoreOpen] = useState(false);
   const [hover, setHover] = useState(false); // hover-expand: when pin-collapsed, revealing on hover
+  // Close with a grace period: an instant collapse on mouseleave feels finicky — a
+  // cursor that clips the edge (or overshoots toward the content) slams the rail shut.
+  // Re-entering within the grace window cancels the close.
+  const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverOpen  = () => { if (hoverCloseTimer.current) { clearTimeout(hoverCloseTimer.current); hoverCloseTimer.current = null; } setHover(true); };
+  const hoverClose = () => { if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current); hoverCloseTimer.current = setTimeout(() => setHover(false), 320); };
+  useEffect(() => () => { if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current); }, []);
   const go = (key) => { setMoreOpen(false); onNavigate(key); };
 
   // ── Web: collapsible left sidebar with every page ──────────────────────────
@@ -145,8 +152,8 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
     const railW = vis ? 64 : RAIL_W;
     return (
       <aside
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
+        onMouseEnter={hoverOpen}
+        onMouseLeave={hoverClose}
         style={{
         position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 90, width: `${railW}px`,
         boxSizing: "border-box", padding: vis ? "24px 8px" : "24px 14px",
@@ -158,14 +165,18 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
         boxShadow: (!vis && collapsed) ? "8px 0 32px rgba(0,0,0,0.35)" : "none",
         transition: "width 0.2s var(--ease-apple), padding 0.2s var(--ease-apple), box-shadow 0.2s var(--ease-apple)",
       }}>
-        {/* Brand + collapse toggle */}
+        {/* Brand + collapse toggle — the logo mark is PERMANENT and the row height is
+            FIXED in both states, so expanding only reveals the name + pin beside it and
+            nothing below ever shifts vertically. */}
         <div style={{
-          display: "flex", alignItems: "center",
-          justifyContent: vis ? "center" : "space-between",
-          padding: vis ? "0 0 16px" : "4px 9px 16px",
+          display: "flex", alignItems: "center", gap: 9,
+          justifyContent: vis ? "center" : "flex-start",
+          height: 44, boxSizing: "border-box",
+          padding: vis ? "0 0 14px" : "0 4px 14px 4px",
         }}>
+          <img src="/fschoolai-logo.jpeg" alt="FschoolAI" style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
           {!vis && (
-            <span style={{ fontSize: "13px", fontWeight: 700, letterSpacing: "0.4px", color: "var(--text-primary)" }}>
+            <span style={{ fontSize: "13px", fontWeight: 700, letterSpacing: "0.4px", color: "var(--text-primary)", whiteSpace: "nowrap" }}>
               FschoolAI
             </span>
           )}
@@ -175,7 +186,7 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
               title={collapsed ? "Keep sidebar open" : "Collapse sidebar"}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
-                width: 30, height: 30, flexShrink: 0, borderRadius: "8px",
+                width: 30, height: 30, flexShrink: 0, borderRadius: "8px", marginLeft: "auto",
                 background: collapsed ? "rgba(255,255,255,0.05)" : "rgba(var(--teal-rgb),0.16)",
                 border: "1px solid var(--color-border)",
                 cursor: "pointer", outline: "none",
@@ -196,16 +207,12 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
         </div>
         {DEMO_NAV ? (
           /* Chaptered nav: group labels when expanded, thin dividers when collapsed. */
+          /* Groups separated by mini dividers in BOTH states (Supabase-style) — no label
+             text, so expanding the rail never adds rows and the layout doesn't jump. */
           DEMO_GROUPS.map((g, gi) => (
             <div key={g.label ?? "home"} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {gi > 0 && vis && (
-                <div style={{ height: 1, background: "var(--color-border)", margin: "7px 6px" }} />
-              )}
-              {g.label && !vis && (
-                <p style={{
-                  fontSize: 10.5, fontWeight: 600, letterSpacing: "0.09em", textTransform: "uppercase",
-                  color: "var(--text-dim)", margin: "13px 13px 3px", fontFamily: "inherit",
-                }}>{g.label}</p>
+              {gi > 0 && (
+                <div style={{ height: 1, background: "var(--color-border)", margin: vis ? "6px 10px" : "6px 12px" }} />
               )}
               {g.keys.map(key => (
                 <SideItem key={key} pageKey={key} active={currentPage === key} collapsed={vis} onClick={() => go(key)} />

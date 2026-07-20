@@ -28,6 +28,9 @@ import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play, Mic }
 import { createDictation } from "../lib/dictation";
 import { GOLD, CREAM, INK_WARM, GOLD_RGB } from "../lib/theme";
 import ArtifactPanel   from "./ArtifactPanel";
+import Markdown from 'react-markdown';
+import remarkGfm from "remark-gfm";
+import '../css/markdown.css';
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
 // Returns the full proxy response: { content, contentBlocks, stop_reason, usage }.
@@ -3083,7 +3086,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                 messages.map((m, i) => (
                   <div key={i} className="nr-msg-in" style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "84%" }}>
                     <div
-                      className={m.role === "assistant" && i === messages.length - 1 ? "nr-msg-new" : ""}
+                      className={(m.role === "assistant" && i === messages.length - 1 ? "nr-msg-new" : "") + " markdown-body"}
                       style={{
                         background: m.role === "user" ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.05)",
                         borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
@@ -3092,10 +3095,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                         border: m.hasArtifact ? "1px solid rgba(232,255,107,0.2)" : "1px solid rgba(255,255,255,0.07)",
                       }}
                     >
-                      {m.role === "assistant"
-                        ? <div className="nr-md" dangerouslySetInnerHTML={{ __html: renderMessageHTML(m.content) }} />
-                        : m.content
-                      }
+                      <Markdown remarkPlugins={[remarkGfm]}>{m.content}</Markdown>
                       {m.quiz && <InlineQuiz cards={m.quiz} userId={userId} courseId={null} />}
                       {/* Search tags: which documents this answer drew from (+ traceId for debugging —
                           click copies it; paste into ReggieTester's trace lookup). */}
@@ -3264,15 +3264,17 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                 </div>
               )}
               {streamingMsg ? (
-                <div style={{
-                  alignSelf: "flex-start", maxWidth: "84%",
-                  background: "rgba(255,255,255,0.05)",
-                  borderRadius: "16px 16px 16px 4px",
-                  padding: "10px 14px", color: "var(--text-primary)",
-                  fontSize: "14px", lineHeight: "1.6",
-                  border: "1px solid rgba(255,255,255,0.07)",
-                }}>
-                  <span className="nr-md" dangerouslySetInnerHTML={{ __html: renderStreamingHTML(streamingMsg) }} />
+                <div 
+                  className="markdown-body"
+                  style={{
+                    alignSelf: "flex-start", maxWidth: "84%",
+                    background: "rgba(255,255,255,0.05)",
+                    borderRadius: "16px 16px 16px 4px",
+                    padding: "10px 14px", color: "var(--text-primary)",
+                    fontSize: "14px", lineHeight: "1.6",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}>
+                  <Markdown remarkPlugins={[remarkGfm]}>{streamingMsg}</Markdown>
                   <span style={{ opacity: 0.4, animation: "blink 1s step-end infinite" }}>|</span>
                 </div>
               ) : null}

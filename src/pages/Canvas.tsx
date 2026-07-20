@@ -119,7 +119,7 @@ function ConnectCanvas({
     background: "rgba(255,255,255,0.05)",
     border: "1px solid rgba(255,255,255,0.1)",
     color: "#E3E2E2",
-    fontFamily: "Inter, sans-serif",
+    fontFamily: "var(--font-sans)",
     fontSize: "14px",
     outline: "none",
     boxSizing: "border-box",
@@ -141,7 +141,7 @@ function ConnectCanvas({
       }}>
         <div style={{ width: "9px", height: "9px", borderRadius: "9999px", background: "#121414" }} />
         <span style={{
-          fontFamily: "Inter, sans-serif", fontSize: "10px",
+          fontFamily: "var(--font-sans)", fontSize: "10px",
           textTransform: "uppercase", letterSpacing: "1px", color: "#FEF6E6",
         }}>
           ECOSYSTEM SYNC
@@ -159,7 +159,7 @@ function ConnectCanvas({
             Canvas LMS Connected
           </p>
           <p style={{
-            fontFamily: "Inter, sans-serif", fontSize: "16px", lineHeight: "26px",
+            fontFamily: "var(--font-sans)", fontSize: "16px", lineHeight: "26px",
             color: "#C8C5CB", maxWidth: "500px", margin: "0 auto 32px",
           }}>
             Your academic infrastructure is synced and updating automatically in the background.
@@ -169,7 +169,7 @@ function ConnectCanvas({
             <RefreshButton syncStatus={syncStatus} onClick={onRefresh} />
           </div>
           {syncStatus === "cors-error" && (
-            <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(255,100,90,0.85)", marginTop: "12px" }}>
+            <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(255,100,90,0.85)", marginTop: "12px" }}>
               Canvas blocked the last request (CORS). Cached data is displayed.
             </p>
           )}
@@ -185,7 +185,7 @@ function ConnectCanvas({
             Connect Your Canvas LMS
           </p>
           <p style={{
-            fontFamily: "Inter, sans-serif", fontSize: "16px", lineHeight: "26px",
+            fontFamily: "var(--font-sans)", fontSize: "16px", lineHeight: "26px",
             color: "#C8C5CB", maxWidth: "500px", margin: "0 auto 32px",
           }}>
             Seamlessly integrate your academic infrastructure. Enter your institutional credentials below to initiate an automated curriculum handshake.
@@ -199,7 +199,7 @@ function ConnectCanvas({
             {/* Institute URL */}
             <div>
               <p style={{
-                fontFamily: "Inter, sans-serif", fontSize: "11px",
+                fontFamily: "var(--font-sans)", fontSize: "11px",
                 textTransform: "uppercase", letterSpacing: "0.5px",
                 color: "rgba(200,197,203,0.7)", margin: "0 0 8px",
               }}>
@@ -226,7 +226,7 @@ function ConnectCanvas({
             {/* Access Token */}
             <div>
               <p style={{
-                fontFamily: "Inter, sans-serif", fontSize: "11px",
+                fontFamily: "var(--font-sans)", fontSize: "11px",
                 textTransform: "uppercase", letterSpacing: "0.5px",
                 color: "rgba(200,197,203,0.7)", margin: "0 0 8px",
               }}>
@@ -295,7 +295,7 @@ function ConnectCanvas({
           <p
             onClick={onManualAdd}
             style={{
-              fontFamily: "Inter, sans-serif", fontSize: "14px",
+              fontFamily: "var(--font-sans)", fontSize: "14px",
               color: "rgba(200,197,203,0.7)", textDecoration: "underline",
               cursor: "pointer", margin: 0,
             }}
@@ -342,7 +342,7 @@ function CourseGridCard({ course, assignments, changes, onSeen, isMobile = false
           position: "absolute", top: "16px", right: "16px",
           background: "rgba(10,132,255,0.15)", border: "1px solid rgba(90,170,255,0.3)",
           borderRadius: "9999px", padding: "2px 8px",
-          fontFamily: "Inter, sans-serif", fontSize: "10px", color: "rgba(90,170,255,0.95)",
+          fontFamily: "var(--font-sans)", fontSize: "10px", color: "rgba(90,170,255,0.95)",
         }}>
           {changes.newAssignments} new
         </div>
@@ -365,7 +365,7 @@ function CourseGridCard({ course, assignments, changes, onSeen, isMobile = false
         <span style={{
           padding: "4px 10px",
           background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.05)",
-          borderRadius: "4px", fontFamily: "Inter, sans-serif",
+          borderRadius: "4px", fontFamily: "var(--font-sans)",
           fontSize: "10px", letterSpacing: "1px", color: "rgba(200,197,203,0.6)",
           textTransform: "uppercase",
         }}>
@@ -375,7 +375,7 @@ function CourseGridCard({ course, assignments, changes, onSeen, isMobile = false
 
       {/* Title */}
       <p style={{
-        fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "18px",
+        fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: "18px",
         letterSpacing: "-0.18px", color: "#E3E2E2", margin: "0 0 8px",
         overflow: "hidden", textOverflow: "ellipsis",
         whiteSpace: isMobile ? "normal" : "nowrap",
@@ -385,7 +385,7 @@ function CourseGridCard({ course, assignments, changes, onSeen, isMobile = false
 
       {/* Description */}
       <p style={{
-        fontFamily: "Inter, sans-serif", fontSize: "14px", lineHeight: "20px",
+        fontFamily: "var(--font-sans)", fontSize: "14px", lineHeight: "20px",
         color: "rgba(200,197,203,0.7)", margin: "0 0 24px", flex: 1,
         overflow: "hidden", display: "-webkit-box",
         WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as any,
@@ -399,10 +399,10 @@ function CourseGridCard({ course, assignments, changes, onSeen, isMobile = false
       {/* Progress */}
       <div style={{ marginBottom: "20px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-          <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "rgba(200,197,203,0.8)" }}>
+          <span style={{ fontFamily: "var(--font-sans)", fontSize: "11px", color: "rgba(200,197,203,0.8)" }}>
             {score != null ? "Grade" : "Progress"}
           </span>
-          <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: "11px", color: "#C8C5CB" }}>
+          <span style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: "11px", color: "#C8C5CB" }}>
             {score != null ? `${Math.round(score)}%` : "—"}
           </span>
         </div>
@@ -428,7 +428,7 @@ function CourseGridCard({ course, assignments, changes, onSeen, isMobile = false
             <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
             <line x1="3" y1="10" x2="21" y2="10"/>
           </svg>
-          <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(227,226,226,0.9)" }}>
+          <span style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(227,226,226,0.9)" }}>
             {upcoming.length > 0
               ? `${upcoming.length} assignment${upcoming.length !== 1 ? "s" : ""} due`
               : "All caught up"}
@@ -468,16 +468,16 @@ function AddNewCard({ onClick, isMobile = false }: { onClick: () => void; isMobi
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
       </div>
-      <p style={{ fontFamily: "Inter, sans-serif", fontSize: "18px", color: "#E3E2E2", textAlign: "center", margin: 0 }}>
+      <p style={{ fontFamily: "var(--font-sans)", fontSize: "18px", color: "#E3E2E2", textAlign: "center", margin: 0 }}>
         Add New Course
       </p>
-      <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.6)", textAlign: "center", margin: 0 }}>
+      <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.6)", textAlign: "center", margin: 0 }}>
         Import from Canvas or add manually
       </p>
       <span style={{
         border: "1px solid rgba(255,255,255,0.05)", borderRadius: "9999px",
         padding: "8px 20px",
-        fontFamily: "Inter, sans-serif", fontSize: "14px", color: "#FFFEFF",
+        fontFamily: "var(--font-sans)", fontSize: "14px", color: "#FFFEFF",
       }}>
         Add manually
       </span>
@@ -768,7 +768,7 @@ export default function Canvas() {
           Your Courses
         </h1>
         <p style={{
-          fontFamily: "Inter, sans-serif", fontWeight: 400,
+          fontFamily: "var(--font-sans)", fontWeight: 400,
           fontSize: "16px", lineHeight: "24px", color: "#C8C5CB",
           textAlign: "center", maxWidth: "628px", margin: "0 auto",
         }}>
@@ -844,7 +844,7 @@ export default function Canvas() {
         </div>
 
         {syncStatus === "syncing" && courses.length === 0 && (
-          <p style={{ textAlign: "center", fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.5)", marginTop: "40px" }}>
+          <p style={{ textAlign: "center", fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.5)", marginTop: "40px" }}>
             Syncing your courses…
           </p>
         )}

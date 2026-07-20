@@ -348,6 +348,10 @@ export default function Whiteboard({
   const [localLaser, setLocalLaser] = useState<{ x: number; y: number } | null>(null);
   const [textInput, setTextInput] = useState<{ x: number; y: number } | null>(null);
   const [showGrid, setShowGrid]     = useState(false);
+  // Compact toolbar by default: one row (core tools + colors + More). The secondary
+  // row, extra tools, and per-tool option rows appear only when expanded — the old
+  // always-open 3-row toolbar was most of the room's visual bloat.
+  const [expanded, setExpanded]     = useState(false);
   const [showHelp, setShowHelp]     = useState(false);
   const showGridRef = useRef(false);
   const [imgUploading, setImgUploading] = useState(false);
@@ -1201,6 +1205,7 @@ export default function Whiteboard({
       <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
         <button style={chip(tool === "pen")}          onClick={() => onToolChange("pen")}          title="Pen"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Pencil size={14} />Pen</span></button>
         <button style={chip(tool === "stroke-erase")} onClick={() => onToolChange("stroke-erase")} title="Tap a line to delete the whole stroke"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Eraser size={14} />Erase</span></button>
+        {expanded && (<>
         <button style={chip(tool === "area-erase")}   onClick={() => onToolChange("area-erase")}   title="Drag to rub out an area"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Circle size={14} />Area</span></button>
         <button style={chip(tool === "laser")}        onClick={() => onToolChange("laser")}        title="Laser pointer"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Crosshair size={14} />Laser</span></button>
         <button style={chip(tool === "text")}         onClick={() => onToolChange("text")}         title="Place text on the board"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Type size={14} />Text</span></button>
@@ -1220,6 +1225,7 @@ export default function Whiteboard({
           style={{ display: "none" }}
           onChange={handleFilePickerChange}
         />
+        </>)}
 
         {/* Shapes — one button in the rail; sub-type picker appears in the contextual row below */}
         <button
@@ -1250,9 +1256,25 @@ export default function Whiteboard({
           title="Redo (Ctrl+Shift+Z)"
           disabled={!canRedo}
         ><Redo2 size={14} /></button>
+        <button
+          style={{ ...chip(expanded), marginLeft: 2 }}
+          onClick={() => setExpanded(e => !e)}
+          title={expanded ? "Hide extra tools" : "More tools: laser, select, image, backgrounds, grid, export…"}
+        ><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>⋯ {expanded ? "Less" : "More"}</span></button>
+        {/* Compact mode: colors live inline on the single row (they're the one thing
+            you actually reach for constantly while drawing). */}
+        {!expanded && isPen && (<>
+          <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
+          {PEN_COLORS.map(c => (
+            <button key={c} onClick={() => onColorChange(c)} title={c}
+              style={{ width: "18px", height: "18px", borderRadius: "50%", cursor: "pointer", padding: 0, background: c,
+                border: color === c ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)" }} />
+          ))}
+        </>)}
       </div>
 
-      {/* ── Secondary controls row — backgrounds + export/clear (always visible) ── */}
+      {/* ── Secondary controls row — backgrounds + export/clear (expanded only) ── */}
+      {expanded && (<>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "8px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
         <span style={{ fontSize: "11px", color: "var(--text-dim)" }}>BG</span>
         {BACKGROUNDS.map(b => (
@@ -1295,11 +1317,12 @@ export default function Whiteboard({
           onClick={() => { if (window.confirm("Clear the whiteboard for everyone in the room?")) onClear(); }}
         ><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Trash2 size={14} />Clear</span></button>
       </div>
+      </>)}
 
       {/* ── Contextual option rows — shown only for the active tool ───────────── */}
 
       {/* Pen: style + thickness + colour */}
-      {isPen && (
+      {expanded && isPen && (
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
           {PEN_STYLES.map(ps => (
             <button key={ps.value} style={chip(style === ps.value)} onClick={() => onStyleChange(ps.value)}>
@@ -1332,7 +1355,7 @@ export default function Whiteboard({
       )}
 
       {/* Text: size + colour + hint */}
-      {isText && (
+      {expanded && isText && (
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
           <span style={{ fontSize: "11px", color: "var(--text-dim)" }}>Size</span>
           {PEN_WIDTHS.map((w, i) => (
@@ -1361,7 +1384,7 @@ export default function Whiteboard({
       )}
 
       {/* Shapes: sub-type picker + thickness + colour */}
-      {isShape && (
+      {expanded && isShape && (
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
           <button style={chip(tool === "rect")}   onClick={() => onToolChange("rect")}   title="Rectangle"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Square size={14} />Rect</span></button>
           <button style={chip(tool === "circle")} onClick={() => onToolChange("circle")} title="Circle / Ellipse"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Circle size={14} />Circle</span></button>

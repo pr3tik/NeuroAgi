@@ -55,7 +55,7 @@
   --depth-line: 0 1px 0 rgba(255, 255, 255, 0.06);
 
   /* ── Typography ─────────────────────────────────────────────────────── */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
                "Helvetica Neue", Arial, sans-serif;
 
   /* Type scale (matches sizes in active use across src/) */
