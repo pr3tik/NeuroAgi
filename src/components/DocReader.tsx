@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {} from "framer-motion"; // framer-motion used in child components
 import { supabase } from "../api/supabase";
+import { useApp } from "../context/AppContext";
 import SelectionToolbar, { type DocAction } from "./SelectionToolbar";
 import DocChat from "./DocChat";
 
@@ -141,6 +142,7 @@ interface Props {
 const DOC_CTX_CHARS = 6000;
 
 export default function DocReader({ file, onBack, onNavigate }: Props) {
+  const { userId } = useApp();
   const [contentText, setContentText] = useState<string | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
@@ -246,13 +248,29 @@ export default function DocReader({ file, onBack, onNavigate }: Props) {
         .eq("id", file.id)
         .maybeSingle();
       if (err) throw new Error(err.message);
-      setContentText(data?.content_text ?? "");
+      let text = data?.content_text ?? "";
+      // Server-side Canvas-indexed files store their text in RAG (rag_sections), which
+      // is RLS-deny to client keys — fetch it via the server (?action=doc) instead, or
+      // these files open as a blank reader.
+      const docId = (file as any).documentId ?? (file as any).document_id;
+      if (!text && docId && userId) {
+        const r = await fetch("/api/rag?action=doc", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, documentId: docId }),
+        });
+        if (r.ok) {
+          const d = await r.json().catch(() => ({}));
+          text = String(d?.text ?? "");
+        }
+      }
+      setContentText(text);
     } catch (e: any) {
       setError(e.message || "Couldn't load document.");
     } finally {
       setLoading(false);
     }
-  }, [file.id]);
+  }, [file.id, userId]);
 
   useEffect(() => { fetchContent(); }, [fetchContent]);
 
