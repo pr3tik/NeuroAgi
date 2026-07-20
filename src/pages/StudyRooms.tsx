@@ -992,6 +992,14 @@ function parseGsPlan(text: string): { title: string; goal: string; estMin: numbe
   }
   return steps.slice(0, 7);
 }
+function parseFcCards(text: string): { q: string; a: string }[] {
+  const cards: { q: string; a: string }[] = [];
+  for (const line of String(text || "").split("\n")) {
+    const m = line.match(/Q:\s*(.+?)\s*\|\s*A:\s*(.+)/i);
+    if (m) cards.push({ q: m[1].trim().replace(/\*\*/g, ""), a: m[2].trim().replace(/\*\*/g, "") });
+  }
+  return cards.slice(0, 12);
+}
 function defaultGsPlan(mode: string, topic: string) {
   if (mode === "assignment") return [
     { title: "Understand the task", goal: `Break down what "${topic}" is actually asking`, estMin: 5 },
@@ -1848,7 +1856,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   useEffect(() => { const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, []);
 
   // ── Guided study session (proactive, Reggie-driven) — center-stage tutor flow ──
-  const [centerTab,     setCenterTab]     = useState<"board" | "session">("board");
+  const [centerTab,     setCenterTab]     = useState<"board" | "session" | "flashcards">("board");
   const [gs,            setGs]            = useState<null | { mode: "learn" | "assignment" | "exam"; topic: string; steps: { title: string; goal: string; estMin: number }[]; currentIdx: number; status: "planning" | "active" | "done"; startedAt: number }>(null);
   const [gsBusy,        setGsBusy]        = useState(false);
   const [gsBusyLabel,   setGsBusyLabel]   = useState("");
@@ -1866,6 +1874,15 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const gsCurContent = gs && gs.status === "active" ? gsStepContent[gs.currentIdx] : undefined;
   useEffect(() => { if (gsVoiceOn && gsCurContent) gsSpeak(gsCurContent); /* eslint-disable-next-line */ }, [gsCurContent, gsVoiceOn]);
   useEffect(() => () => { try { gsAudioRef.current?.pause(); } catch {} }, []);
+
+  // ── Flashcards in room — Reggie builds a deck, you review it (flip + rate) ──
+  const [fcCards,   setFcCards]   = useState<{ q: string; a: string }[]>([]);
+  const [fcIdx,     setFcIdx]     = useState(0);
+  const [fcFlipped, setFcFlipped] = useState(false);
+  const [fcBusy,    setFcBusy]    = useState(false);
+  const [fcTopic,   setFcTopic]   = useState("");
+  const [fcDone,    setFcDone]    = useState(false);
+  const [fcResults, setFcResults] = useState<{ got: number; missed: number }>({ got: 0, missed: 0 });
 
   // room-ai requires an active AI session for the room. Idempotent — resumes if one exists.
   async function ensureRoomAiSession(token: string) {
@@ -2059,6 +2076,39 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     }
   }
 
+  // ── Flashcards engine ──
+  async function fcGenerate(topic: string) {
+    const t = (topic || "").trim();
+    if (!t || fcBusy) return;
+    setFcBusy(true);
+    try {
+      const p = `Create 8 study flashcards to help me review "${t}", grounded in my course materials where relevant. Output ONE card per line in EXACTLY this format and nothing else — no numbering, no intro:\nQ: <question> | A: <concise answer>`;
+      let cards = parseFcCards(await reggieRaw(p));
+      if (!cards.length) cards = [{ q: `What's one key idea in ${t}?`, a: "Reggie couldn't parse a deck — try generating again." }];
+      setFcCards(cards); setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 });
+    } catch (err) {
+      setFcCards([{ q: "Reggie couldn't build the deck", a: String((err as Error)?.message || "Try again in a moment.") }]);
+      setFcIdx(0); setFcFlipped(false); setFcDone(false);
+    } finally { setFcBusy(false); }
+  }
+  async function fcLoadCourseDeck() {
+    if (!room.course_id || fcBusy) return;
+    setFcBusy(true);
+    try {
+      const r = await fetch("/api/flashcards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", userId, courseId: room.course_id }) });
+      const d = await r.json().catch(() => ({}));
+      const cards = (d?.cards || []).map((c: any) => ({ q: c.question, a: c.answer })).filter((c: any) => c.q && c.a);
+      if (cards.length) { setFcCards(cards); setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }
+      else setFcCards([{ q: "No saved cards for this course yet", a: "Generate a deck from a topic instead." }]);
+    } catch { /* ignore */ } finally { setFcBusy(false); }
+  }
+  function fcRate(got: boolean) {
+    setFcResults(r => ({ got: r.got + (got ? 1 : 0), missed: r.missed + (got ? 0 : 1) }));
+    if (fcIdx >= fcCards.length - 1) { setFcDone(true); return; }
+    setFcIdx(i => i + 1); setFcFlipped(false);
+  }
+  function fcReset() { setFcCards([]); setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }
+
   async function sendChatMessage() {
     const body = chatInput.trim();
     if (!body || chatSending) return;
@@ -2196,12 +2246,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <div style={{ display: "flex", flexDirection: "column", background: "rgba(129,140,248,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
             {/* Center tab strip — collaborative board vs. Reggie-guided session */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexShrink: 0 }}>
-              {([["board", "Whiteboard"], ["session", "Guided session"]] as const).map(([key, label]) => {
+              {([["board", "Whiteboard"], ["session", "Guided session"], ["flashcards", "Flashcards"]] as const).map(([key, label]) => {
                 const active = centerTab === key;
                 return (
                   <button key={key} onClick={() => setCenterTab(key)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
-                    {key === "session" && <Sparkles size={12} />}{label}
+                    {key === "session" && <Sparkles size={12} />}{key === "flashcards" && <BookOpen size={12} />}{label}
                     {key === "session" && gs && gs.status !== "done" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
+                    {key === "flashcards" && fcCards.length > 0 && !fcDone && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
                   </button>
                 );
               })}
@@ -2250,7 +2301,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     <button onClick={() => setShowBoard(true)} style={{ background: "rgba(99,102,241,0.9)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Open board</button>
                   </div>
                 )
-              ) : (
+              ) : centerTab === "session" ? (
                 /* ── Guided session stage — proactive, Reggie-driven ── */
                 <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
                   {!gs ? (
@@ -2350,6 +2401,59 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                         <button onClick={gsStuck} disabled={gsBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.6 : 1, fontFamily: "inherit" }}>I'm stuck</button>
                         <button onClick={() => setGsAskOpen(o => !o)} style={{ background: gsAskOpen ? "rgba(167,139,250,0.15)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsAskOpen ? "rgba(167,139,250,0.35)" : "rgba(255,255,255,0.12)"}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: gsAskOpen ? "#c4b5fd" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Ask a question</button>
                         <button onClick={gsNext} disabled={gsBusy} style={{ marginLeft: "auto", background: gsBusy ? "rgba(129,140,248,0.25)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.7 : 1, fontFamily: "inherit", boxShadow: "0 6px 18px rgba(99,102,241,0.3)" }}>{gs.currentIdx >= gs.steps.length - 1 ? "Finish ✓" : "Continue →"}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* ── Flashcards stage ── */
+                <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  {fcCards.length === 0 ? (
+                    /* Launcher */
+                    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(129,140,248,0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(129,140,248,0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#c7d2fe" /></div>
+                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Flashcards</h3>
+                      <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie builds a deck on any topic — grounded in your course materials — and quizzes you.</p>
+                      <input value={fcTopic} onChange={e => setFcTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && fcTopic.trim()) fcGenerate(fcTopic); }} placeholder="Topic to make cards on…" style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <button onClick={() => fcGenerate(fcTopic)} disabled={!fcTopic.trim() || fcBusy} style={{ background: (!fcTopic.trim() || fcBusy) ? "rgba(129,140,248,0.2)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!fcTopic.trim() || fcBusy) ? "default" : "pointer", opacity: (!fcTopic.trim() || fcBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(99,102,241,0.35)" }}>{fcBusy ? "Building deck…" : "Generate deck →"}</button>
+                        {room.course_id && <button onClick={fcLoadCourseDeck} disabled={fcBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 18px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: fcBusy ? "default" : "pointer", fontFamily: "inherit" }}>Load my deck</button>}
+                      </div>
+                    </div>
+                  ) : fcDone ? (
+                    /* Summary */
+                    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
+                      <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
+                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Deck complete</h3>
+                      <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}><span style={{ color: "#5eead4", fontWeight: 600 }}>{fcResults.got} got it</span> · <span style={{ color: "#fca5a5", fontWeight: 600 }}>{fcResults.missed} to review</span></p>
+                      <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{fcCards.length} cards</p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => { setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }} style={{ background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Study again</button>
+                        <button onClick={fcReset} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>New deck</button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Reviewer */
+                    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                        <div style={{ flex: 1, height: 6, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                          <div style={{ width: `${Math.round((fcIdx / fcCards.length) * 100)}%`, height: "100%", background: "linear-gradient(90deg, #6366f1, #5eead4)", transition: "width 0.3s ease" }} />
+                        </div>
+                        <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", flexShrink: 0 }}>Card {fcIdx + 1} of {fcCards.length}</span>
+                        <button onClick={fcReset} title="New deck" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 10px", fontSize: 11, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Exit</button>
+                      </div>
+                      <button onClick={() => setFcFlipped(f => !f)} style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: 12, background: fcFlipped ? "rgba(94,234,212,0.06)" : "rgba(129,140,248,0.07)", border: `1px solid ${fcFlipped ? "rgba(94,234,212,0.25)" : "rgba(129,140,248,0.25)"}`, borderRadius: 16, padding: "24px", cursor: "pointer", fontFamily: "inherit", overflow: "auto" }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: fcFlipped ? "#5eead4" : "#a5b4fc" }}>{fcFlipped ? "Answer" : "Question"}</span>
+                        <span style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.45, color: "var(--text-primary)", maxWidth: 460 }}>{fcFlipped ? fcCards[fcIdx]?.a : fcCards[fcIdx]?.q}</span>
+                        {!fcFlipped && <span style={{ fontSize: 11.5, color: "var(--text-dim)" }}>Tap to reveal</span>}
+                      </button>
+                      <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 12 }}>
+                        {fcFlipped ? (<>
+                          <button onClick={() => fcRate(false)} style={{ flex: 1, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fca5a5", cursor: "pointer", fontFamily: "inherit" }}>Missed</button>
+                          <button onClick={() => fcRate(true)} style={{ flex: 1, background: "rgba(94,234,212,0.14)", border: "1px solid rgba(94,234,212,0.35)", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#5eead4", cursor: "pointer", fontFamily: "inherit" }}>Got it</button>
+                        </>) : (
+                          <button onClick={() => setFcFlipped(true)} style={{ flex: 1, background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Reveal answer</button>
+                        )}
                       </div>
                     </div>
                   )}
