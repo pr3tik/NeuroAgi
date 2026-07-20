@@ -27,7 +27,7 @@ import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
   Timer, Coins, ThumbsUp, ThumbsDown, Image as ImageIcon, Hand, Zap, Hourglass,
-  RefreshCw, LogOut, Sparkles, Video,
+  RefreshCw, LogOut, Sparkles, Video, Volume2, VolumeX, Music, Play, Pause, SkipForward,
 } from "lucide-react";
 
 // ── Access filters ────────────────────────────────────────────────────────────
@@ -983,6 +983,105 @@ function cursorColor(uid: string) {
 // ─────────────────────────────────────────────────────────────────────────────
 // RoomView — Phase 2A: + Pomodoro, Goal prompt, Session summary
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Guided study session (proactive) — plan parsing, fallbacks, nudges, rich text ──
+function parseGsPlan(text: string): { title: string; goal: string; estMin: number }[] {
+  const steps: { title: string; goal: string; estMin: number }[] = [];
+  for (const line of String(text || "").split("\n")) {
+    const m = line.match(/STEP\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(\d+)/i);
+    if (m) steps.push({ title: m[1].trim().replace(/\*\*/g, ""), goal: m[2].trim().replace(/\*\*/g, ""), estMin: Math.min(30, Math.max(1, parseInt(m[3], 10) || 5)) });
+  }
+  return steps.slice(0, 7);
+}
+function parseFcCards(text: string): { q: string; a: string }[] {
+  const cards: { q: string; a: string }[] = [];
+  for (const line of String(text || "").split("\n")) {
+    const m = line.match(/Q:\s*(.+?)\s*\|\s*A:\s*(.+)/i);
+    if (m) cards.push({ q: m[1].trim().replace(/\*\*/g, ""), a: m[2].trim().replace(/\*\*/g, "") });
+  }
+  return cards.slice(0, 12);
+}
+function defaultGsPlan(mode: string, topic: string) {
+  if (mode === "assignment") return [
+    { title: "Understand the task", goal: `Break down what "${topic}" is actually asking`, estMin: 5 },
+    { title: "Gather what you need", goal: "Pull the relevant course material and notes", estMin: 6 },
+    { title: "Outline your approach", goal: "Plan the structure before you start", estMin: 8 },
+    { title: "Do the work", goal: "Complete it step by step, Reggie coaching you", estMin: 15 },
+    { title: "Review & polish", goal: "Check it against the rubric", estMin: 6 },
+  ];
+  if (mode === "exam") return [
+    { title: "Map the topics", goal: `List what "${topic}" will cover`, estMin: 4 },
+    { title: "Core concepts", goal: "Re-learn the key ideas", estMin: 12 },
+    { title: "Practice problems", goal: "Test yourself on the hard parts", estMin: 12 },
+    { title: "Fix the gaps", goal: "Drill what you missed", estMin: 8 },
+    { title: "Final review", goal: "Quick pass to lock it in", estMin: 5 },
+  ];
+  return [
+    { title: "Warm up", goal: `Recall what you already know about ${topic}`, estMin: 3 },
+    { title: "Core idea", goal: `Understand the main concept of ${topic}`, estMin: 8 },
+    { title: "Work an example", goal: "Apply it to a concrete problem", estMin: 8 },
+    { title: "Check yourself", goal: "Quiz to confirm you've got it", estMin: 5 },
+  ];
+}
+const GS_NUDGES: Record<string, string[]> = {
+  start:    ["You've got this — one step at a time. 💪", "Locked in. Let's make this click. ✨", "Let's do this — I'm right here with you. 🙌"],
+  progress: ["Nice — one down. Keep the momentum. 🔥", "Great pace. On to the next. 🚀", "That's real progress — proud of you. 🌟"],
+  stuck:    ["Totally normal to get stuck here — let's untangle it. 🧠", "Good — the hard parts are where learning happens. 💡", "No worries, let's slow it down together. 🤝"],
+  done:     ["Session complete — you crushed it. 🎉", "Done! That was focused work. 🌟", "Nailed it. Come back anytime. 🎯"],
+  focus:    ["🔥 Deep focus time — you've got this.", "⚡ Locking in. Let's make these minutes count.", "💪 Heads down — I'm rooting for you.", "🌟 One sprint at a time. Let's go."],
+};
+function pickGsNudge(kind: string) {
+  const arr = GS_NUDGES[kind] || GS_NUDGES.start;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+// Render inline markdown: **bold** then *italic* within the non-bold segments.
+function gsInline(text: string): any[] {
+  const out: any[] = [];
+  String(text || "").split(/(\*\*[^*]+\*\*)/g).forEach((bp, bi) => {
+    if (bp.startsWith("**") && bp.endsWith("**") && bp.length > 4) {
+      out.push(<strong key={`b${bi}`} style={{ color: "var(--text-primary)", fontWeight: 600 }}>{bp.slice(2, -2)}</strong>);
+      return;
+    }
+    bp.split(/(\*[^*\n]+\*)/g).forEach((ip, ii) => {
+      if (ip.startsWith("*") && ip.endsWith("*") && ip.length > 2) out.push(<em key={`i${bi}-${ii}`} style={{ color: "var(--text-secondary)" }}>{ip.slice(1, -1)}</em>);
+      else if (ip) out.push(<span key={`s${bi}-${ii}`}>{ip}</span>);
+    });
+  });
+  return out;
+}
+function GsRichText({ text }: { text: string }) {
+  const blocks = String(text || "").split(/\n{2,}/).filter(b => b.trim());
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+      {blocks.map((b, i) => {
+        const trimmed = b.trim();
+        if (/^([-*_=]){3,}$/.test(trimmed)) return <div key={i} style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "1px 0" }} />;
+        const lines = b.split("\n").filter(l => l.trim());
+        const hasBullets = lines.some(l => /^\s*[-•]\s+/.test(l) || /^\s*\*\s+/.test(l));
+        if (hasBullets) {
+          return (
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {lines.map((l, j) => {
+                const isB = /^\s*[-•]\s+/.test(l) || /^\s*\*\s+/.test(l);
+                return (
+                  <p key={j} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: "var(--text-secondary)", display: "flex", gap: 8 }}>
+                    {isB && <span style={{ color: "#818cf8", flexShrink: 0 }}>•</span>}
+                    <span>{gsInline(l.replace(/^\s*[-•*]\s+/, "").replace(/^#+\s*/, ""))}</span>
+                  </p>
+                );
+              })}
+            </div>
+          );
+        }
+        return (
+          <p key={i} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.62, color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
+            {gsInline(b.replace(/^#+\s*/, ""))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const { userId, userData, setActiveRoomId, setWhiteboardSnapshot } = useApp();
   const [members,            setMembers]            = useState([]);
@@ -1160,6 +1259,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 
   function handlePomoStart() {
     broadcastAndSavePomo({ phase: "focus", paused: false, startedAt: Date.now(), durationSec: sprintDurationRef.current, pausedRemaining: null });
+    setRoomToast(pickGsNudge("focus")); // Reggie cheers you into the sprint
   }
   function handlePomoPause() {
     const p = pomoRef.current;
@@ -1756,7 +1856,45 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const reggieSessionRef = useRef(false); // ensured an active AI session for this room yet?
   const [focusMode, setFocusMode] = useState(false); // redesign: Focus Mode collapses the side panels
   const [roomToast, setRoomToast] = useState<string | null>("🔥 Study streak · day 12");
-  useEffect(() => { const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, []);
+  useEffect(() => { if (!roomToast) return; const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, [roomToast]);
+
+  // ── Guided study session (proactive, Reggie-driven) — center-stage tutor flow ──
+  const [centerTab,     setCenterTab]     = useState<"board" | "session" | "flashcards">("board");
+  const [gs,            setGs]            = useState<null | { mode: "learn" | "assignment" | "exam"; topic: string; steps: { title: string; goal: string; estMin: number }[]; currentIdx: number; status: "planning" | "active" | "done"; startedAt: number }>(null);
+  const [gsBusy,        setGsBusy]        = useState(false);
+  const [gsBusyLabel,   setGsBusyLabel]   = useState("");
+  const [gsStepContent, setGsStepContent] = useState<Record<number, string>>({});
+  const [gsExtra,       setGsExtra]       = useState<Record<number, string[]>>({});
+  const [gsNudge,       setGsNudge]       = useState("");
+  const [gsAsk,         setGsAsk]         = useState("");
+  const [gsAskOpen,     setGsAskOpen]     = useState(false);
+  const [gsLaunchMode,  setGsLaunchMode]  = useState<"learn" | "assignment" | "exam">("learn");
+  const [gsTopic,       setGsTopic]       = useState("");
+  // Voice teaching (TTS) — Reggie reads steps aloud; auto-on for exam prep.
+  const gsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [gsSpeaking, setGsSpeaking] = useState(false);
+  const [gsVoiceOn,  setGsVoiceOn]  = useState(false);
+  const gsCurContent = gs && gs.status === "active" ? gsStepContent[gs.currentIdx] : undefined;
+  useEffect(() => { if (gsVoiceOn && gsCurContent) gsSpeak(gsCurContent); /* eslint-disable-next-line */ }, [gsCurContent, gsVoiceOn]);
+  useEffect(() => () => { try { gsAudioRef.current?.pause(); } catch {} }, []);
+
+  // ── Flashcards in room — Reggie builds a deck, you review it (flip + rate) ──
+  const [fcCards,   setFcCards]   = useState<{ q: string; a: string }[]>([]);
+  const [fcIdx,     setFcIdx]     = useState(0);
+  const [fcFlipped, setFcFlipped] = useState(false);
+  const [fcBusy,    setFcBusy]    = useState(false);
+  const [fcTopic,   setFcTopic]   = useState("");
+  const [fcDone,    setFcDone]    = useState(false);
+  const [fcResults, setFcResults] = useState<{ got: number; missed: number }>({ got: 0, missed: 0 });
+
+  // ── Focus music — iTunes 30s previews the tutor/you can play while studying ──
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [musicTracks,  setMusicTracks]  = useState<{ title: string; artist: string; previewUrl: string; artwork: string }[]>([]);
+  const [musicIdx,     setMusicIdx]     = useState(0);
+  const [musicPlaying, setMusicPlaying] = useState(false);
+  const [musicOpen,    setMusicOpen]    = useState(false);
+  const [musicLoading, setMusicLoading] = useState(false);
+  useEffect(() => () => { try { musicAudioRef.current?.pause(); } catch {} }, []);
 
   // room-ai requires an active AI session for the room. Idempotent — resumes if one exists.
   async function ensureRoomAiSession(token: string) {
@@ -1797,6 +1935,224 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     } finally {
       setReggieBusy(false);
     }
+  }
+
+  // ── Guided session engine — drives Reggie proactively through a step-by-step plan ──
+  // Send a raw prompt to the in-room private Reggie and return the text (grounded server-side).
+  async function reggieRaw(prompt: string): Promise<string> {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error("Sign in to use Reggie.");
+    await ensureRoomAiSession(token);
+    const r = await fetch("/api/room-ai?action=private", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ roomId: room.id, message: prompt }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d?.error || `Reggie couldn't respond (${r.status})`);
+    return String(d?.message ?? "");
+  }
+
+  // Reggie teaches one step, proactively — fetched once and cached per step index.
+  async function gsTeachStep(idx: number, ctx: { mode: string; topic: string; steps: { title: string; goal: string; estMin: number }[] }) {
+    const step = ctx.steps[idx];
+    if (!step) return;
+    setGsBusy(true); setGsBusyLabel(`Reggie is preparing step ${idx + 1}…`);
+    try {
+      const teachPrompt = `We're in a guided ${ctx.mode} session on "${ctx.topic}". We are on step ${idx + 1} of ${ctx.steps.length}: "${step.title}" — ${step.goal}. Teach me THIS step now: proactive, warm, and clear, in 3 to 5 short paragraphs, grounded in my own course materials where relevant. ${ctx.mode === "assignment" ? "Coach me to do the work myself and give one concrete next action — do NOT write the final answer for me." : "End with a one-line check: what I should be able to do before we move on."} Do not greet me again — just continue the session.`;
+      const content = await reggieRaw(teachPrompt);
+      setGsStepContent(prev => ({ ...prev, [idx]: content || "Let's work through this step together — tell me where you'd like to start." }));
+    } catch (err) {
+      setGsStepContent(prev => ({ ...prev, [idx]: `⚠️ ${(err as Error)?.message || "Reggie couldn't load this step."}\n\nLet's keep going — what part of "${step.title}" would you like to tackle?` }));
+    } finally {
+      setGsBusy(false); setGsBusyLabel("");
+    }
+  }
+
+  // Start a guided session: Reggie plans it, then proactively teaches step 1.
+  async function beginGuidedSession(mode: "learn" | "assignment" | "exam", topic: string) {
+    const t = (topic || "").trim();
+    if (!t || gsBusy) return;
+    setCenterTab("session");
+    setGsBusy(true); setGsBusyLabel("Reggie is planning your session…");
+    setGsStepContent({}); setGsExtra({}); setGsNudge(""); setGsAskOpen(false);
+    gsStopSpeak(); setGsVoiceOn(mode === "exam"); // exam prep is taught aloud by default
+    setGs({ mode, topic: t, steps: [], currentIdx: 0, status: "planning", startedAt: Date.now() });
+    try {
+      const verb = mode === "assignment" ? `complete the assignment "${t}"`
+                 : mode === "exam" ? `prepare for an exam on ${t}`
+                 : `learn ${t}`;
+      const planPrompt = `You are Reggie, my study tutor in a live study room. Build a focused, proactive plan to help me ${verb}. Return 4 to 6 steps. Output ONE line per step in EXACTLY this format and nothing else — no intro, no numbering:\nSTEP | <short step title> | <one-sentence goal> | <estimated minutes as a whole number>\n${mode === "assignment" ? "Guide me to do the work myself — never write the final answer for me." : ""}`;
+      let steps = parseGsPlan(await reggieRaw(planPrompt));
+      if (steps.length < 2) steps = defaultGsPlan(mode, t);
+      const active = { mode, topic: t, steps, currentIdx: 0, status: "active" as const, startedAt: Date.now() };
+      setGs(active);
+      setGsNudge(pickGsNudge("start"));
+      await gsTeachStep(0, active);
+    } catch (err) {
+      const steps = defaultGsPlan(mode, t);
+      setGs({ mode, topic: t, steps, currentIdx: 0, status: "active", startedAt: Date.now() });
+      setGsStepContent({ 0: `⚠️ ${(err as Error)?.message || "Reggie had trouble planning."}\n\nWe can still work through it — tell me what you'd like to start with.` });
+      setGsBusy(false); setGsBusyLabel("");
+    }
+  }
+
+  // Advance to the next step (or finish). Marks progress + a motivational beat.
+  function gsNext() {
+    if (!gs || gsBusy) return;
+    setGsAskOpen(false);
+    if (gs.currentIdx >= gs.steps.length - 1) {
+      setGs(g => g ? { ...g, status: "done" } : g);
+      setGsNudge(pickGsNudge("done"));
+      return;
+    }
+    const next = gs.currentIdx + 1;
+    const ctx = { ...gs, currentIdx: next };
+    setGs(g => g ? { ...g, currentIdx: next } : g);
+    setGsNudge(pickGsNudge("progress"));
+    if (!gsStepContent[next]) gsTeachStep(next, ctx);
+  }
+
+  // "I'm stuck" — Reggie re-explains the current step more simply, without moving on.
+  async function gsStuck() {
+    if (!gs || gsBusy) return;
+    const idx = gs.currentIdx; const step = gs.steps[idx];
+    setGsNudge(pickGsNudge("stuck"));
+    setGsBusy(true); setGsBusyLabel("Reggie is breaking it down…");
+    try {
+      const p = `I'm stuck on step ${idx + 1} ("${step.title}") of our session on "${gs.topic}". Re-explain it more simply, with a small concrete example, in 2 to 3 short paragraphs. Don't move on yet.`;
+      const extra = await reggieRaw(p);
+      setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), `**You:** I'm stuck.`, extra] }));
+    } catch (err) {
+      setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), `⚠️ ${(err as Error)?.message || "Reggie couldn't respond."}`] }));
+    } finally { setGsBusy(false); setGsBusyLabel(""); }
+  }
+
+  // Inline "ask a question" about the current step.
+  async function gsAskSend() {
+    const q = gsAsk.trim();
+    if (!q || !gs || gsBusy) return;
+    const idx = gs.currentIdx; setGsAsk("");
+    setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), `**You:** ${q}`] }));
+    setGsBusy(true); setGsBusyLabel("Reggie is answering…");
+    try {
+      const p = `While we're on step ${idx + 1} ("${gs.steps[idx].title}") of our ${gs.mode} session on "${gs.topic}", I have a question: ${q}. Answer briefly and tie it back to the step.`;
+      const a = await reggieRaw(p);
+      setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), a] }));
+    } catch (err) {
+      setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), `⚠️ ${(err as Error)?.message || "Reggie couldn't respond."}`] }));
+    } finally { setGsBusy(false); setGsBusyLabel(""); }
+  }
+
+  function endGuidedSession() {
+    gsStopSpeak(); setGsVoiceOn(false);
+    setGs(null); setGsStepContent({}); setGsExtra({}); setGsNudge(""); setGsAsk(""); setGsAskOpen(false); setCenterTab("board");
+  }
+
+  // ── Voice teaching (TTS via ElevenLabs) — reads a step aloud; strips markdown/emoji first ──
+  function gsStripForSpeech(text: string) {
+    return String(text || "")
+      .replace(/\*\*/g, "").replace(/\*/g, "").replace(/`+/g, "")
+      .replace(/^#+\s*/gm, "").replace(/^\s*[-•]\s+/gm, "")
+      .replace(/[✅✨🔥💪🚀🌟🎯🙌🧠💡🎉📚✍️🔊]/g, "")
+      .replace(/\n{2,}/g, ". ").replace(/\s+/g, " ").trim().slice(0, 1800);
+  }
+  function gsStopSpeak() {
+    const a = gsAudioRef.current;
+    if (a) { try { a.pause(); a.currentTime = 0; } catch {} }
+    setGsSpeaking(false);
+  }
+  async function gsSpeak(text: string) {
+    const clean = gsStripForSpeech(text);
+    if (!clean) return;
+    gsStopSpeak();
+    setGsSpeaking(true);
+    try {
+      const r = await fetch("/api/tts?action=stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: clean }),
+      });
+      if (!r.ok) throw new Error(`TTS ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      let a = gsAudioRef.current;
+      if (!a) { a = new Audio(); gsAudioRef.current = a; }
+      a.onended = () => { setGsSpeaking(false); URL.revokeObjectURL(url); };
+      a.onerror = () => { setGsSpeaking(false); };
+      a.src = url;
+      await a.play();
+    } catch {
+      setGsSpeaking(false);
+    }
+  }
+
+  // ── Flashcards engine ──
+  async function fcGenerate(topic: string) {
+    const t = (topic || "").trim();
+    if (!t || fcBusy) return;
+    setFcBusy(true);
+    try {
+      const p = `Create 8 study flashcards to help me review "${t}", grounded in my course materials where relevant. Output ONE card per line in EXACTLY this format and nothing else — no numbering, no intro:\nQ: <question> | A: <concise answer>`;
+      let cards = parseFcCards(await reggieRaw(p));
+      if (!cards.length) cards = [{ q: `What's one key idea in ${t}?`, a: "Reggie couldn't parse a deck — try generating again." }];
+      setFcCards(cards); setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 });
+    } catch (err) {
+      setFcCards([{ q: "Reggie couldn't build the deck", a: String((err as Error)?.message || "Try again in a moment.") }]);
+      setFcIdx(0); setFcFlipped(false); setFcDone(false);
+    } finally { setFcBusy(false); }
+  }
+  async function fcLoadCourseDeck() {
+    if (!room.course_id || fcBusy) return;
+    setFcBusy(true);
+    try {
+      const r = await fetch("/api/flashcards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "load", userId, courseId: room.course_id }) });
+      const d = await r.json().catch(() => ({}));
+      const cards = (d?.cards || []).map((c: any) => ({ q: c.question, a: c.answer })).filter((c: any) => c.q && c.a);
+      if (cards.length) { setFcCards(cards); setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }
+      else setFcCards([{ q: "No saved cards for this course yet", a: "Generate a deck from a topic instead." }]);
+    } catch { /* ignore */ } finally { setFcBusy(false); }
+  }
+  function fcRate(got: boolean) {
+    setFcResults(r => ({ got: r.got + (got ? 1 : 0), missed: r.missed + (got ? 0 : 1) }));
+    if (fcIdx >= fcCards.length - 1) { setFcDone(true); return; }
+    setFcIdx(i => i + 1); setFcFlipped(false);
+  }
+  function fcReset() { setFcCards([]); setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }
+
+  // ── Focus music engine ──
+  async function loadMusic(query = "lofi study beats") {
+    setMusicLoading(true);
+    try {
+      const r = await fetch(`/api/music?term=${encodeURIComponent(query)}&limit=20`);
+      const d = await r.json().catch(() => ({}));
+      const tracks = (d?.tracks || []).filter((t: any) => t?.previewUrl);
+      setMusicTracks(tracks);
+      return tracks;
+    } catch { return []; } finally { setMusicLoading(false); }
+  }
+  function playMusicIdx(idx: number, tracks = musicTracks) {
+    const t = tracks[idx];
+    if (!t) return;
+    let a = musicAudioRef.current;
+    if (!a) { a = new Audio(); a.volume = 0.4; musicAudioRef.current = a; }
+    a.src = t.previewUrl;
+    a.onended = () => nextMusic();
+    setMusicIdx(idx);
+    a.play().then(() => setMusicPlaying(true)).catch(() => setMusicPlaying(false));
+  }
+  function nextMusic() {
+    if (!musicTracks.length) return;
+    playMusicIdx((musicIdx + 1) % musicTracks.length);
+  }
+  async function toggleMusic() {
+    const a = musicAudioRef.current;
+    if (musicPlaying && a) { a.pause(); setMusicPlaying(false); return; }
+    if (a && a.src) { a.play().then(() => setMusicPlaying(true)).catch(() => {}); return; }
+    let tracks = musicTracks;
+    if (!tracks.length) tracks = await loadMusic();
+    if (tracks.length) playMusicIdx(0, tracks);
   }
 
   async function sendChatMessage() {
@@ -1849,6 +2205,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const S = styles;
   const remaining = getRemaining(pomo);
 
+  // Guided-session metrics (recomputed each tick via the 1s interval above).
+  const gsElapsedSec = gs ? Math.max(0, Math.floor((Date.now() - gs.startedAt) / 1000)) : 0;
+  const gsTotalMin   = gs ? gs.steps.reduce((s, x) => s + x.estMin, 0) : 0;
+  const gsRemainMin  = gs ? gs.steps.slice(gs.status === "done" ? gs.steps.length : gs.currentIdx).reduce((s, x) => s + x.estMin, 0) : 0;
+  const gsProgress   = gs && gs.steps.length ? (gs.status === "done" ? 1 : gs.currentIdx / gs.steps.length) : 0;
+
   return (
     <div style={{ position: "relative" }}>
       {/* ══ Redesigned session room — indigo liquid-glass (Pass 1) ══════════════
@@ -1859,7 +2221,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
         background: "radial-gradient(60% 55% at 14% 2%, rgba(99,110,240,0.30), transparent 60%), radial-gradient(64% 64% at 92% 97%, rgba(108,98,210,0.22), transparent 62%), linear-gradient(160deg, rgba(56,60,138,0.15) 0%, rgba(28,26,55,0.06) 62%, transparent 100%)" }} />
 
-      <div style={{ position: "relative", zIndex: 1 }}>
+      <div style={{ position: "relative", zIndex: 1, height: "calc(100dvh - 92px)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {roomToast && !focusMode && (
           <div style={{ position: "fixed", top: 18, right: 18, zIndex: 90, display: "flex", alignItems: "center", gap: 8, background: "rgba(129,140,248,0.92)", color: "#fff", padding: "10px 15px", borderRadius: 12, fontSize: 13, fontWeight: 600, boxShadow: "0 10px 34px rgba(30,27,75,0.5)" }}>{roomToast}</div>
         )}
@@ -1867,7 +2229,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <button onClick={() => setFocusMode(false)} style={{ position: "fixed", top: 20, right: 20, zIndex: 90, display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(129,140,248,0.9)", color: "#fff", border: "none", borderRadius: 999, padding: "8px 15px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 26px rgba(30,27,75,0.45)" }}>Focus Mode · ON — exit</button>
         )}
         {/* Top bar — session timer + participant count */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 28 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 16, flexShrink: 0 }}>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
             <div style={{ fontFamily: "'Fraunces',serif", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#c7d2fe" : "var(--text-primary)" }}>
               {pomo && pomo.phase === "focus" ? formatPomoTime(remaining) : "00:00"}
@@ -1889,7 +2251,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "300px 1fr 320px", gap: 22, alignItems: "stretch", height: "calc(100dvh - 176px)", minHeight: 480 }}>
+        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "300px 1fr 320px", gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
 
           {/* LEFT — Live Transcript + room controls */}
           <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(129,140,248,0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
@@ -1915,6 +2277,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 { label: "Chat", icon: <MessageCircle size={13} />, on: showChat, act: () => (showChat ? setShowChat(false) : handleOpenChat()) },
                 { label: "Board", icon: <Pen size={13} />, on: showBoard, act: () => (showBoard ? setShowBoard(false) : handleOpenBoard()) },
                 { label: "Voice", icon: <Mic size={13} />, on: showVoice, act: () => setShowVoice(v => !v) },
+                { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => setMusicOpen(o => !o) },
                 { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
               ].map(b => (
                 <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(129,140,248,0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
@@ -1926,10 +2289,27 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             </div>
           </div>
 
-          {/* CENTER — shared whiteboard */}
+          {/* CENTER — Whiteboard / Guided session (proactive tutor) */}
           <div style={{ display: "flex", flexDirection: "column", background: "rgba(129,140,248,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
-            <div style={{ flex: 1, overflow: "auto", borderRadius: 14, ["--gold" as any]: "#818cf8", ["--gold-rgb" as any]: "129,140,248" }}>
-              {showBoard ? (
+            {/* Center tab strip — collaborative board vs. Reggie-guided session */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexShrink: 0 }}>
+              {([["board", "Whiteboard"], ["session", "Guided session"], ["flashcards", "Flashcards"]] as const).map(([key, label]) => {
+                const active = centerTab === key;
+                return (
+                  <button key={key} onClick={() => setCenterTab(key)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
+                    {key === "session" && <Sparkles size={12} />}{key === "flashcards" && <BookOpen size={12} />}{label}
+                    {key === "session" && gs && gs.status !== "done" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
+                    {key === "flashcards" && fcCards.length > 0 && !fcDone && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
+                  </button>
+                );
+              })}
+              {centerTab === "session" && gs && (
+                <button onClick={endGuidedSession} style={{ marginLeft: "auto", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 999, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, color: "#fca5a5", cursor: "pointer", fontFamily: "inherit" }}>End session</button>
+              )}
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: "hidden", borderRadius: 14, ["--gold" as any]: "#818cf8", ["--gold-rgb" as any]: "129,140,248" }}>
+              {centerTab === "board" ? (
+                showBoard ? (
                 <Whiteboard
                   strokes={strokes}
                   liveStrokes={liveStrokes}
@@ -1963,9 +2343,167 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   activeSpeaker={activeSpeakerName}
                   roomId={room.id}
                 />
+                ) : (
+                  <div style={{ height: "100%", minHeight: 320, borderRadius: 14, background: "rgba(255,255,255,0.96)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <button onClick={() => setShowBoard(true)} style={{ background: "rgba(99,102,241,0.9)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Open board</button>
+                  </div>
+                )
+              ) : centerTab === "session" ? (
+                /* ── Guided session stage — proactive, Reggie-driven ── */
+                <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  {!gs ? (
+                    /* Launcher */
+                    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(129,140,248,0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(129,140,248,0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><Sparkles size={26} color="#c7d2fe" /></div>
+                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Start a guided session</h3>
+                      <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie plans it, teaches you step by step, and tracks your progress — grounded in your own course materials.</p>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", justifyContent: "center" }}>
+                        {([["learn", "Learn a topic", "📚"], ["assignment", "Work an assignment", "✍️"], ["exam", "Prep for an exam", "🎯"]] as const).map(([m, label, ic]) => {
+                          const active = gsLaunchMode === m;
+                          return <button key={m} onClick={() => setGsLaunchMode(m)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "9px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}><span>{ic}</span>{label}</button>;
+                        })}
+                      </div>
+                      <input value={gsTopic} onChange={e => setGsTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsTopic.trim()) beginGuidedSession(gsLaunchMode, gsTopic); }}
+                        placeholder={gsLaunchMode === "assignment" ? "Which assignment? e.g. Contracts essay #2" : gsLaunchMode === "exam" ? "Which exam? e.g. Land Reform midterm" : "What do you want to learn?"}
+                        style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
+                      {courseName && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", alignItems: "center", marginBottom: 16 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-dim)" }}>Try:</span>
+                          <button onClick={() => setGsTopic(courseName)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 11px", fontSize: 11.5, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{courseName}</button>
+                        </div>
+                      )}
+                      <button onClick={() => beginGuidedSession(gsLaunchMode, gsTopic)} disabled={!gsTopic.trim() || gsBusy} style={{ background: (!gsTopic.trim() || gsBusy) ? "rgba(129,140,248,0.2)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "12px 26px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!gsTopic.trim() || gsBusy) ? "default" : "pointer", opacity: (!gsTopic.trim() || gsBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(99,102,241,0.35)" }}>{gsBusy ? "Reggie is planning…" : "Start session →"}</button>
+                    </div>
+                  ) : gs.status === "done" ? (
+                    /* Completion */
+                    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
+                      <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
+                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Session complete</h3>
+                      <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}>{gsNudge || "Great work — you finished every step."}</p>
+                      <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{gs.steps.length} steps · {formatPomoTime(gsElapsedSec)} focused · {gs.topic}</p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => { setGs(null); setGsTopic(""); setGsStepContent({}); setGsExtra({}); setGsNudge(""); }} style={{ background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Start another</button>
+                        <button onClick={() => setCenterTab("board")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Back to whiteboard</button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Active session */
+                    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                      {/* Progress header */}
+                      <div style={{ flexShrink: 0, marginBottom: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 10 }}>
+                          <div style={{ display: "inline-flex", alignItems: "baseline", gap: 7, minWidth: 0 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#a5b4fc" }}>{gs.mode === "assignment" ? "Assignment" : gs.mode === "exam" ? "Exam prep" : "Learning"}</span>
+                            <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{gs.topic}</span>
+                          </div>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 10, flexShrink: 0, fontSize: 11.5, color: "var(--text-dim)" }}>
+                            <button onClick={() => { const on = !gsVoiceOn; setGsVoiceOn(on); if (on) { const c = gsStepContent[gs.currentIdx]; if (c) gsSpeak(c); } else gsStopSpeak(); }} title={gsVoiceOn ? "Auto-read is on — Reggie reads each step aloud" : "Auto-read steps aloud"} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: gsVoiceOn ? "rgba(94,234,212,0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsVoiceOn ? "rgba(94,234,212,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 600, color: gsVoiceOn ? "#5eead4" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{gsVoiceOn ? <Volume2 size={12} /> : <VolumeX size={12} />}{gsVoiceOn ? "Auto-read" : "Voice"}</button>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }} title="Time focused"><Timer size={12} />{formatPomoTime(gsElapsedSec)}</span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#a5b4fc" }} title="Reggie's estimate">≈ {gsRemainMin} min left</span>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ flex: 1, height: 7, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                            <div style={{ width: `${Math.round(gsProgress * 100)}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #6366f1, #818cf8, #5eead4)", transition: "width 0.4s ease" }} />
+                          </div>
+                          <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", flexShrink: 0 }}>Step {Math.min(gs.currentIdx + 1, gs.steps.length)} of {gs.steps.length}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 5, marginTop: 9, flexWrap: "wrap" }}>
+                          {gs.steps.map((s, i) => {
+                            const state = i < gs.currentIdx ? "done" : i === gs.currentIdx ? "cur" : "todo";
+                            return <span key={i} title={s.title} style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 999, background: state === "cur" ? "rgba(129,140,248,0.25)" : state === "done" ? "rgba(94,234,212,0.14)" : "rgba(255,255,255,0.04)", border: `1px solid ${state === "cur" ? "rgba(129,140,248,0.5)" : state === "done" ? "rgba(94,234,212,0.3)" : "rgba(255,255,255,0.08)"}`, color: state === "cur" ? "#c7d2fe" : state === "done" ? "#5eead4" : "var(--text-dim)", fontWeight: state === "todo" ? 400 : 600 }}>{state === "done" ? "✓ " : ""}{i + 1}</span>;
+                          })}
+                        </div>
+                      </div>
+                      {gsNudge && (
+                        <div style={{ flexShrink: 0, marginBottom: 10, background: "rgba(94,234,212,0.09)", border: "1px solid rgba(94,234,212,0.22)", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, color: "#7dd3c8", display: "flex", alignItems: "center", gap: 7 }}><Sparkles size={13} />{gsNudge}</div>
+                      )}
+                      {/* Teaching content — scrolls within the stage */}
+                      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+                        <div style={{ marginBottom: 10, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                          <div style={{ minWidth: 0 }}>
+                            <h4 style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 3px" }}>{gs.steps[gs.currentIdx]?.title}</h4>
+                            <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0 }}>{gs.steps[gs.currentIdx]?.goal}</p>
+                          </div>
+                          <button onClick={() => (gsSpeaking ? gsStopSpeak() : gsSpeak(gsStepContent[gs.currentIdx] || ""))} disabled={!gsStepContent[gs.currentIdx]} title={gsSpeaking ? "Stop reading" : "Read this step aloud"} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, background: gsSpeaking ? "rgba(94,234,212,0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsSpeaking ? "rgba(94,234,212,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 11.5, fontWeight: 600, color: gsSpeaking ? "#5eead4" : "var(--text-secondary)", cursor: gsStepContent[gs.currentIdx] ? "pointer" : "default", opacity: gsStepContent[gs.currentIdx] ? 1 : 0.5, fontFamily: "inherit" }}>{gsSpeaking ? <><VolumeX size={12} />Stop</> : <><Volume2 size={12} />Read aloud</>}</button>
+                        </div>
+                        <div style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 14 }}>
+                          <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Sparkles size={15} color="#c4b5fd" /></div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            {gsStepContent[gs.currentIdx] ? <GsRichText text={gsStepContent[gs.currentIdx]} /> : <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)", fontStyle: "italic" }}>{gsBusyLabel || "Reggie is preparing this step…"}</p>}
+                            {(gsExtra[gs.currentIdx] || []).map((t, i) => (
+                              <div key={i} style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}><GsRichText text={t} /></div>
+                            ))}
+                            {gsBusy && gsStepContent[gs.currentIdx] && <p style={{ fontSize: 12, color: "var(--text-dim)", margin: "10px 0 0", fontStyle: "italic" }}>{gsBusyLabel || "Reggie is thinking…"}</p>}
+                          </div>
+                        </div>
+                      </div>
+                      {gsAskOpen && (
+                        <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 10 }}>
+                          <input value={gsAsk} onChange={e => setGsAsk(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsAsk.trim()) gsAskSend(); }} placeholder="Ask Reggie about this step…" autoFocus style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "9px 12px", color: "var(--text-primary)", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                          <button onClick={gsAskSend} disabled={!gsAsk.trim() || gsBusy} style={{ background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (!gsAsk.trim() || gsBusy) ? "default" : "pointer", opacity: (!gsAsk.trim() || gsBusy) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
+                        </div>
+                      )}
+                      <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 12 }}>
+                        <button onClick={gsStuck} disabled={gsBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.6 : 1, fontFamily: "inherit" }}>I'm stuck</button>
+                        <button onClick={() => setGsAskOpen(o => !o)} style={{ background: gsAskOpen ? "rgba(167,139,250,0.15)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsAskOpen ? "rgba(167,139,250,0.35)" : "rgba(255,255,255,0.12)"}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: gsAskOpen ? "#c4b5fd" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Ask a question</button>
+                        <button onClick={gsNext} disabled={gsBusy} style={{ marginLeft: "auto", background: gsBusy ? "rgba(129,140,248,0.25)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.7 : 1, fontFamily: "inherit", boxShadow: "0 6px 18px rgba(99,102,241,0.3)" }}>{gs.currentIdx >= gs.steps.length - 1 ? "Finish ✓" : "Continue →"}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ) : (
-                <div style={{ height: "100%", minHeight: 320, borderRadius: 14, background: "rgba(255,255,255,0.96)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <button onClick={() => setShowBoard(true)} style={{ background: "rgba(99,102,241,0.9)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Open board</button>
+                /* ── Flashcards stage ── */
+                <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  {fcCards.length === 0 ? (
+                    /* Launcher */
+                    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(129,140,248,0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(129,140,248,0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#c7d2fe" /></div>
+                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Flashcards</h3>
+                      <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie builds a deck on any topic — grounded in your course materials — and quizzes you.</p>
+                      <input value={fcTopic} onChange={e => setFcTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && fcTopic.trim()) fcGenerate(fcTopic); }} placeholder="Topic to make cards on…" style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <button onClick={() => fcGenerate(fcTopic)} disabled={!fcTopic.trim() || fcBusy} style={{ background: (!fcTopic.trim() || fcBusy) ? "rgba(129,140,248,0.2)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!fcTopic.trim() || fcBusy) ? "default" : "pointer", opacity: (!fcTopic.trim() || fcBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(99,102,241,0.35)" }}>{fcBusy ? "Building deck…" : "Generate deck →"}</button>
+                        {room.course_id && <button onClick={fcLoadCourseDeck} disabled={fcBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 18px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: fcBusy ? "default" : "pointer", fontFamily: "inherit" }}>Load my deck</button>}
+                      </div>
+                    </div>
+                  ) : fcDone ? (
+                    /* Summary */
+                    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
+                      <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
+                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Deck complete</h3>
+                      <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}><span style={{ color: "#5eead4", fontWeight: 600 }}>{fcResults.got} got it</span> · <span style={{ color: "#fca5a5", fontWeight: 600 }}>{fcResults.missed} to review</span></p>
+                      <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{fcCards.length} cards</p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => { setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }} style={{ background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Study again</button>
+                        <button onClick={fcReset} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>New deck</button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Reviewer */
+                    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                        <div style={{ flex: 1, height: 6, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                          <div style={{ width: `${Math.round((fcIdx / fcCards.length) * 100)}%`, height: "100%", background: "linear-gradient(90deg, #6366f1, #5eead4)", transition: "width 0.3s ease" }} />
+                        </div>
+                        <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", flexShrink: 0 }}>Card {fcIdx + 1} of {fcCards.length}</span>
+                        <button onClick={fcReset} title="New deck" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 10px", fontSize: 11, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Exit</button>
+                      </div>
+                      <button onClick={() => setFcFlipped(f => !f)} style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: 12, background: fcFlipped ? "rgba(94,234,212,0.06)" : "rgba(129,140,248,0.07)", border: `1px solid ${fcFlipped ? "rgba(94,234,212,0.25)" : "rgba(129,140,248,0.25)"}`, borderRadius: 16, padding: "24px", cursor: "pointer", fontFamily: "inherit", overflow: "auto" }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: fcFlipped ? "#5eead4" : "#a5b4fc" }}>{fcFlipped ? "Answer" : "Question"}</span>
+                        <span style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.45, color: "var(--text-primary)", maxWidth: 460 }}>{fcFlipped ? fcCards[fcIdx]?.a : fcCards[fcIdx]?.q}</span>
+                        {!fcFlipped && <span style={{ fontSize: 11.5, color: "var(--text-dim)" }}>Tap to reveal</span>}
+                      </button>
+                      <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 12 }}>
+                        {fcFlipped ? (<>
+                          <button onClick={() => fcRate(false)} style={{ flex: 1, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fca5a5", cursor: "pointer", fontFamily: "inherit" }}>Missed</button>
+                          <button onClick={() => fcRate(true)} style={{ flex: 1, background: "rgba(94,234,212,0.14)", border: "1px solid rgba(94,234,212,0.35)", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#5eead4", cursor: "pointer", fontFamily: "inherit" }}>Got it</button>
+                        </>) : (
+                          <button onClick={() => setFcFlipped(true)} style={{ flex: 1, background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Reveal answer</button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1977,7 +2515,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>Group session</p>
               <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "5px 10px", fontSize: 11, color: focusMode ? "#c7d2fe" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Focus Mode{focusMode ? " · ON" : ""}</button>
             </div>
-            <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, alignContent: "start" }}>
+            <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignContent: "start" }}>
               {(members.length ? members : [{ userId, name: userData?.name || "You" }]).map((m, i) => {
                 const isMe = m.userId === userId;
                 const speaking = !!activeSpeakerName && activeSpeakerName === m.name;
@@ -2001,6 +2539,20 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 );
               })}
             </div>
+            {room.join_code && (
+              <div style={{ marginTop: 12 }}>
+                {members.length <= 1 && (
+                  <p style={{ fontSize: 11, color: "var(--text-dim)", margin: "0 0 8px", textAlign: "center" }}>You're the first one here — share the code to invite others.</p>
+                )}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "10px 14px" }}>
+                  <div>
+                    <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 2 }}>Room code</div>
+                    <div style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, letterSpacing: 3, color: "#c7d2fe" }}>{room.join_code}</div>
+                  </div>
+                  <button onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }} style={{ background: "rgba(129,140,248,0.16)", border: "1px solid rgba(129,140,248,0.3)", borderRadius: 9, padding: "6px 13px", fontSize: 12, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button onClick={() => setShowReggie(true)} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(94,234,212,0.3)", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#34d399" }} />Call Reggie</button>
               <button onClick={() => (isHost ? handleCloseRoom() : handleLeave())} style={{ flex: 1, background: "rgba(239,68,68,0.85)", border: "none", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>End session</button>
@@ -2246,6 +2798,37 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "9px 11px", color: "var(--text, #ECEBF0)", fontSize: 13, fontFamily: "inherit", outline: "none" }}
             />
             <button onClick={askRoomReggie} disabled={reggieBusy || !reggieInput.trim()} style={{ background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (reggieBusy || !reggieInput.trim()) ? "default" : "pointer", opacity: (reggieBusy || !reggieInput.trim()) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
+          </div>
+        </div>
+      )}
+
+      {/* Focus music — floating mini-player (iTunes 30s previews) */}
+      {musicOpen && (
+        <div style={{ position: "fixed", left: 20, bottom: 20, width: 300, maxWidth: "calc(100vw - 40px)", background: "var(--card, #16151c)", border: "1px solid rgba(129,140,248,0.25)", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.45)", zIndex: 60, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 13px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+            <Music size={15} color="#818cf8" />
+            <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text-primary)" }}>Focus music</span>
+            <button onClick={() => setMusicOpen(false)} aria-label="Close music" style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", display: "inline-flex" }}><X size={15} /></button>
+          </div>
+          <div style={{ padding: 13 }}>
+            {musicTracks.length === 0 ? (
+              <button onClick={() => toggleMusic()} disabled={musicLoading} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: musicLoading ? "default" : "pointer", opacity: musicLoading ? 0.7 : 1, fontFamily: "inherit" }}>{musicLoading ? "Finding tracks…" : <><Play size={14} />Play focus music</>}</button>
+            ) : (<>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+                {musicTracks[musicIdx]?.artwork
+                  ? <img src={musicTracks[musicIdx].artwork} alt="" style={{ width: 46, height: 46, borderRadius: 8, flexShrink: 0, objectFit: "cover" }} />
+                  : <div style={{ width: 46, height: 46, borderRadius: 8, background: "rgba(129,140,248,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Music size={20} color="#818cf8" /></div>}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{musicTracks[musicIdx]?.title}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{musicTracks[musicIdx]?.artist}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button onClick={() => toggleMusic()} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, background: "rgba(129,140,248,0.18)", border: "1px solid rgba(129,140,248,0.4)", borderRadius: 10, padding: "9px", fontSize: 13, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>{musicPlaying ? <><Pause size={14} />Pause</> : <><Play size={14} />Play</>}</button>
+                <button onClick={nextMusic} title="Next track" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "9px 12px", color: "var(--text-secondary)", cursor: "pointer", display: "inline-flex", alignItems: "center" }}><SkipForward size={14} /></button>
+              </div>
+              <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "9px 0 0", textAlign: "center" }}>30-second previews · Apple Music</p>
+            </>)}
           </div>
         </div>
       )}

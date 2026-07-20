@@ -12,11 +12,7 @@ import { supabase } from "../api/supabase";
 
 /* ─── constants ──────────────────────────────────────────── */
 
-const CARD_BG =
-  "linear-gradient(0deg, rgba(0,0,0,0.2), rgba(0,0,0,0.2)), " +
-  "radial-gradient(90.05% 130.96% at 9.95% 57.96%, " +
-  "rgba(35,35,36,0.6) 17.31%, rgba(74,74,75,0.6) 38.94%, " +
-  "rgba(117,117,118,0.6) 57.52%, rgba(25,25,25,0.6) 99.04%)";
+const CARD_BG = "rgba(255,255,255,0.045)";
 
 /* ─── helpers ─────────────────────────────────────────────── */
 
@@ -132,8 +128,8 @@ function ConnectCanvas({
   return (
     <div style={{
       maxWidth: "710px", margin: "0 auto", padding: "40px",
-      borderRadius: "45px", background: CARD_BG,
-      border: "1px solid rgba(200,197,203,0.1)",
+      borderRadius: "24px", background: CARD_BG, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+      border: "1px solid rgba(255,255,255,0.09)",
       position: "relative", overflow: "hidden", textAlign: "center",
     }}>
       {/* Eyebrow badge */}
@@ -775,8 +771,8 @@ export default function Canvas() {
           fontSize: "16px", lineHeight: "24px", color: "#C8C5CB",
           textAlign: "center", maxWidth: "628px", margin: "0 auto",
         }}>
-          Manage your academic curriculum, track student progress, and utilize
-          AI-enhanced teaching tools across all active departments.
+          All your courses, assignments, and materials in one place — synced
+          from Canvas and kept up to date automatically.
         </p>
       </div>
 

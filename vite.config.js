@@ -648,6 +648,7 @@ const LMS_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY",
 
 export default defineConfig({
   plugins: [react(), canvasProxyPlugin, sttProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
+    handlerProxy("/api/music",            () => import("./api/music.js")),
     handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
     // OPENAI_API_KEY: session-close.ts now imports rag.js's embed() for the
     // pattern-recognition harvest — without this, embed() throws locally.
