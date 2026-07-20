@@ -654,6 +654,9 @@ export default defineConfig({
     // pattern-recognition harvest — without this, embed() throws locally.
     handlerProxy("/api/session-close",    () => import("./api/session-close.js"), [...HANDLER_ENV, "OPENAI_API_KEY"]),
     handlerProxy("/api/brain-person-link",() => import("./api/brain-person-link.js")),
+    // F-5: server-side Canvas→Brain-DB write (keeps BRAIN_SUPABASE_KEY off the client).
+    // Needs SUPABASE_* (resolve brain_person_id) + BRAIN_SUPABASE_* (write) — all in HANDLER_ENV.
+    handlerProxy("/api/brain-sync",       () => import("./api/brain-sync.js")),
     // NeuroAGI kernel REST surface (remember/recall/forget/reinforce/tick). Product-agnostic
     // parent-brain contract; reads SUPABASE_URL/SERVICE_KEY from HANDLER_ENV.
     handlerProxy("/api/brain",            () => import("./api/brain.js")),
