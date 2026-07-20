@@ -364,6 +364,7 @@ as $$
     where document_id = any(p_document_ids)
       and p_query_text <> ''
       and tsv @@ websearch_to_tsquery('english', p_query_text)
+    order by ts_rank_cd(tsv, websearch_to_tsquery('english', p_query_text)) desc
     limit p_pool
   )
   select
