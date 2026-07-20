@@ -12,6 +12,7 @@ import ReactMarkdown from "react-markdown";
 import { useApp } from "../context/AppContext";
 import type { DocAction } from "./SelectionToolbar";
 import DocQuiz, { type QuizQuestion } from "./DocQuiz";
+import remarkGfm from 'remark-gfm'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Message {
@@ -130,7 +131,7 @@ function MarkdownContent({ content }: { content: string }) {
     <>
       <style>{MD_STYLES}</style>
       <div className="doc-md">
-        <ReactMarkdown>{content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
       </div>
     </>
   );
