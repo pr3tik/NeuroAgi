@@ -10,6 +10,13 @@
 import ReactDOM    from "react-dom/client";
 import "./index.css";
 
+// The "warm ink" liquid-glass atmosphere (palette + ambient glows — see `html.warm-ink`
+// in index.css) is now the DEFAULT look, so the whole team + the demo see the same UI.
+// Set VITE_WARM_INK=0 to opt out. It rides the shared design tokens — no per-page rewrites.
+if (import.meta.env.VITE_WARM_INK !== "0") {
+  document.documentElement.classList.add("warm-ink");
+}
+
 const isWaitlistDash =
   window.location.hostname === "waitlist.fschoolai.com" ||
   window.location.pathname.startsWith("/waitlist-dashboard");

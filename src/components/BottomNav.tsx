@@ -26,11 +26,11 @@ const ITEMS = {
   connections: { label: "Connections", short: "Connect" },
 };
 
-// Demo build: set VITE_DEMO_NAV=1 to trim the nav to the 6 core demo features
-// (Work · Canvas · Files · Study · Reggie · Rooms). Off by default = full nav.
-// Reverting is just unsetting the env — no code change, nothing deleted (all
-// pages stay routable, we only hide the extra nav doors).
-const DEMO_NAV = import.meta.env.VITE_DEMO_NAV === "1";
+// The trimmed 6-feature demo nav (Work · Canvas · Files · Study · Reggie · Rooms) is
+// now the DEFAULT so the whole team + the demo see the same thing. Set VITE_DEMO_NAV=0
+// to restore the full nav for dev work — all pages stay routable either way; the flag
+// only controls which nav doors are shown.
+const DEMO_NAV = import.meta.env.VITE_DEMO_NAV !== "0";
 const PRIMARY   = DEMO_NAV
   ? ["work", "canvas", "files", "study", "studyAssistant", "rooms"]
   : ["work", "canvas", "study", "leaderboard", "identity"];
