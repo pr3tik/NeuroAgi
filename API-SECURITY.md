@@ -34,6 +34,7 @@ How access control works across the FschoolAI backend, and what is deliberately 
    when present (generous), by IP otherwise (strict; `ipOnly` forces IP-keying on fully-public
    endpoints so rotated Bearer tokens can't mint buckets). Applied to claude, groq, tts, stt,
    summarize, extract, guest-demo, waitlist-join (ipOnly + per-IP daily cap + honeypot),
+   founding-card-apply (ipOnly + honeypot; writes to existing `waitlist` with source=founding-card),
    room-session, daily-room. Join-code brute force is limited inside the `join_room` RPC
    (10 attempts / 5 min / user). Fails open.
 

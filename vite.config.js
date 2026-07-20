@@ -680,6 +680,7 @@ export default defineConfig({
     handlerProxy("/api/library-agent",    () => import("./api/library-agent.js")),
     handlerProxy("/api/university-brain", () => import("./api/university-brain.js"), [...HANDLER_ENV, "GROQ_KEY"]),
     handlerProxy("/api/room-session",     () => import("./api/room-session.js"), [...HANDLER_ENV, "OPENAI_API_KEY"]),
+    handlerProxy("/api/rooms",            () => import("./api/rooms.js")),
     // Jobs worker (BE-08). No local cron — drive a tick by hand in dev:
     //   curl.exe -X POST "http://localhost:5173/api/jobs?action=run" -H "x-cron-secret: $CRON_SECRET"
     // OPENAI_API_KEY is needed because the AI-10 summary handler retrieves sources.
@@ -692,6 +693,7 @@ export default defineConfig({
     // Trigger engine cron tick (AI-08): CRON_SECRET-gated, OPENAI for the participation read path.
     handlerProxy("/api/room-triggers",    () => import("./api/room-triggers.js"),  [...HANDLER_ENV, "CRON_SECRET"]),
     handlerProxy("/api/waitlist",         () => import("./api/waitlist.js"),        [...HANDLER_ENV, "RESEND_API_KEY", "CRON_SECRET"]),
+    handlerProxy("/api/founding-card",    () => import("./api/founding-card.js"),   [...HANDLER_ENV, "RESEND_API_KEY"]),
     handlerProxy("/api/nudge",            () => import("./api/nudge.js"),         [...HANDLER_ENV, "RESEND_API_KEY"]),
     handlerProxy("/api/guest-demo",       () => import("./api/guest-demo.js"),    HANDLER_ENV)],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
