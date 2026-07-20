@@ -15,7 +15,7 @@ const TILT_STEP   = 12;
 const ARC_DROP    = 18;
 const CENTER_LIFT = 24;
 const WALL        = 2.72; // visible arc edge — beyond this cards pass through the wall
-const HOVER_TRANSITION = "transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease";
+const HOVER_TRANSITION = "transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)";
 
 function wrappedSlot(i, active, n = N) {
   let d = i - active;
@@ -67,19 +67,10 @@ function interpolateSlotWithTunnel(start, end, t) {
   return { slot: enterWall + (end - enterWall) * u, vis: u };
 }
 
-function smoothstep(t) {
-  const x = Math.max(0, Math.min(1, t));
-  return x * x * (3 - 2 * x);
-}
-
-function computeExpandT(el) {
+/** Fan opens when its center reaches mid-viewport (not scrubbed to scroll). */
+function fanCenterY(el) {
   const rect = el.getBoundingClientRect();
-  const vh = window.innerHeight;
-  // Track the card fan center (not container top) so full spread lands in viewport middle.
-  const fanCenterY = rect.top + rect.height * 0.44;
-  const startCenter = vh * 0.88; // stay stacked until fan is lower on screen
-  const endCenter = vh * 0.5;    // fully fanned when fan center hits mid-screen
-  return smoothstep((startCenter - fanCenterY) / (startCenter - endCenter));
+  return rect.top + rect.height * 0.44;
 }
 function stackPose(i) {
   const isWhite = i === WHITE_INDEX;
@@ -118,11 +109,11 @@ function sunrisePose(slot, { isHovered = false, vis = 1 } = {}) {
   let scale = 0.84 + centerBlend * 0.26;
   let lift = y;
 
-  // Full opacity while on-stage — translucent cards over white (or each other)
-  // wash out / invent muddy “new” colours. Only tunnel exit uses vis < 1.
-  let opacity = vis >= 0.98 ? 1 : vis;
+  // Binary visibility only — any fractional opacity over another card
+  // (e.g. blue/green under white) composites into teal. Hard cut avoids that.
+  const opacity = vis > 0.55 ? 1 : 0;
 
-  if (isHovered && vis > 0.4) {
+  if (isHovered && opacity > 0) {
     lift -= 12;
     scale += 0.03;
   }
@@ -133,11 +124,10 @@ function sunrisePose(slot, { isHovered = false, vis = 1 } = {}) {
     rotate,
     scale,
     opacity,
-    // Fading tunnel cards go behind so they never blend with the fan
     zIndex:
       Math.round(36 - abs * 4.5) +
       Math.round(centerBlend * 6) +
-      (vis < 0.98 ? -30 : 0),
+      (opacity === 0 ? -40 : 0),
   };
 }
 
@@ -146,9 +136,12 @@ function DialCardFace({ id, width, images }) {
   const shadowW = width * 1.15;
   const shadowH = shadowW * 0.13;
   return (
-    <div style={{ position: "relative", width, flexShrink: 0 }}>
-      <div style={{ position: "relative", borderRadius: radius, overflow: "hidden" }}>
-        <img src={images[id]} alt={id} style={{ width: "100%", height: "auto", display: "block" }} />
+    <div style={{ position: "relative", width, flexShrink: 0, isolation: "isolate" }}>
+      <div style={{
+        position: "relative", borderRadius: radius, overflow: "hidden",
+        background: "#fff", // opaque backing so nothing behind can tint the PNG
+      }}>
+        <img src={images[id]} alt={id} draggable={false} style={{ width: "100%", height: "auto", display: "block" }} />
         <div style={{ position: "absolute", inset: 0, borderRadius: radius, boxShadow: CARD_SHADOW, pointerEvents: "none" }} />
         <div style={{ position: "absolute", inset: 0, borderRadius: radius, border: CARD_BORDER, boxShadow: CARD_DROP, pointerEvents: "none" }} />
       </div>
@@ -174,11 +167,16 @@ export default function ColorwayDial({
   const spinCtrlRef = useRef(null);
   const prevActiveRef = useRef(activeColor);
   const expandTRef = useRef(0);
+  const expandCtrlRef = useRef(null);
+  const expandOpenRef = useRef(false);
+  const activeColorRef = useRef(activeColor);
   const spinFromRef = useRef(null);
   const spinEndRef = useRef(null);
   const spinProgressRef = useRef(0);
   const isSpinningRef = useRef(false);
   const spinGenRef = useRef(0);
+
+  useEffect(() => { activeColorRef.current = activeColor; }, [activeColor]);
 
   const getCurrentSlots = useCallback(() => {
     const from = spinFromRef.current;
@@ -219,17 +217,39 @@ export default function ColorwayDial({
     if (!el) return;
 
     let raf = 0;
-    const update = () => {
-      raf = 0;
-      const t = computeExpandT(el);
+
+    const applyExpand = (t) => {
       expandTRef.current = t;
       setExpandT(t);
-
       if (!isSpinningRef.current) {
-        const end = targetSlots(activeColor);
+        const end = targetSlots(activeColorRef.current);
         const next = end.map((s) => s * t);
         slotsRef.current = next;
         setSlots(next);
+      }
+    };
+
+    const tweenExpand = (to) => {
+      expandCtrlRef.current?.stop();
+      expandCtrlRef.current = animate(expandTRef.current, to, {
+        duration: 1.05,
+        ease: [0.22, 1, 0.36, 1],
+        onUpdate: applyExpand,
+        onComplete: () => { expandCtrlRef.current = null; },
+      });
+    };
+
+    const update = () => {
+      raf = 0;
+      const y = fanCenterY(el);
+      const mid = window.innerHeight * 0.5;
+      // Open once the fan hits mid-screen; close only after it drops well below (hysteresis).
+      if (!expandOpenRef.current && y <= mid) {
+        expandOpenRef.current = true;
+        tweenExpand(1);
+      } else if (expandOpenRef.current && y > mid + window.innerHeight * 0.28) {
+        expandOpenRef.current = false;
+        tweenExpand(0);
       }
     };
 
@@ -244,13 +264,15 @@ export default function ColorwayDial({
       window.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       if (raf) cancelAnimationFrame(raf);
+      expandCtrlRef.current?.stop();
     };
-  }, [activeColor]);
+  }, []);
 
   const runSpin = useCallback((to, { notifyParent = true } = {}) => {
     if (expandTRef.current < 0.92) return;
 
     spinCtrlRef.current?.stop();
+    setHovered(null); // click+hover was leaving a card mid-transition
 
     const start = getCurrentSlots();
     const end = targetSlots(to);

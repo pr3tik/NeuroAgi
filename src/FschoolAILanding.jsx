@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import Lenis from "lenis";
+import "lenis/dist/lenis.css";
 import CardHeroAnimation from "./CardHeroAnimation";
 import NFCTapAnimation from "./NFCTapAnimation";
 import ColorwayDial from "./ColorwayDial";
@@ -194,8 +196,6 @@ const EngravedCardPreview = ({
   const targetRef = useRef({ x: 0, y: 0 });
   const currentRef = useRef({ x: 0, y: 0 });
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
-  const prevIdRef = useRef(id);
-  const [fadingOut, setFadingOut] = useState(null);
 
   const radius = Math.round(width * (20 / 214));
   const shadowW = width * 1.15;
@@ -206,14 +206,8 @@ const EngravedCardPreview = ({
   const fontSize = engraveFontSize(text.length);
   const atmosphere = COLOR_ATMOSPHERE[id] || COLOR_ATMOSPHERE.white;
 
-  // Soft crossfade when colorway / founder card swaps
-  useEffect(() => {
-    if (prevIdRef.current === id) return;
-    setFadingOut(prevIdRef.current);
-    prevIdRef.current = id;
-    const t = window.setTimeout(() => setFadingOut(null), 480);
-    return () => window.clearTimeout(t);
-  }, [id]);
+  // NOTE: no stacked crossfade when colorway changes — fading blue/green over white
+  // composites into a teal wash (the click glitch). Swap the src cleanly instead.
 
   useEffect(() => {
     if (reducedMotion) return undefined;
@@ -332,25 +326,8 @@ const EngravedCardPreview = ({
             alt={`${id} card`}
             style={{ width: "100%", height: "auto", display: "block", position: "relative", zIndex: 1 }}
           />
-          {fadingOut && images[fadingOut] && (
-            <img
-              src={images[fadingOut]}
-              alt=""
-              aria-hidden
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                zIndex: 2,
-                animation: reducedMotion ? "none" : "claimCardFadeOut 0.48s ease forwards",
-                pointerEvents: "none",
-              }}
-            />
-          )}
 
-          {/* Specular sheen that tracks the tilt */}
+          {/* Specular sheen — normal opacity (soft-light was tinting whites toward teal/blue) */}
           {!reducedMotion && (
             <div
               aria-hidden
@@ -359,10 +336,9 @@ const EngravedCardPreview = ({
                 inset: 0,
                 zIndex: 3,
                 borderRadius: radius,
-                background: `radial-gradient(circle at ${sheenX}% ${sheenY}%, rgba(255,255,255,0.34) 0%, rgba(255,255,255,0.08) 28%, transparent 55%)`,
-                mixBlendMode: "soft-light",
+                background: `radial-gradient(circle at ${sheenX}% ${sheenY}%, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.06) 28%, transparent 55%)`,
                 pointerEvents: "none",
-                opacity: celebrate ? 0.55 : 0.85,
+                opacity: celebrate ? 0.45 : 0.7,
                 transition: "opacity 0.4s ease",
               }}
             />
@@ -483,33 +459,6 @@ const Reveal = ({ children, delay = 0, style = {} }) => {
   );
 };
 
-// ── Dark/Light mode toggle button ─────────────────────────────────────────────
-const ThemeToggle = ({ dark, onToggle, t }) => (
-  <button
-    onClick={onToggle}
-    aria-label="Toggle theme"
-    style={{
-      background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
-      border: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
-      borderRadius: 20,
-      padding: "5px 13px",
-      cursor: "pointer",
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-      fontSize: 13,
-      color: t.text,
-      fontFamily: "'SF Pro Text','Inter',sans-serif",
-      fontWeight: 500,
-      transition: "all 0.2s ease",
-      backdropFilter: "blur(8px)",
-    }}
-  >
-    <span style={{ fontSize: 14 }}>{dark ? "☀️" : "🌙"}</span>
-    <span>{dark ? "Light" : "Dark"}</span>
-  </button>
-);
-
 // ── Icon set (plain inline SVG — no icon library dependency) ──────────────────
 const iconProps = (size = 26) => ({ width: size, height: size, viewBox: "0 0 24 24", fill: "none", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" });
 
@@ -580,8 +529,9 @@ const ShineBorder = ({ borderRadius = 24, borderWidth = 1.5, duration = 10, colo
 );
 
 export default function FschoolAILanding({ onBack } = {}) {
-  const [dark, setDark] = useState(false);
-  const t = dark ? DARK : LIGHT;
+  // Light-only on this page — no dark/light toggle in the nav
+  const dark = false;
+  const t = LIGHT;
 
   const [activeColor, setActiveColor] = useState(() => {
     const d = loadClaimDraft();
@@ -604,6 +554,7 @@ export default function FschoolAILanding({ onBack } = {}) {
   const [applyError, setApplyError] = useState("");
   const [honeypot, setHoneypot] = useState("");
   const nameInputRef = useRef(null);
+  const lenisRef = useRef(null);
   const countdown = useCountdown("2026-06-30T23:59:59");
   const cw = COLORWAYS[activeColor];
   const pad = n => String(n).padStart(2,"0");
@@ -614,8 +565,45 @@ export default function FschoolAILanding({ onBack } = {}) {
   const formValid = nameOk && schoolOk && emailOk;
   const firstName = form.name.trim().split(/\s+/)[0] || "there";
 
+  // Gliding smooth scroll (Lenis) — card page only; skip if user prefers reduced motion
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const lenis = new Lenis({
+      duration: 1.2,
+      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      smoothWheel: true,
+      touchMultiplier: 1.15,
+    });
+    lenisRef.current = lenis;
+
+    let rafId = 0;
+    const raf = (time) => {
+      lenis.raf(time);
+      rafId = requestAnimationFrame(raf);
+    };
+    rafId = requestAnimationFrame(raf);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      lenis.destroy();
+      lenisRef.current = null;
+    };
+  }, []);
+
+  const scrollToId = useCallback((id, { offset = -64, duration = 1.25 } = {}) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (lenisRef.current) {
+      lenisRef.current.scrollTo(el, { offset, duration });
+    } else {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
   const goToOrder = () => {
-    document.getElementById("order")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    scrollToId("order");
     window.setTimeout(() => {
       nameInputRef.current?.focus({ preventScroll: true });
     }, 520);
@@ -686,27 +674,21 @@ export default function FschoolAILanding({ onBack } = {}) {
     } catch { /* ignore quota / private mode */ }
   }, [form, activeColor, delivery, submitted]);
 
-  // Measure the Dark/Light toggle pill's right edge so the "Make it yours"
-  // panel below can align its own left/right edges to exactly the same
-  // inset from the viewport — rather than a guessed fixed pixel value.
-  // Only applies on desktop widths: this inset is roughly a fixed pixel
-  // amount (driven by nav button sizes, not viewport width), so on a narrow
-  // phone screen it would eat a huge fraction of the available width instead
-  // of a small sliver like it does on desktop.
-  const themeToggleRef = useRef(null);
+  // Align the "Make it yours" panel to the nav Apply button's right edge (desktop).
+  const navApplyRef = useRef(null);
   const [sideInset, setSideInset] = useState(20);
   useEffect(() => {
     const measure = () => {
       if (window.innerWidth < 768) { setSideInset(20); return; }
-      if (!themeToggleRef.current) return;
-      const rect = themeToggleRef.current.getBoundingClientRect();
+      if (!navApplyRef.current) return;
+      const rect = navApplyRef.current.getBoundingClientRect();
       const inset = window.innerWidth - rect.right;
       if (inset > 0) setSideInset(inset);
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [dark]);
+  }, []);
 
   // What's Inside — cards fade in one-by-one when the section scrolls into view
   const [wiRef, wiVisible] = useInView();
@@ -730,12 +712,13 @@ export default function FschoolAILanding({ onBack } = {}) {
       <nav style={{ position:"fixed", top:0, left:0, right:0, zIndex:100, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 20px", height:52, background: dark ? "rgba(8,8,10,0.55)" : "rgba(255,255,255,0.52)", backdropFilter:"blur(28px) saturate(1.7)", WebkitBackdropFilter:"blur(28px) saturate(1.7)", borderBottom:`1px solid ${dark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.55)"}`, boxShadow: dark ? "none" : "0 1px 0 rgba(255,255,255,0.4) inset", transition:"background 0.3s ease" }}>
         <button onClick={() => (onBack ? onBack() : (window.location.href = "/"))} style={{ background:"none", border:"none", color:t.textMuted, fontSize:14, cursor:"pointer" }}>‹ FschoolAI</button>
         <span style={{ fontSize:14, fontWeight:500, color:t.text }}>Founding Card</span>
-        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-          <span ref={themeToggleRef} style={{ display:"inline-flex" }}>
-            <ThemeToggle dark={dark} onToggle={() => setDark(d => !d)} t={t} />
-          </span>
-          <button onClick={goToOrder} style={{ background:dark?"#fff":"#000", color:dark?"#000":"#fff", border:"none", borderRadius:20, padding:"6px 16px", fontSize:13, fontWeight:600, cursor:"pointer" }}>Apply</button>
-        </div>
+        <button
+          ref={navApplyRef}
+          onClick={goToOrder}
+          style={{ background:"#000", color:"#fff", border:"none", borderRadius:20, padding:"6px 16px", fontSize:13, fontWeight:600, cursor:"pointer" }}
+        >
+          Apply
+        </button>
       </nav>
 
       {/* HERO + COUNTDOWN — combined, reordered on mobile */}
@@ -912,10 +895,6 @@ export default function FschoolAILanding({ onBack } = {}) {
           border-color:#0071e3 !important;
           box-shadow:0 0 0 3px rgba(0,113,227,0.15);
         }
-        @keyframes claimCardFadeOut {
-          from { opacity: 1; }
-          to { opacity: 0; }
-        }
         @keyframes claimEngraveChar {
           0% { opacity: 0; transform: translateY(5px) scale(0.82); }
           100% { opacity: 1; transform: translateY(0) scale(1); }
@@ -1016,7 +995,7 @@ export default function FschoolAILanding({ onBack } = {}) {
                   {delivery !== "founder" && (
                     <button
                       type="button"
-                      onClick={() => document.getElementById("colorway")?.scrollIntoView({ behavior:"smooth", block:"center" })}
+                      onClick={() => scrollToId("colorway", { offset: -window.innerHeight * 0.12 })}
                       style={{ marginTop:14, background:"none", border:"none", padding:0, color:"#0071e3", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}
                     >
                       Preview all colors ↓
@@ -1150,7 +1129,7 @@ export default function FschoolAILanding({ onBack } = {}) {
                       <div style={{ display:"flex", flexWrap:"wrap", gap:10, justifyContent:"center" }}>
                         <button
                           type="button"
-                          onClick={() => document.getElementById("whats-inside")?.scrollIntoView({ behavior:"smooth", block:"start" })}
+                          onClick={() => scrollToId("whats-inside")}
                           style={{
                             background:"#0071e3", color:"#fff", border:"none", borderRadius:980,
                             padding:"10px 22px", fontSize:13, fontWeight:600, cursor:"pointer",
@@ -1182,7 +1161,7 @@ export default function FschoolAILanding({ onBack } = {}) {
       </section>
 
       {/* COLORWAY SELECTOR */}
-      <section id="colorway" style={{ padding:"100px 20px 120px", textAlign:"center", minHeight:"115vh", scrollMarginTop:64 }}>
+      <section id="colorway" style={{ padding:"100px 20px 120px", textAlign:"center", scrollMarginTop:64 }}>
         <Reveal>
           <Label>Colorway</Label>
           <h2 style={{ fontSize:"clamp(32px,5vw,52px)", fontWeight:700, letterSpacing:"-0.02em", marginBottom:8, transition:"all 0.3s ease", color:t.text }}>{cw.name}</h2>
