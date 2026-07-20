@@ -142,7 +142,7 @@ function PageLoader() {
 }
 
 export default function App() {
-  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary } = useApp();
+  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary, activeRoomId } = useApp();
 
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
@@ -866,8 +866,10 @@ export default function App() {
 
   const PageComponent = PAGES[currentPage];
 
+  // page-wide: only INSIDE a room (activeRoomId set by RoomView on enter, cleared on
+  // leave) — the room list keeps the readable 1240px cap like every other page.
   return (
-    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${currentPage === "rooms" ? " page-wide" : ""}`}>
+    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${currentPage === "rooms" && activeRoomId ? " page-wide" : ""}`}>
       {overlays}
       <TokenToast />
 
