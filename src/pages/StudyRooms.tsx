@@ -1156,7 +1156,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [imageUploading,     setImageUploading]     = useState(false);
   const chatLoadedRef = useRef(false);
   // Phase 3 — Whiteboard
-  const [showBoard,          setShowBoard]          = useState(true);   // redesign: board inline in center by default
+  const [showBoard,          setShowBoard]          = useState(false);  // board is opt-in — guided study leads; open via the Board pill/tab
   const [strokes,            setStrokes]            = useState<Stroke[]>([]);
   const [wbTool,             setWbTool]             = useState<Tool>("pen");
   const [wbStyle,            setWbStyle]            = useState<PenStyle>("normal");
@@ -1940,11 +1940,11 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [reggieBusy,  setReggieBusy]  = useState(false);
   const reggieSessionRef = useRef(false); // ensured an active AI session for this room yet?
   const [focusMode, setFocusMode] = useState(false); // redesign: Focus Mode collapses the side panels
-  const [roomToast, setRoomToast] = useState<string | null>("🔥 Study streak · day 12");
+  const [roomToast, setRoomToast] = useState<string | null>(null); // toasts are real events only — no fake seeds
   useEffect(() => { if (!roomToast) return; const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, [roomToast]);
 
   // ── Guided study session (proactive, Reggie-driven) — center-stage tutor flow ──
-  const [centerTab,     setCenterTab]     = useState<"board" | "session" | "flashcards">("board");
+  const [centerTab,     setCenterTab]     = useState<"board" | "session" | "flashcards">("session"); // the star leads
   const [gs,            setGs]            = useState<null | { mode: "learn" | "assignment" | "exam"; topic: string; steps: { title: string; goal: string; estMin: number }[]; currentIdx: number; status: "planning" | "active" | "done"; startedAt: number }>(null);
   const [gsBusy,        setGsBusy]        = useState(false);
   const [gsBusyLabel,   setGsBusyLabel]   = useState("");
@@ -2377,8 +2377,21 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         {focusMode && (
           <button onClick={() => setFocusMode(false)} style={{ position: "fixed", top: 20, right: 20, zIndex: 90, display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(129,140,248,0.9)", color: "#fff", border: "none", borderRadius: 999, padding: "8px 15px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 26px rgba(30,27,75,0.45)" }}>Focus Mode · ON — exit</button>
         )}
-        {/* Top bar — session timer + participant count */}
+        {/* Top bar — room controls (left) · session timer (center) · presence (right).
+            The control pills moved up here from the deleted left column, so the main
+            work area gets the full width and there's exactly one home for room tools. */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 16, flexShrink: 0 }}>
+          <div style={{ position: "absolute", left: 0, top: 8, display: "flex", gap: 6, flexWrap: "wrap", maxWidth: "34%" }}>
+            {[
+              { label: "Chat", icon: <MessageCircle size={13} />, on: showChat, act: () => (showChat ? setShowChat(false) : handleOpenChat()) },
+              { label: "Board", icon: <Pen size={13} />, on: centerTab === "board" && showBoard, act: () => { if (centerTab === "board" && showBoard) { setShowBoard(false); } else { setCenterTab("board"); handleOpenBoard(); } } },
+              { label: "Voice", icon: <Mic size={13} />, on: showVoice, act: () => setShowVoice(v => !v) },
+              { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => setMusicOpen(o => !o) },
+              { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
+            ].map(b => (
+              <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(129,140,248,0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
+            ))}
+          </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
             <div style={{ fontFamily: "'Fraunces',serif", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#c7d2fe" : "var(--text-primary)" }}>
               {pomo && pomo.phase === "focus" ? formatPomoTime(remaining) : "00:00"}
@@ -2400,52 +2413,20 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "300px 1fr 320px", gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
+        {/* Two columns now: the WORK area owns the width; chat lives in the ChatPanel
+            (one chat, opened from the Chat pill) — the fake "Live Transcript" and the
+            duplicate inline chat input are gone. A real activity feed can take a left
+            panel later, opt-in, per the UX audit. */}
+        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "1fr 320px", gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
 
-          {/* LEFT — Live Transcript + room controls */}
-          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(129,140,248,0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
-            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 12 }}>Live Transcript</p>
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
-              {[
-                { who: "Prof Rex", t: "0:12", line: "Memory is stale — that core must write back before anyone else reads." },
-                { who: "Reggie", t: "0:31", line: "The invalidate path is where most people slip. Watch the board.", ai: true },
-                { who: "Wei", t: "0:44", line: "Walking through the transition table now." },
-              ].map((m, i) => (
-                <div key={i}>
-                  <div style={{ display: "flex", gap: 6, alignItems: "baseline", marginBottom: 2 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: m.ai ? "#a78bfa" : "var(--text-secondary)" }}>{m.who}</span>
-                    <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{m.t}</span>
-                  </div>
-                  <p style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--text-secondary)", margin: 0 }}>{m.line}</p>
-                </div>
-              ))}
-              <p style={{ fontSize: 11, color: "var(--text-dim)", fontStyle: "italic", marginTop: 4 }}>Live transcription coming soon.</p>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "12px 0 10px" }}>
-              {[
-                { label: "Chat", icon: <MessageCircle size={13} />, on: showChat, act: () => (showChat ? setShowChat(false) : handleOpenChat()) },
-                { label: "Board", icon: <Pen size={13} />, on: showBoard, act: () => (showBoard ? setShowBoard(false) : handleOpenBoard()) },
-                { label: "Voice", icon: <Mic size={13} />, on: showVoice, act: () => setShowVoice(v => !v) },
-                { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => setMusicOpen(o => !o) },
-                { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
-              ].map(b => (
-                <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(129,140,248,0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && chatInput.trim()) sendChatMessage(); }} placeholder="Message the room…" style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "9px 11px", color: "var(--text-primary)", fontSize: 12.5, fontFamily: "inherit", outline: "none" }} />
-              <button onClick={() => chatInput.trim() && sendChatMessage()} style={{ background: "rgba(129,140,248,0.2)", border: "1px solid rgba(129,140,248,0.35)", borderRadius: 10, padding: "0 12px", color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>➤</button>
-            </div>
-          </div>
-
-          {/* CENTER — Whiteboard / Guided session (proactive tutor) */}
+          {/* CENTER — Guided session (default) / Whiteboard / Flashcards */}
           <div style={{ display: "flex", flexDirection: "column", background: "rgba(129,140,248,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
             {/* Center tab strip — collaborative board vs. Reggie-guided session */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexShrink: 0 }}>
               {([["board", "Whiteboard"], ["session", "Guided session"], ["flashcards", "Flashcards"]] as const).map(([key, label]) => {
                 const active = centerTab === key;
                 return (
-                  <button key={key} onClick={() => setCenterTab(key)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
+                  <button key={key} onClick={() => { setCenterTab(key); if (key === "board" && !showBoard) handleOpenBoard(); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
                     {key === "session" && <Sparkles size={12} />}{key === "flashcards" && <BookOpen size={12} />}{label}
                     {key === "session" && gs && gs.status !== "done" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
                     {key === "flashcards" && fcCards.length > 0 && !fcDone && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
@@ -2453,7 +2434,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 );
               })}
               {centerTab === "session" && gs && (
-                <button onClick={endGuidedSession} style={{ marginLeft: "auto", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 999, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, color: "#fca5a5", cursor: "pointer", fontFamily: "inherit" }}>End session</button>
+                <button onClick={endGuidedSession} title="Ends this guided lesson — you stay in the room" style={{ marginLeft: "auto", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 999, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>End lesson</button>
               )}
             </div>
             <div style={{ flex: 1, minHeight: 0, overflow: "hidden", borderRadius: 14, ["--gold" as any]: "#818cf8", ["--gold-rgb" as any]: "129,140,248" }}>
@@ -2699,7 +2680,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     <div style={{ width: isMe ? 62 : 48, height: isMe ? 62 : 48, borderRadius: "50%", background: "rgba(129,140,248,0.3)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMe ? 24 : 18, fontWeight: 600, color: "#e0e7ff" }}>{initial}</div>
                     <span style={{ position: "absolute", bottom: 9, left: 12, fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)" }}>{isMe ? "You" : (m.name || "Guest")}</span>
                     <div style={{ position: "absolute", bottom: 9, right: 12, display: "flex", gap: 7, color: speaking ? "#5eead4" : "var(--text-dim)" }}>
-                      <Mic size={12} /><Video size={12} />
+                      
                     </div>
                   </div>
                 );
@@ -2721,7 +2702,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             )}
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button onClick={() => setShowReggie(true)} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(94,234,212,0.3)", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#34d399" }} />Call Reggie</button>
-              <button onClick={() => (isHost ? handleCloseRoom() : handleLeave())} style={{ flex: 1, background: "rgba(239,68,68,0.85)", border: "none", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>End session</button>
+              <button onClick={() => (isHost ? handleCloseRoom() : handleLeave())} title={isHost ? "Closes the room for everyone" : "Leave this room"} style={{ flex: 1, background: "rgba(239,68,68,0.85)", border: "none", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>{isHost ? "Close room" : "Leave room"}</button>
             </div>
           </div>
         </div>

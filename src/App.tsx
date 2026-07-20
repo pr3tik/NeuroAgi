@@ -107,6 +107,16 @@ const SHELL_STYLES = `
     .nav-tabs.nav-collapsed .app-page-transition {
       margin-left: max(64px, calc((100% - 1240px) / 2));
     }
+    /* Deliberate outlier: the study room is a workspace (board + session + presence),
+       not a reading page — it earns the full width. */
+    .nav-tabs.page-wide .app-page-transition {
+      max-width: none;
+      margin-left: 232px;
+      margin-right: 24px;
+    }
+    .nav-tabs.page-wide.nav-collapsed .app-page-transition {
+      margin-left: 64px;
+    }
   }
 `;
 
@@ -857,7 +867,7 @@ export default function App() {
   const PageComponent = PAGES[currentPage];
 
   return (
-    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}`}>
+    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${currentPage === "rooms" ? " page-wide" : ""}`}>
       {overlays}
       <TokenToast />
 
