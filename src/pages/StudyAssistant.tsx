@@ -22,7 +22,9 @@ import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
 import { loadRecentMessages } from "../api/chat";
 import { sanitizeApiMessages } from "../lib/chatMessages";
-import { renderMessageHTML } from "../lib/markdown";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import "../css/markdown.css";
 import { SectionLabel } from "../components/uikit";
 import { tealAlpha } from "../lib/theme";
 
@@ -258,16 +260,19 @@ function AssistantBubble({ text, sources }: { text: string; sources?: { title: s
         </span>
       </div>
 
+      {/* react-markdown, same renderer as the orb/DocChat/Spaces — one markdown
+          pipeline on web (the room's GsRichText stays separate by design). */}
       <div
-        className="sa-md"
+        className="sa-md markdown-body"
         style={{
           maxWidth: "88%",
           fontSize: "14px",
           lineHeight: "1.65",
           color: "var(--text-primary)",
         }}
-        dangerouslySetInnerHTML={{ __html: renderMessageHTML(text) }}
-      />
+      >
+        <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+      </div>
 
       {sources && sources.length > 0 && (
         <div style={{ marginTop: "10px" }}>
