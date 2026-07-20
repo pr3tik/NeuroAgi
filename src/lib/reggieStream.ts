@@ -9,7 +9,11 @@ export interface ReggieDone {
   ok: boolean;
   route: string;
   output: string;
-  toolCalls: Array<{ name: string; input?: any; ok: boolean; preview: string }>;
+  toolCalls: Array<{ name: string; input?: any; ok: boolean; preview: string; sources?: Array<{ title: string; heading?: string | null; loc?: string | null }> }>;
+  /** This turn's identity in prompt_runs — paste into the ReggieTester trace lookup to debug the turn. */
+  traceId?: string;
+  /** Where the answer's data came from (deduped doc titles/locators from retrieval tools). */
+  sources?: Array<{ title: string; heading?: string | null; loc?: string | null }>;
   widgets?: ReggieWidget[];
   steps: number;
   budgetExhausted: boolean;

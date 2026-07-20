@@ -18,7 +18,12 @@ import type { ToolContext } from "./tools.js";
 import type { Specialist } from "./specialists.js";
 
 export interface ReggieEvent { type: string; [k: string]: any; }
-export interface ToolCallTrace { name: string; input: any; ok: boolean; preview: string; }
+export interface ToolCallTrace {
+  name: string; input: any; ok: boolean; preview: string;
+  // For retrieval tools: which documents the result actually came from — the "search
+  // tag" payload. Compact (title/heading/loc only, never passage text).
+  sources?: { title: string; heading?: string | null; loc?: string | null }[];
+}
 export interface RenderableWidget { type: string; data: any; }
 export interface ReggieResult { output: string; route: string; trace: ToolCallTrace[]; steps: number; budgetExhausted: boolean; widgets: RenderableWidget[]; }
 export interface HistoryTurn { role: "user" | "assistant"; content: string; }
@@ -93,7 +98,24 @@ async function runTools(
       isError = true;
       content = `Tool error: ${e?.message ?? "failed"}`;
     }
-    trace.push({ name: tu.name, input: tu.input, ok: !isError, preview: content.slice(0, 200) });
+    // Retrieval tools: lift the returned passages' identities onto the trace entry so
+    // the turn can report WHERE the answer's data came from (agent-manager aggregates
+    // these into the response's `sources` + the persisted turn log).
+    let sources: ToolCallTrace["sources"];
+    if (!isError && (tu.name === "rag_search" || tu.name === "library_search")) {
+      try {
+        const parsed = JSON.parse(content);
+        const passages = parsed?.passages ?? parsed?.results ?? [];
+        if (Array.isArray(passages) && passages.length) {
+          sources = passages.slice(0, 8).map((p: any) => ({
+            title: String(p.title ?? p.label ?? "Document").slice(0, 120),
+            heading: p.heading ? String(p.heading).slice(0, 120) : null,
+            loc: p.loc != null ? String(p.loc) : null,
+          }));
+        }
+      } catch { /* non-JSON tool output — no sources */ }
+    }
+    trace.push({ name: tu.name, input: tu.input, ok: !isError, preview: content.slice(0, 200), ...(sources ? { sources } : {}) });
     emit?.({ type: "tool_result", name: tu.name, ok: !isError });
     results.push({ type: "tool_result", tool_use_id: tu.id, content, ...(isError ? { is_error: true } : {}) });
   }
