@@ -45,6 +45,15 @@ export interface ReggieTool {
   description: string;
   input_schema: any;                                   // Anthropic tool input schema (JSON Schema)
   invoke: (args: any, ctx: ToolContext) => Promise<any>;
+  /** Verified to perform NO writes and NO outbound side effects (no DB insert/update/delete,
+   *  no notification, no external mutation) — reads, pure computation, and model calls only.
+   *
+   *  This is what makes a tool eligible to run CONCURRENTLY with the other tools of the same
+   *  assistant turn (see loop.ts runTools). It is an allow-list on purpose: a tool that is
+   *  unmarked — including any tool added later — keeps the original strictly-serial
+   *  execution, so the default for anything unaudited is the old, safe behavior. Do not set
+   *  this without checking the handler's write paths for the specific `action` used here. */
+  readOnly?: boolean;
 }
 
 // Run a handler and unwrap: throw on >=400 so the loop records a recoverable tool error
@@ -118,6 +127,7 @@ export const TOOLS: ReggieTool[] = [
   // ── A. Canvas / academic data ────────────────────────────────────────────────
   {
     name: "canvas_get_grades",
+    readOnly: true,
     description:
       "Get the student's per-course grade standing (current/final %, per-assignment scores + weights) and GPA from synced Canvas data. Call to answer 'how am I doing in X', 'what are my grades', 'my GPA'.",
     input_schema: {
@@ -129,6 +139,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "canvas_get_upcoming",
+    readOnly: true,
     description:
       "List the student's assignments by window. status:'upcoming' (default) = future due, soonest first ('what's due', 'what's next'). status:'overdue' = PAST-DUE and unsubmitted, i.e. what they're BEHIND on ('what's overdue', 'what am I late on', 'what did I miss'). status:'all' = everything. Use 'overdue' for any past-due/behind/late question. NOTE: the 'upcoming' response ALSO includes `overdue` (the past-due-unsubmitted items) and `overdueCount` — you MUST include those overdue items when listing what's due, and you must NOT tell the student they're caught up / have nothing overdue unless overdueCount is 0.",
     input_schema: {
@@ -144,6 +155,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "compute_grade_weights",
+    readOnly: true,
     description:
       "Get a course's grade-category weights and a points-based projected grade. Call when the student asks how their grade is weighted or what their projected grade is.",
     input_schema: {
@@ -157,6 +169,7 @@ export const TOOLS: ReggieTool[] = [
   // ── B. RAG / retrieval ─────────────────────────────────────────────────────────
   {
     name: "rag_search",
+    readOnly: true,
     description:
       "Search the student's OWN uploaded course materials (notes, slides, readings, transcripts) and return the most relevant passages. Call this BEFORE answering any content question so you ground the answer in their materials instead of guessing.",
     input_schema: {
@@ -242,6 +255,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "list_flashcards",
+    readOnly: true,
     description: "Load the student's saved flashcards for a course. Call to review existing cards.",
     input_schema: { type: "object", properties: { course: { type: ["string", "integer"], description: "Course by NAME, code, or id." } }, required: ["course"] },
     invoke: async (a, ctx) => call(flashcards, { body: { action: "load", userId: ctx.userId, courseId: await resolveCourse(ctx.userId, a.course ?? a.courseId ?? ctx.courseId) } }, "list_flashcards"),
@@ -261,12 +275,14 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "summarize_text",
+    readOnly: true,
     description: "Summarize a block of text (a reading, lecture transcript, etc.) into key points. Call for 'summarize this'.",
     input_schema: { type: "object", properties: { text: { type: "string" }, title: { type: "string" } }, required: ["text"] },
     invoke: (a) => call(summarize, { body: { text: a.text, title: a.title } }, "summarize_text"),
   },
   {
     name: "what_if_plan",
+    readOnly: true,
     description:
       "Recompute a study plan under a hypothetical change (drop topics / move the exam / change daily minutes) → projected plan + readiness (0-1) + a list of deltas. Pure and instant. Pass the current plan (e.g. from generate_study_plan).",
     input_schema: {
@@ -291,6 +307,7 @@ export const TOOLS: ReggieTool[] = [
   // ── F. app navigation ──────────────────────────────────────────────────────────
   {
     name: "navigate",
+    readOnly: true,
     description:
       "Take the student to a page in the app. Call when they want to GO somewhere or START an activity — study/flashcards/review, their courses/Canvas, assignments, the leaderboard, the toolkit, their profile, or the home dashboard. For the study page you can set a course + mode. Give a one-line confirmation alongside calling this.",
     input_schema: {
@@ -311,6 +328,7 @@ export const TOOLS: ReggieTool[] = [
   // submission feedback, inbox. All results are trimmed to compact shapes.
   {
     name: "canvas_announcements",
+    readOnly: true,
     description:
       "Read the student's recent Canvas ANNOUNCEMENTS (what professors posted) — across all their courses or one course. Call for 'did my prof post/announce anything', 'any updates in X'. Canvas only returns ~14 days by default; pass sinceDays to look further back.",
     input_schema: {
@@ -332,6 +350,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "canvas_modules",
+    readOnly: true,
     description:
       "Read a course's Canvas MODULES — ONLY the week/topic module containers and their items. Call for 'what's in module 3', 'what's the module structure'. Do NOT use this for a list of the course's Pages (use canvas_pages) or Quizzes (use canvas_quizzes) — those are separate tools.",
     input_schema: {
@@ -348,6 +367,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "canvas_pages",
+    readOnly: true,
     description:
       "Read a course's Canvas wiki PAGES. Without pageSlug: LIST the pages. With pageSlug: return that page's full text content. This is THE tool for any request about the course's Pages — 'list the pages', 'what pages are in this course', 'show me the Canvas pages', a lecture/session/wiki page, or 'what does the week 5 page say'. (Not canvas_modules.)",
     input_schema: {
@@ -367,6 +387,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "canvas_quizzes",
+    readOnly: true,
     description: "List a course's Canvas QUIZZES (title, due date, points, question count). This is THE tool for any quiz request — 'do I have any quizzes', 'list my quizzes', 'show me the quizzes in X', 'when is the next quiz'. (Not canvas_modules.)",
     input_schema: {
       type: "object",
@@ -381,6 +402,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "canvas_submission_feedback",
+    readOnly: true,
     description:
       "Read the student's OWN submission for one assignment — score, grade, lateness, the professor's COMMENTS, and rubric points. Call for 'what feedback did I get', 'why did I lose points on X', 'what did the prof say about my essay'. Get the assignment id from canvas_get_upcoming/canvas_get_grades or ask.",
     input_schema: {
@@ -400,6 +422,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "canvas_inbox",
+    readOnly: true,
     description:
       "Read the student's Canvas INBOX. Without conversationId: list recent conversations. With conversationId: return that thread's messages. Call for 'any messages from my prof/TA', 'what did X reply'.",
     input_schema: {
@@ -415,6 +438,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "canvas_course_files",
+    readOnly: true,
     description:
       "List a course's Canvas FILES (slides, PDFs, docs). Call for 'what slides/files are posted in X'. Note: some schools restrict the Files tab — a 403 means the student can't access it either.",
     input_schema: {
@@ -430,6 +454,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "canvas_past_courses",
+    readOnly: true,
     description: "List the student's COMPLETED Canvas courses with final scores/grades. Call for 'what did I take last term', 'what was my grade in <past course>', GPA history questions.",
     input_schema: { type: "object", properties: {}, required: [] },
     invoke: async (_a, ctx) => {
@@ -481,6 +506,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "library_search",
+    readOnly: true,
     description:
       "Search the SHARED class content library (syllabi, lecture notes, announcements, rubrics contributed across students) for a course-knowledge question. Complements rag_search (the student's OWN uploads) — try this when their uploads don't cover it. Returns ranked snippets; empty result means the library has nothing on it yet.",
     input_schema: {
@@ -498,6 +524,7 @@ export const TOOLS: ReggieTool[] = [
   },
   {
     name: "list_friends",
+    readOnly: true,
     description: "List the student's accepted friends on FschoolAI (id + name). Call before nudge_friend to resolve who they mean, or for 'who are my friends'.",
     input_schema: { type: "object", properties: {}, required: [] },
     invoke: async (_a, ctx) => ({ friends: await friendsOf(ctx.userId) }),

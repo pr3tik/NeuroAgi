@@ -158,6 +158,36 @@ describe("reggie tool-use loop", () => {
     expect(r.trace.every((t: any) => t.ok)).toBe(true);
   });
 
+  it("falls back to SERIAL execution when a step includes a mutating tool", async () => {
+    // save_flashcards writes; it is deliberately NOT on the read-only allow-list, so the
+    // whole step keeps the original one-at-a-time semantics rather than newly exposing a
+    // write path to interleaving. Ordering is the observable contract.
+    const mixed: any = { ...specialist, tools: ["what_if_plan", "save_flashcards"] };
+    scripted([
+      () => anthropic([
+        { type: "tool_use", id: "tu1", name: "what_if_plan", input: { basePlan, changes: {} } },
+        { type: "tool_use", id: "tu2", name: "save_flashcards", input: { course: "bio", cards: [{ question: "q", answer: "a" }] } },
+      ], "tool_use"),
+      () => anthropic([{ type: "text", text: "done" }], "end_turn"),
+    ]);
+    const runReggie = await load();
+    const events: string[] = [];
+    await runReggie({ specialist: mixed, userMessage: "x", ctx: { userId: "u1" }, emit: (e) => events.push(e.type) });
+    expect(events.filter((t) => t === "tool_call" || t === "tool_result"))
+      .toEqual(["tool_call", "tool_result", "tool_call", "tool_result"]);
+  });
+
+  it("does not parallelize a single-tool step (nothing to overlap)", async () => {
+    scripted([
+      () => anthropic([{ type: "tool_use", id: "tu1", name: "what_if_plan", input: { basePlan, changes: {} } }], "tool_use"),
+      () => anthropic([{ type: "text", text: "done" }], "end_turn"),
+    ]);
+    const runReggie = await load();
+    const events: string[] = [];
+    await runReggie({ specialist, userMessage: "x", ctx: { userId: "u1" }, emit: (e) => events.push(e.type) });
+    expect(events.filter((t) => t === "tool_call" || t === "tool_result")).toEqual(["tool_call", "tool_result"]);
+  });
+
   it("tells the model not to preamble before tool calls and to batch them into one turn", async () => {
     const fn = scripted([() => anthropic([{ type: "text", text: "hi" }], "end_turn")]);
     const runReggie = await load();

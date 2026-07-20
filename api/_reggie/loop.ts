@@ -79,6 +79,22 @@ function buildMessages(userMessage: string, history?: HistoryTurn[]): any[] {
   return [...prior, { role: "user", content: String(userMessage) }];
 }
 
+/** Mark the last tool_result of a step as a prompt-cache breakpoint.
+ *
+ *  This is the breakpoint that actually pays here. Tool results are the biggest thing in a
+ *  multi-step turn — each is capped at MAX_TOOL_RESULT_CHARS (20k chars ≈ 5-6k tokens) and
+ *  every later step re-sends all of them. The system/tools prefix, by contrast, only clears
+ *  Anthropic's minimum cacheable size (2048 tokens on Sonnet, 4096 on Haiku) for the widest
+ *  specialist; a step that has run even one real tool clears it comfortably.
+ *
+ *  Anthropic caches by prefix, so a breakpoint here lets step N+1 read tools + system +
+ *  every prior message instead of re-prefilling them. */
+function markCacheBreakpoint(blocks: any[]): any[] {
+  const last = blocks[blocks.length - 1];
+  if (last && typeof last === "object") last.cache_control = last.cache_control ?? { type: "ephemeral" };
+  return blocks;
+}
+
 /** Bound a tool invocation by wall clock. The tool itself keeps running (we can't cancel a
  *  handler mid-flight) but the loop stops waiting on it — the turn's latency is capped. */
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -88,44 +104,71 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+/** Invoke one tool → the shape the loop records. Never throws: a failure becomes an
+ *  is_error tool_result the model can recover from. */
+async function invokeOne(tu: any, ctx: ToolContext): Promise<{ out: any; content: string; isError: boolean }> {
+  try {
+    const tool = REGISTRY[tu.name];
+    if (!tool) throw new Error(`unknown tool: ${tu.name}`);
+    const out = await withTimeout(Promise.resolve(tool.invoke(tu.input ?? {}, ctx)), TOOL_TIMEOUT_MS, tu.name);
+    let content = JSON.stringify(out ?? null);
+    if (content.length > MAX_TOOL_RESULT_CHARS) content = content.slice(0, MAX_TOOL_RESULT_CHARS) + "…[truncated]";
+    return { out, content, isError: false };
+  } catch (e: any) {
+    return { out: null, content: `Tool error: ${e?.message ?? "failed"}`, isError: true };
+  }
+}
+
+/** Concurrency gate. A step runs its tools in parallel ONLY when every one of them is on
+ *  the audited read-only allow-list (ReggieTool.readOnly).
+ *
+ *  Why an allow-list and not "tools in one turn are independent": the model picks all the
+ *  tools of a turn without seeing any result, so they are independent as INPUTS — but that
+ *  says nothing about their side effects. This catalog contains real mutations (flashcard
+ *  writes, office-hours capture, university-brain contribution, and nudge_friend, which
+ *  sends a notification/email). Running those concurrently would newly expose their write
+ *  and rate-limit paths to interleaving they have never seen. The latency that actually
+ *  hurts is read fan-out (grades + upcoming + rag_search + canvas_*), and that is entirely
+ *  within the allow-list, so the conservative rule costs nothing real. Anything unmarked —
+ *  including any tool added later — keeps the original serial behavior by default. */
+function canRunConcurrently(toolUses: any[]): boolean {
+  return toolUses.length > 1 && toolUses.every((tu) => REGISTRY[tu.name]?.readOnly === true);
+}
+
 // Execute the tool_use blocks from one assistant turn → an array of tool_result blocks.
 // A tool that throws becomes an is_error result (recoverable), never crashes the turn.
 // Records each call in `trace` and emits tool_call / tool_result progress events.
 //
-// The tools in ONE assistant turn are independent by construction — the model already had
-// to choose them all without seeing any of their results — so they run CONCURRENTLY. This
-// is the single biggest win in a multi-tool step: a turn that calls grades + upcoming +
-// rag_search used to cost the SUM of three network round trips (often 4-6s), now the MAX
-// of them. Emission order is still deterministic: tool_call events fire up front in the
-// model's order, and results/trace are collected by index, not by completion time.
+// Read-only steps run concurrently: a turn calling grades + upcoming + rag_search used to
+// cost the SUM of three network round trips (often 4-6s) and now costs the MAX. Emission
+// order stays deterministic either way — tool_call events fire up front in the model's
+// order, and results/trace are collected by index, never by completion time.
 async function runTools(
   toolUses: any[], ctx: ToolContext, trace: ToolCallTrace[], emit?: (e: ReggieEvent) => void, widgets?: RenderableWidget[],
 ): Promise<any[]> {
-  for (const tu of toolUses) emit?.({ type: "tool_call", name: tu.name, input: tu.input });
-
-  const settled = await Promise.all(toolUses.map(async (tu) => {
-    try {
-      const tool = REGISTRY[tu.name];
-      if (!tool) throw new Error(`unknown tool: ${tu.name}`);
-      const out = await withTimeout(Promise.resolve(tool.invoke(tu.input ?? {}, ctx)), TOOL_TIMEOUT_MS, tu.name);
-      let content = JSON.stringify(out ?? null);
-      if (content.length > MAX_TOOL_RESULT_CHARS) content = content.slice(0, MAX_TOOL_RESULT_CHARS) + "…[truncated]";
-      return { out, content, isError: false };
-    } catch (e: any) {
-      return { out: null, content: `Tool error: ${e?.message ?? "failed"}`, isError: true };
-    }
-  }));
-
   const results: any[] = [];
-  settled.forEach(({ out, content, isError }, i) => {
-    const tu = toolUses[i];
-    // Widgets are pushed here (not inside the parallel map) so their order follows the
-    // model's tool order rather than whichever call finished first.
+  // Bookkeeping for one finished tool. Called in the model's tool order on BOTH paths, so
+  // trace, widget, and tool_result ordering never depends on which call finished first.
+  const record = (tu: any, { out, content, isError }: { out: any; content: string; isError: boolean }) => {
     if (!isError && widgets) { const w = renderableWidget(tu.name, out); if (w) widgets.push(w); }
     trace.push({ name: tu.name, input: tu.input, ok: !isError, preview: content.slice(0, 200) });
     emit?.({ type: "tool_result", name: tu.name, ok: !isError });
     results.push({ type: "tool_result", tool_use_id: tu.id, content, ...(isError ? { is_error: true } : {}) });
-  });
+  };
+
+  if (canRunConcurrently(toolUses)) {
+    // Announce every call up front, then await them together.
+    for (const tu of toolUses) emit?.({ type: "tool_call", name: tu.name, input: tu.input });
+    const settled = await Promise.all(toolUses.map((tu) => invokeOne(tu, ctx)));
+    settled.forEach((r, i) => record(toolUses[i], r));
+  } else {
+    // Serial path — the original semantics exactly, including the interleaved
+    // call→result→call→result event order the client already renders.
+    for (const tu of toolUses) {
+      emit?.({ type: "tool_call", name: tu.name, input: tu.input });
+      record(tu, await invokeOne(tu, ctx));
+    }
+  }
   return results;
 }
 
@@ -197,7 +240,7 @@ export async function runReggie(opts: RunOpts): Promise<ReggieResult> {
     messages.push({ role: "assistant", content: r.contentBlocks });
     const toolUses = (r.contentBlocks || []).filter((b: any) => b?.type === "tool_use");
     const results = await runTools(toolUses, ctx, trace, emit, widgets);
-    messages.push({ role: "user", content: results });
+    messages.push({ role: "user", content: markCacheBreakpoint(results) });
   }
 
   return forceFinalBlocking(specialist, voiceMode ? "voice" : specialist.task, system, ctx, messages, trace, widgets, maxSteps, emit);
@@ -252,7 +295,7 @@ export async function runReggieStream(opts: RunOpts): Promise<ReggieResult> {
     const toolUses = (turn.contentBlocks || []).filter((b: any) => b?.type === "tool_use");
     emit?.({ type: "reset" });                                   // discard the pre-tool preamble on the client
     const results = await runTools(toolUses, ctx, trace, emit, widgets);
-    messages.push({ role: "user", content: results });
+    messages.push({ role: "user", content: markCacheBreakpoint(results) });
   }
 
   // Budget exhausted (steps or wall clock) → one final tool-less streamed turn.
