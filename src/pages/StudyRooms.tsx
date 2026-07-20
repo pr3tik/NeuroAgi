@@ -867,10 +867,10 @@ function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
     setSaving(false);
   }
 
-  return (
+  return createPortal(
     <div style={S.modalOverlay}>
       <div style={S.modalCard}>
-        <h2 style={{ fontSize:"20px", fontWeight:"700", color:"var(--text-primary)", marginBottom:"22px" }}>
+        <h2 style={{ fontSize:"20px", fontWeight:"700", color:"var(--text-primary)", marginBottom:"16px" }}>
           Create a Room
         </h2>
         <label style={S.fieldLabel}>Room name</label>
@@ -891,7 +891,7 @@ function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
             </option>
           ))}
         </select>
-        <div style={{ display:"flex", gap:"8px", marginBottom:"22px" }}>
+        <div style={{ display:"flex", gap:"8px", marginBottom:"16px" }}>
           {["public","invite"].map(t => (
             <button key={t} onClick={() => setRoomType(t)} style={{
               flex:1, padding:"9px 0", borderRadius:"9px",
@@ -932,7 +932,8 @@ function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -945,7 +946,7 @@ function AccessSettingsModal({ initial, hasCourse, onSave, onClose }: {
 }) {
   const [filters, setFilters] = useState<AccessFilters>(initial || {});
   const S = styles;
-  return (
+  return createPortal(
     <div style={S.modalOverlay}>
       <div style={{ ...S.modalCard, maxWidth:"380px" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px" }}>
@@ -963,7 +964,8 @@ function AccessSettingsModal({ initial, hasCourse, onSave, onClose }: {
           <button onClick={() => onSave(filters)} style={S.primaryBtnLarge}>Save</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -2911,6 +2913,6 @@ const styles: Record<string, React.CSSProperties> = {
   primaryBtnLarge:{ flex:2, background:"var(--color-accent)", color:"#111", border:"none", borderRadius:"10px", padding:"12px", fontSize:"14px", fontWeight:"600", cursor:"pointer", fontFamily:"inherit" },
   leaveBtn:       { background:"rgba(255,59,48,0.1)", border:"1px solid rgba(255,59,48,0.22)", borderRadius:"8px", padding:"9px 16px", color:"rgba(255,100,90,0.9)", fontSize:"13px", fontWeight:"600", cursor:"pointer", fontFamily:"inherit", flexShrink:0 },
   modalOverlay:   { position:"fixed", top:0, left:0, right:0, bottom:0, zIndex:1000, background:"rgba(8,8,10,0.75)", backdropFilter:"blur(14px)", display:"flex", alignItems:"center", justifyContent:"center", padding:"24px" },
-  modalCard:      { width:"100%", maxWidth:"400px", background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"20px", padding:"28px 24px", boxShadow:"0 32px 80px rgba(0,0,0,0.5)" },
+  modalCard:      { width:"100%", maxWidth:"400px", maxHeight:"calc(100dvh - 40px)", overflowY:"auto", background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"20px", padding:"24px 22px", boxShadow:"0 32px 80px rgba(0,0,0,0.5)" },
   fieldLabel:     { fontSize:"12px", color:"var(--text-secondary)", fontWeight:"500" },
 };
