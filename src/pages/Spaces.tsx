@@ -11,6 +11,7 @@ import DocReader    from "../components/DocReader";
 import { FileText, Image as ImageIcon, StickyNote, FolderOpen, FolderArchive, Sparkles, Hexagon, ArrowUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import SpaceExams   from "../components/SpaceExams";
+import remarkGfm from "remark-gfm";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -623,7 +624,7 @@ function SpaceChat({
                 <span style={{ lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{m.content}</span>
               ) : m.content ? (
                 <div className="smd" style={{ fontSize: 13 }}>
-                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                 </div>
               ) : busy ? (
                 <span style={{ opacity: 0.4 }}>● ● ●</span>
