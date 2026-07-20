@@ -115,12 +115,12 @@ export default function DailyBriefing({ isMobile }: { isMobile: boolean }) {
   if (overdueCount  > 0) statParts.push(`${overdueCount} overdue`);
   if (dueTodayCount > 0) statParts.push(`${dueTodayCount} due today`);
 
-  const dimText  = { fontFamily: "Inter, sans-serif", fontSize: isMobile ? "12px" : "14px", color: "rgba(200,197,203,0.4)" as const, margin: 0, whiteSpace: "nowrap" as const };
+  const dimText  = { fontFamily: "var(--font-sans)", fontSize: isMobile ? "12px" : "14px", color: "rgba(200,197,203,0.4)" as const, margin: 0, whiteSpace: "nowrap" as const };
 
   return (
     <div style={{
       borderRadius:   isMobile ? "16px" : "32px",
-      background:     "linear-gradient(0deg, rgba(0,0,0,0.2), rgba(0,0,0,0.2)), radial-gradient(90.05% 130.96% at 9.95% 57.96%, rgba(35,35,36,0.6) 17.31%, rgba(74,74,75,0.6) 38.94%, rgba(117,117,118,0.6) 57.52%, rgba(25,25,25,0.6) 99.04%)",
+      background:     "rgba(26,26,30,0.6)",
       border:         "1px solid rgba(255,255,255,0.08)",
       backdropFilter: "blur(10px)",
       boxShadow:      "inset 0 0 0 2px rgba(255,255,255,0.02)",
@@ -136,14 +136,14 @@ export default function DailyBriefing({ isMobile }: { isMobile: boolean }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
           <p style={{
-            fontFamily: "Inter, sans-serif", fontWeight: 400,
+            fontFamily: "var(--font-sans)", fontWeight: 400,
             fontSize: isMobile ? "11px" : "13px",
             color: "rgba(200,197,203,0.5)", margin: 0, letterSpacing: "0.4px",
           }}>
             DAILY BRIEFING
           </p>
           <p style={{
-            fontFamily: "Inter, sans-serif", fontWeight: 400,
+            fontFamily: "var(--font-sans)", fontWeight: 400,
             fontSize: isMobile ? "14px" : "16px",
             color: "#C8C5CB", margin: 0,
           }}>
@@ -153,7 +153,7 @@ export default function DailyBriefing({ isMobile }: { isMobile: boolean }) {
         <span style={{
           padding: isMobile ? "2px 10px" : "4px 14px",
           background: badge.bg, border: `1px solid ${badge.border}`,
-          borderRadius: "9999px", fontFamily: "Inter, sans-serif",
+          borderRadius: "9999px", fontFamily: "var(--font-sans)",
           fontWeight: 400, fontSize: isMobile ? "10px" : "14px",
           color: badge.color, whiteSpace: "nowrap", marginTop: "2px",
         }}>
@@ -172,7 +172,7 @@ export default function DailyBriefing({ isMobile }: { isMobile: boolean }) {
         {/* Left: summary counts + most urgent */}
         <div style={{ flex: "1 1 0", display: "flex", flexDirection: "column", gap: isMobile ? "10px" : "14px" }}>
           <p style={{
-            fontFamily: "Inter, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize:   isMobile ? "14px" : "20px",
             color:      allClear ? "rgba(200,197,203,0.5)" : "#E3E2E2",
             margin:     0,
@@ -182,14 +182,14 @@ export default function DailyBriefing({ isMobile }: { isMobile: boolean }) {
           </p>
 
           {dueThisWeek > 0 && (
-            <p style={{ fontFamily: "Inter, sans-serif", fontSize: isMobile ? "13px" : "15px", color: "#C8C5CB", margin: 0 }}>
+            <p style={{ fontFamily: "var(--font-sans)", fontSize: isMobile ? "13px" : "15px", color: "#C8C5CB", margin: 0 }}>
               <span style={{ color: "rgba(200,197,203,0.4)" }}>This week  </span>
               {dueThisWeek} due
             </p>
           )}
 
           {topItem && (
-            <p style={{ fontFamily: "Inter, sans-serif", fontSize: isMobile ? "12px" : "14px", color: "#C8C5CB", margin: 0 }}>
+            <p style={{ fontFamily: "var(--font-sans)", fontSize: isMobile ? "12px" : "14px", color: "#C8C5CB", margin: 0 }}>
               <span style={{ color: "rgba(200,197,203,0.4)" }}>Most urgent</span>
               {"  "}{topItemName}
               <span style={{ color: "rgba(200,197,203,0.4)" }}> — {topItemLabel}</span>
@@ -215,10 +215,10 @@ export default function DailyBriefing({ isMobile }: { isMobile: boolean }) {
                   const name = raw.length > 32 ? raw.slice(0, 30) + "…" : raw;
                   return (
                     <div key={String(a.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
-                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: isMobile ? "13px" : "14px", color: "#C8C5CB" }}>
+                      <span style={{ fontFamily: "var(--font-sans)", fontSize: isMobile ? "13px" : "14px", color: "#C8C5CB" }}>
                         {name}
                       </span>
-                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: isMobile ? "11px" : "12px", color: "rgba(200,197,203,0.4)", whiteSpace: "nowrap" }}>
+                      <span style={{ fontFamily: "var(--font-sans)", fontSize: isMobile ? "11px" : "12px", color: "rgba(200,197,203,0.4)", whiteSpace: "nowrap" }}>
                         {fmtDue(a.dueAt, now)}
                       </span>
                     </div>
@@ -246,7 +246,7 @@ export default function DailyBriefing({ isMobile }: { isMobile: boolean }) {
                           ? hoveredPill === i ? "rgba(200,197,203,0.75)" : "rgba(200,197,203,0.5)"
                           : hoveredPill === i ? "rgba(80,80,82,0.7)"     : "rgba(52,53,53,0.5)",
                         borderRadius: "9999px",
-                        fontFamily:   "Inter, sans-serif",
+                        fontFamily:   "var(--font-sans)",
                         fontSize:     isMobile ? "12px" : "14px",
                         color:        i === 0 ? "#121414" : "#C8C5CB",
                         fontWeight:   i === 0 ? 600 : 400,

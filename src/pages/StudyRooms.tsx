@@ -1083,6 +1083,24 @@ function GsRichText({ text }: { text: string }) {
         const trimmed = b.trim();
         if (/^([-*_=]){3,}$/.test(trimmed)) return <div key={i} style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "1px 0" }} />;
         const lines = b.split("\n").filter(l => l.trim());
+        // Pipe tables (| a | b | / |---|---| / rows) — render a real table instead of
+        // leaking raw pipe rows (team-reported in the Reggie bubble).
+        const isTblRow = (l: string) => /^\s*\|.*\|\s*$/.test(l);
+        const isTblSep = (l: string) => /^\s*\|[\s\-:|]+\|\s*$/.test(l);
+        if (lines.length >= 2 && isTblRow(lines[0]) && isTblSep(lines[1])) {
+          const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+          const header = cells(lines[0]);
+          const rows = lines.slice(2).filter(l => isTblRow(l) && !isTblSep(l)).map(cells);
+          const cellSt: React.CSSProperties = { padding: "5px 9px", border: "1px solid rgba(255,255,255,0.1)", textAlign: "left", fontSize: 12.5, color: "var(--text-secondary)" };
+          return (
+            <div key={i} style={{ overflowX: "auto" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                <thead><tr>{header.map((c, ci) => <th key={ci} style={{ ...cellSt, fontWeight: 650, color: "var(--text-primary)" }}>{gsInline(c)}</th>)}</tr></thead>
+                <tbody>{rows.map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci} style={cellSt}>{gsInline(c)}</td>)}</tr>)}</tbody>
+              </table>
+            </div>
+          );
+        }
         // Line-level specials: bullets, "## headings", and "---" dividers can appear
         // MID-block (Reggie writes them with single newlines), so block-level checks
         // miss them and the raw "##"/"---" leaked into the UI. Render line-by-line

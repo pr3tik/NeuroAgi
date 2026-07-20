@@ -65,7 +65,7 @@ function AssignmentCard({ a, isMobile = false }) {
       position: "relative",
       padding: isMobile ? "16px" : "20px",
       borderRadius: isMobile ? "12px" : "16px",
-      background: "radial-gradient(77.21% 312.57% at 97.81% 50.56%, rgba(25,25,25,0.75) 27.4%, rgba(52,53,53,0.75) 41.13%, rgba(106,107,107,0.75) 50.44%, rgba(163,166,166,0.75) 64.56%, rgba(69,70,70,0.75) 80.31%, rgba(27,27,27,0.75) 100%)",
+      background: "rgba(26,26,30,0.6)",
       border: "1px solid rgba(255,255,255,0.08)",
       backdropFilter: "blur(10px)",
       boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.02)",
@@ -99,7 +99,7 @@ function AssignmentCard({ a, isMobile = false }) {
         </div>
         <div style={{ minWidth: 0 }}>
           <p style={{
-            fontFamily: "Inter, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: isMobile ? "14px" : "16px",
             lineHeight: isMobile ? "20px" : undefined,
             color: "#E3E2E2",
@@ -110,7 +110,7 @@ function AssignmentCard({ a, isMobile = false }) {
             {a.name}
           </p>
           <p style={{
-            fontFamily: "Inter, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: isMobile ? "12px" : "14px",
             lineHeight: isMobile ? "16px" : undefined,
             color: isMobile ? "#D2C5B1" : "rgba(200,197,203,0.6)",
@@ -128,7 +128,7 @@ function AssignmentCard({ a, isMobile = false }) {
           background: mobileBadge.bg,
           border: `1px solid ${mobileBadge.border}`,
           borderRadius: "9999px",
-          fontFamily: "Inter, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontWeight: 400,
           fontSize: "10px",
           lineHeight: "15px",
@@ -142,10 +142,10 @@ function AssignmentCard({ a, isMobile = false }) {
         <div style={{ display: "flex", alignItems: "center", gap: "32px", flexShrink: 0 }}>
           {due && (
             <div style={{ textAlign: "right" }}>
-              <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.4)", margin: 0 }}>
+              <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.4)", margin: 0 }}>
                 Deadline
               </p>
-              <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "#E3E2E2", margin: 0 }}>
+              <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "#E3E2E2", margin: 0 }}>
                 {due.label}
               </p>
             </div>
@@ -155,7 +155,7 @@ function AssignmentCard({ a, isMobile = false }) {
             background: badge.bg,
             border: `1px solid ${badge.border}`,
             borderRadius: "9999px",
-            fontFamily: "Inter, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: "14px",
             color: badge.color,
             whiteSpace: "nowrap",
@@ -184,10 +184,10 @@ function EmptyState({ syncStatus, hasToken }) {
   if (syncStatus === "syncing") {
     return (
       <div style={glass}>
-        <p style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "18px", color: "#E3E2E2", margin: "0 0 8px" }}>
+        <p style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: "18px", color: "#E3E2E2", margin: "0 0 8px" }}>
           Syncing Canvas…
         </p>
-        <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.6)", margin: 0 }}>
+        <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.6)", margin: 0 }}>
           Fetching your assignments
         </p>
       </div>
@@ -196,10 +196,10 @@ function EmptyState({ syncStatus, hasToken }) {
   if (syncStatus === "cors-error") {
     return (
       <div style={{ ...glass, textAlign: "left" as const }}>
-        <p style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "18px", color: "rgba(255,100,90,0.9)", margin: "0 0 8px" }}>
+        <p style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: "18px", color: "rgba(255,100,90,0.9)", margin: "0 0 8px" }}>
           Canvas blocked by browser
         </p>
-        <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.6)", lineHeight: "1.6", margin: 0 }}>
+        <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.6)", lineHeight: "1.6", margin: 0 }}>
           Your school's Canvas blocks direct requests. Use the Canvas page to import manually.
         </p>
       </div>
@@ -208,10 +208,10 @@ function EmptyState({ syncStatus, hasToken }) {
   if (!hasToken) {
     return (
       <div style={glass}>
-        <p style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "18px", color: "#E3E2E2", margin: "0 0 8px" }}>
+        <p style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: "18px", color: "#E3E2E2", margin: "0 0 8px" }}>
           No Canvas connected
         </p>
-        <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.6)", margin: 0 }}>
+        <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.6)", margin: 0 }}>
           Head to the Canvas page to connect your account and see your assignments here.
         </p>
       </div>
@@ -219,10 +219,10 @@ function EmptyState({ syncStatus, hasToken }) {
   }
   return (
     <div style={glass}>
-      <p style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "18px", color: "#E3E2E2", margin: "0 0 4px" }}>
+      <p style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: "18px", color: "#E3E2E2", margin: "0 0 4px" }}>
         You're all caught up
       </p>
-      <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.6)", margin: 0 }}>
+      <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.6)", margin: 0 }}>
         No upcoming assignments
       </p>
     </div>
@@ -442,7 +442,7 @@ export default function Work() {
             )}
           </p>
           <p style={{
-            fontFamily: "Inter, sans-serif", fontWeight: 400,
+            fontFamily: "var(--font-sans)", fontWeight: 400,
             fontSize: "16px", lineHeight: "24px",
             color: "#C8C5CB", opacity: 0.8,
             marginTop: "16px", marginBottom: 0,
@@ -472,7 +472,7 @@ export default function Work() {
               placeholder="Search curriculum, papers, notes..."
               style={{
                 flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none",
-                fontFamily: "Inter, sans-serif", fontSize: "14px", color: "#E3E2E2",
+                fontFamily: "var(--font-sans)", fontSize: "14px", color: "#E3E2E2",
                 caretColor: "#C8C5CB",
               }}
             />
@@ -530,7 +530,7 @@ export default function Work() {
                       background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)",
                       borderRadius: 999, padding: "8px 14px",
                     }}>
-                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{m.name}</span>
+                      <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{m.name}</span>
                       <MetaLine parts={[`${m.count} indexed`, "searchable"]} />
                     </div>
                   ))}
@@ -593,7 +593,7 @@ export default function Work() {
                         background: isMobile ? "rgba(200,197,203,0.1)" : "rgba(200,197,203,0.5)",
                         border: isMobile ? "1px solid rgba(200,197,203,0.2)" : "1px solid rgba(200,197,203,0.2)",
                         borderRadius: "9999px",
-                        fontFamily: "Inter, sans-serif",
+                        fontFamily: "var(--font-sans)",
                         fontWeight: isMobile ? 600 : 400,
                         fontSize: isMobile ? "12px" : "16px",
                         lineHeight: isMobile ? "16px" : undefined,
@@ -606,7 +606,7 @@ export default function Work() {
                     )}
                     {heroFirstCourse && (
                       <span style={{
-                        fontFamily: "Inter, sans-serif",
+                        fontFamily: "var(--font-sans)",
                         fontWeight: isMobile ? 600 : 400,
                         fontSize: isMobile ? "12px" : "16px",
                         lineHeight: isMobile ? "16px" : undefined,
@@ -621,7 +621,7 @@ export default function Work() {
 
                   {/* Title */}
                   <p style={{
-                    fontFamily: isMobile ? "Inter, sans-serif" : "'Space Grotesk', sans-serif",
+                    fontFamily: isMobile ? "var(--font-sans)" : "'Space Grotesk', sans-serif",
                     fontWeight: isMobile ? 600 : 400,
                     fontSize: isMobile ? "18px" : "42px",
                     lineHeight: isMobile ? "22px" : "52px",
@@ -656,7 +656,7 @@ export default function Work() {
                       width: isMobile ? "100%" : undefined,
                       background: "#C8C5CB",
                       border: "none", cursor: "pointer",
-                      fontFamily: "Inter, sans-serif",
+                      fontFamily: "var(--font-sans)",
                       fontWeight: isMobile ? 400 : 600,
                       fontSize: isMobile ? "14px" : "18px",
                       lineHeight: isMobile ? "20px" : undefined,
@@ -685,7 +685,7 @@ export default function Work() {
                             position: "relative",
                           }}>
                             {i === 2 && (
-                              <span style={{ fontSize: "9px", fontFamily: "Inter, sans-serif", color: "#C8C5CB", fontWeight: 700 }}>
+                              <span style={{ fontSize: "9px", fontFamily: "var(--font-sans)", color: "#C8C5CB", fontWeight: 700 }}>
                                 +2
                               </span>
                             )}
@@ -693,7 +693,7 @@ export default function Work() {
                         ))}
                       </div>
                       <p style={{
-                        fontFamily: "Inter, sans-serif", fontSize: "14px",
+                        fontFamily: "var(--font-sans)", fontSize: "14px",
                         color: "#C8C5CB", margin: 0,
                       }}>
                         Co-authored with AI Research Partner
@@ -722,7 +722,7 @@ export default function Work() {
                     <p style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 400, fontSize: "18px", lineHeight: "40px", color: "#E3E2E2", margin: 0 }}>
                       {STATS[0].value}
                     </p>
-                    <p style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "rgba(200,197,203,0.5)", margin: 0, lineHeight: "14px" }}>
+                    <p style={{ fontFamily: "var(--font-sans)", fontSize: "12px", color: "rgba(200,197,203,0.5)", margin: 0, lineHeight: "14px" }}>
                       GPA
                     </p>
                   </div>
@@ -775,7 +775,7 @@ export default function Work() {
             {isMobile && showActivity && (
               <div style={{ padding: "0 8px" }}>
                 <p style={{
-                  fontFamily: "Inter, sans-serif", fontWeight: 600,
+                  fontFamily: "var(--font-sans)", fontWeight: 600,
                   fontSize: "18px", letterSpacing: "-0.18px",
                   color: "#E3E2E2", margin: "0 0 16px",
                 }}>
@@ -795,7 +795,7 @@ export default function Work() {
                       }} />
                       <p style={{
                         flex: 1, minWidth: 0, margin: 0,
-                        fontFamily: "Inter, sans-serif", fontSize: "14px",
+                        fontFamily: "var(--font-sans)", fontSize: "14px",
                         color: item.recent ? "#E3E2E2" : "#C8C5CB",
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       }}>
@@ -803,7 +803,7 @@ export default function Work() {
                       </p>
                       <p style={{
                         margin: 0, whiteSpace: "nowrap", flexShrink: 0,
-                        fontFamily: "Inter, sans-serif", fontSize: "10px",
+                        fontFamily: "var(--font-sans)", fontSize: "10px",
                         color: "rgba(200,197,203,0.4)",
                       }}>
                         {item.time}
@@ -834,7 +834,7 @@ export default function Work() {
               {/* All content — absolute wrapper fills card so top: values stay correct */}
               <div style={{ position: "absolute", inset: 0, zIndex: 1, padding: "32px", boxSizing: "border-box" }}>
                 <p style={{
-                  fontFamily: "Inter, sans-serif", fontWeight: 400, fontSize: "16px",
+                  fontFamily: "var(--font-sans)", fontWeight: 400, fontSize: "16px",
                   color: "rgba(200,197,203,0.5)", margin: 0, letterSpacing: "0.4px",
                 }}>
                   CUMULATIVE GPA
@@ -849,7 +849,7 @@ export default function Work() {
                     {STATS[0].value}
                   </span>
                   <span style={{
-                    fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: "16px",
+                    fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: "16px",
                     color: "#C8C5CB", marginLeft: "8px",
                   }}>
                     /4.0
@@ -883,7 +883,7 @@ export default function Work() {
             >
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <p style={{
-                  fontFamily: "Inter, sans-serif", fontWeight: 400, fontSize: "16px",
+                  fontFamily: "var(--font-sans)", fontWeight: 400, fontSize: "16px",
                   color: "rgba(200,197,203,0.5)", margin: 0,
                 }}>
                   DAILY STREAK
@@ -920,7 +920,7 @@ export default function Work() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   <p style={{
-                    fontFamily: "Inter, sans-serif", fontWeight: 400, fontSize: "16px",
+                    fontFamily: "var(--font-sans)", fontWeight: 400, fontSize: "16px",
                     color: "rgba(200,197,203,0.5)", margin: 0,
                   }}>
                     WEEKLY GOAL
@@ -936,7 +936,7 @@ export default function Work() {
                   padding: "4px 12px",
                   background: "rgba(200,197,203,0.5)",
                   borderRadius: "9999px",
-                  fontFamily: "Inter, sans-serif",
+                  fontFamily: "var(--font-sans)",
                   fontWeight: 700, fontSize: "10px", color: "#343535",
                 }}>
                   {weeklyPercent}%
@@ -967,7 +967,7 @@ export default function Work() {
             {showActivity && (
               <div style={{ padding: "0 8px" }}>
                 <p style={{
-                  fontFamily: "Inter, sans-serif", fontWeight: 600,
+                  fontFamily: "var(--font-sans)", fontWeight: 600,
                   fontSize: "18px", letterSpacing: "-0.18px",
                   color: "#E3E2E2", margin: "0 0 16px",
                 }}>
@@ -987,7 +987,7 @@ export default function Work() {
                       }} />
                       <p style={{
                         flex: 1, minWidth: 0, margin: 0,
-                        fontFamily: "Inter, sans-serif", fontSize: "14px",
+                        fontFamily: "var(--font-sans)", fontSize: "14px",
                         color: item.recent ? "#E3E2E2" : "#C8C5CB",
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       }}>
@@ -995,7 +995,7 @@ export default function Work() {
                       </p>
                       <p style={{
                         margin: 0, whiteSpace: "nowrap", flexShrink: 0,
-                        fontFamily: "Inter, sans-serif", fontSize: "10px",
+                        fontFamily: "var(--font-sans)", fontSize: "10px",
                         color: "rgba(200,197,203,0.4)",
                       }}>
                         {item.time}
