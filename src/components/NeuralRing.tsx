@@ -3086,16 +3086,21 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                 messages.map((m, i) => (
                   <div key={i} className="nr-msg-in" style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "84%" }}>
                     <div
-                      className={(m.role === "assistant" && i === messages.length - 1 ? "nr-msg-new" : "") + " markdown-body"}
+                      className={(m.role === "assistant" && i === messages.length - 1 ? "nr-msg-new " : "") + (m.role === "assistant" ? "markdown-body" : "")}
                       style={{
                         background: m.role === "user" ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.05)",
                         borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
                         padding: "10px 14px", color: "var(--text-primary)",
                         fontSize: "14px", lineHeight: "1.6",
                         border: m.hasArtifact ? "1px solid rgba(232,255,107,0.2)" : "1px solid rgba(255,255,255,0.07)",
+                        ...(m.role === "user" ? { whiteSpace: "pre-wrap" as const } : {}),
                       }}
                     >
-                      <Markdown remarkPlugins={[remarkGfm]}>{m.content}</Markdown>
+                      {/* Only assistant turns are markdown — a student typing "a*b*c" or
+                          "# of items" must see their text verbatim, not a parse of it. */}
+                      {m.role === "assistant"
+                        ? <Markdown remarkPlugins={[remarkGfm]}>{m.content}</Markdown>
+                        : m.content}
                       {m.quiz && <InlineQuiz cards={m.quiz} userId={userId} courseId={null} />}
                       {/* Search tags: which documents this answer drew from (+ traceId for debugging —
                           click copies it; paste into ReggieTester's trace lookup). */}

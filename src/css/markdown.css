@@ -1,16 +1,25 @@
+/* markdown.css — shared styles for react-markdown output in chat surfaces
+   (NeuralRing orb, DocChat, Spaces, StudyAssistant). All colors come from the
+   design tokens in tokens.css so the warm-ink override and the light theme
+   restyle this for free — no hardcoded palette here. Font + base text color
+   inherit from the bubble, which already sets var(--font-sans)/--text-primary
+   (a local font-family would silently override Geist). */
+
 .markdown-body {
-  font-family: system-ui, -apple-system, sans-serif;
   line-height: 1.6;
-  color: #c9d1d9; /* Пример для темной темы, измени на свой */
 }
+
+/* Chat bubbles: no stray margins at the bubble's edges. */
+.markdown-body > :first-child { margin-top: 0; }
+.markdown-body > :last-child  { margin-bottom: 0; }
 
 .markdown-body p {
   margin-top: 0;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .markdown-body strong {
-  color: #c49a3c;
+  color: var(--gold);
   font-weight: 600;
 }
 
@@ -24,21 +33,22 @@
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  margin-top: 24px;
-  margin-bottom: 16px;
+  margin-top: 20px;
+  margin-bottom: 10px;
   font-weight: 600;
   line-height: 1.25;
 }
 
-.markdown-body h1 { font-size: 2em; }
-.markdown-body h2 { font-size: 1.5em; }
-.markdown-body h3 { font-size: 1.25em; }
+/* Chat-scale headings — a model "# Title" shouldn't shout inside a bubble. */
+.markdown-body h1 { font-size: 1.3em; }
+.markdown-body h2 { font-size: 1.15em; }
+.markdown-body h3 { font-size: 1.05em; }
 
 .markdown-body ul,
 .markdown-body ol {
   margin-top: 0;
-  margin-bottom: 16px;
-  padding-left: 2em;
+  margin-bottom: 12px;
+  padding-left: 1.6em;
 }
 
 .markdown-body li {
@@ -46,7 +56,7 @@
 }
 
 .markdown-body a {
-  color: #58a6ff;
+  color: rgb(var(--teal-rgb));
   text-decoration: none;
 }
 
@@ -55,28 +65,29 @@
 }
 
 .markdown-body blockquote {
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   padding: 0 1em;
-  color: #8b949e;
-  border-left: 0.25em solid #30363d;
+  color: var(--text-secondary);
+  border-left: 0.25em solid var(--color-border-strong);
 }
 
 .markdown-body code {
   padding: 0.2em 0.4em;
   margin: 0;
   font-size: 85%;
-  background-color: rgba(110, 118, 129, 0.4);
+  background-color: var(--color-surface-hover);
   border-radius: 6px;
-  font-family: monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .markdown-body pre {
-  padding: 16px;
+  padding: 12px 14px;
   overflow: auto;
   font-size: 85%;
   line-height: 1.45;
-  background-color: #161b22;
-  border-radius: 6px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
 }
 
 .markdown-body pre code {
@@ -85,28 +96,35 @@
 }
 
 .markdown-body hr {
-  height: 0.25em;
+  height: 1px;
   padding: 0;
-  margin: 24px 0;
-  background-color: #30363d;
+  margin: 16px 0;
+  background-color: var(--color-border-strong);
   border: 0;
 }
 
+/* Tables scroll inside the bubble instead of blowing out its width. */
 .markdown-body table {
+  display: block;
+  overflow-x: auto;
   border-spacing: 0;
   border-collapse: collapse;
-  margin-bottom: 16px;
-  width: 100%;
+  margin-bottom: 12px;
+  max-width: 100%;
 }
 
 .markdown-body table th,
 .markdown-body table td {
   padding: 6px 13px;
-  border: 1px solid #30363d;
+  border: 1px solid var(--color-border-strong);
+}
+
+.markdown-body table th {
+  font-weight: 600;
 }
 
 .markdown-body table tr:nth-child(2n) {
-  background-color: #21262d;
+  background-color: var(--color-surface);
 }
 
 .markdown-body img {

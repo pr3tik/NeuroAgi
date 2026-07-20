@@ -118,6 +118,29 @@ const SHELL_STYLES = `
       margin-left: 64px;
     }
   }
+  /* Viewport-locked pages (Reggie): chat owns its own scrolling, so the DOCUMENT must
+     never scroll — the input bar stays pinned in view. The header keeps its natural
+     height and .app-main flexes to exactly the remainder, which frees the page from
+     guessing the header's size with a calc(100dvh - Npx). */
+  .nav-tabs.page-locked .app-page-transition {
+    height: 100dvh;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .nav-tabs.page-locked .app-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    /* Mobile: clear the fixed bottom tab bar instead of the usual 100px scroll allowance */
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+  @media (min-width: 768px) {
+    .nav-tabs.page-locked .app-main {
+      padding-bottom: 24px;
+    }
+  }
 `;
 
 if (!document.getElementById("app-shell-styles")) {
@@ -869,7 +892,7 @@ export default function App() {
   // page-wide: only INSIDE a room (activeRoomId set by RoomView on enter, cleared on
   // leave) — the room list keeps the readable 1240px cap like every other page.
   return (
-    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${currentPage === "rooms" && activeRoomId ? " page-wide" : ""}`}>
+    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${currentPage === "rooms" && activeRoomId ? " page-wide" : ""}${currentPage === "studyAssistant" ? " page-locked" : ""}`}>
       {overlays}
       <TokenToast />
 
