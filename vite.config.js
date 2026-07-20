@@ -679,7 +679,8 @@ export default defineConfig({
     handlerProxy("/api/agent-manager",    () => import("./api/agent-manager.js"), [...HANDLER_ENV, "OPENAI_API_KEY", "GROQ_KEY"]),
     handlerProxy("/api/library-agent",    () => import("./api/library-agent.js")),
     handlerProxy("/api/university-brain", () => import("./api/university-brain.js"), [...HANDLER_ENV, "GROQ_KEY"]),
-    handlerProxy("/api/room-session",     () => import("./api/room-session.js")),
+    handlerProxy("/api/room-session", () => import("./api/room-session.js")),
+    handlerProxy("/api/rooms",        () => import("./api/rooms.js")),
     // Jobs worker (BE-08). No local cron — drive a tick by hand in dev:
     //   curl.exe -X POST "http://localhost:5173/api/jobs?action=run" -H "x-cron-secret: $CRON_SECRET"
     // OPENAI_API_KEY is needed because the AI-10 summary handler retrieves sources.

@@ -9,13 +9,24 @@ import { supabase } from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sendNudge } from "../api/nudge";
 import {
-  listAccessibleRooms, joinRoom, respondRoomRequest,
-  inviteToRoom, leaveRoom, setRoomAccess,
+  createRoom,
+  listAccessibleRooms,
+  joinRoom,
+  respondRoomRequest,
+  inviteToRoom,
+  leaveRoom,
+  setRoomAccess,
 } from "../api/rooms";
 import type { AccessFilters } from "../api/rooms";
 import { loadRecentMessages, postRoomMessage, uploadChatImage } from "../api/chat";
 import type { ChatMessage } from "../api/chat";
 import type { Stroke, Point, PenStyle } from "../api/whiteboard";
+import {
+  startRoomSession,
+  endRoomSession,
+  getRoomSources,
+  bindRoomSources,
+} from "../api/roomSession";
 import * as Y from "yjs";
 import { SupabaseBroadcastProvider } from "../lib/yjsSupabaseProvider";
 import { GOLD } from "../lib/theme";
@@ -119,12 +130,12 @@ function AccessToggles({ value, onChange, hasCourse }: {
 
 // ── Room code generator ───────────────────────────────────────────────────────
 // Unambiguous chars (no 0/O, 1/I/L). 6 chars = 32^6 = ~1B combinations.
-const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+/* const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function generateRoomCode() {
   let code = "";
   for (let i = 0; i < 6; i++) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
   return code;
-}
+} */
 
 // ── Pomodoro helpers ──────────────────────────────────────────────────────────
 // pomo shape: { phase:'focus'|'break'|'idle', paused:bool,
@@ -413,43 +424,40 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
     lobbyChannelRef.current = ch;
   }
 
-  async function handleCreate({ name, courseId, roomType, accessFilters }) {
-    // Course-mates filter is meaningless without a linked course — drop it.
-    const filters = { ...(accessFilters ?? {}) };
-    if (!courseId) delete filters.course;
-
-    let room = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const join_code = generateRoomCode();
-      const { data, error } = await supabase
-        .from("study_rooms")
-        .insert({
-          created_by:     userId,
-          name:           name.trim(),
-          course_id:      courseId ? Number(courseId) : null,
-          room_type:      roomType,
-          join_code,
-          access_filters: filters,
-        })
-        .select()
-        .single();
-      if (!error) { room = data; break; }
-      if (!error.message?.includes("unique") && !error.message?.includes("join_code")) {
-        console.error("[rooms] create:", error.message); return;
-      }
-    }
-    if (!room) { console.error("[rooms] create: failed to generate unique code"); return; }
-    // Host membership is written by the RPC (direct room_members writes are revoked).
+  async function handleCreate({
+    name,
+    courseId,
+    roomType,
+    accessFilters,
+    documentIds = [],
+  }) {
     try {
-      await joinRoom(userId, room.id);
-    } catch (err) {
-      console.error("[rooms] host join:", (err as any)?.message);
-      // Room row exists but host couldn't join — mark inactive so it doesn't linger as an ownerless room.
-      await supabase.from("study_rooms").update({ is_active: false }).eq("id", room.id);
-      return;
+      const room = await createRoom({
+        name,
+        courseId,
+        roomType,
+        accessFilters,
+      });
+
+      if (Array.isArray(documentIds) && documentIds.length > 0) {
+        try {
+          await bindRoomSources(room.id, documentIds);
+        } catch (error) {
+          console.error(
+            "[rooms] failed to bind sources:",
+            (error as Error)?.message
+          );
+        }
+      }
+
+      setShowCreate(false);
+      onJoin(room);
+    } catch (error) {
+      console.error(
+        "[rooms] create:",
+        (error as Error)?.message
+      );
     }
-    setShowCreate(false);
-    onJoin(room);
   }
 
   async function handleJoin(room) {
@@ -558,7 +566,13 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
             </div>
           )}
         </div>
-        <button onClick={() => setShowCreate(true)} style={{ ...S.primaryBtn, whiteSpace:"nowrap", flexShrink:0 }}>
+        <button
+          onClick={() => {
+            console.log("Create Room clicked");
+            setShowCreate(true);
+          }}
+          style={{ ...S.primaryBtn, whiteSpace: "nowrap", flexShrink: 0 }}
+        >
           + Create Room
         </button>
       </div>
@@ -1154,6 +1168,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const pomoRef             = useRef(null);
   const pomoAutoAdvancedRef = useRef(null);
   const goalTextRef         = useRef("");
+  const aiSessionIdRef = useRef<string | null>(null);
 
   const isHost = room.created_by === userId;
 
@@ -1184,6 +1199,34 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   // Main setup
   useEffect(() => {
     startSession();
+    startRoomSession(room.id)
+    .then(async (result) => {
+      aiSessionIdRef.current = result.session.id;
+
+      console.log(
+        result.resumed
+          ? "[room-session] resumed existing AI session"
+          : "[room-session] started new AI session",
+        result.session.id
+      );
+
+      try {
+        const sourceResult = await getRoomSources(room.id);
+
+        console.log(
+          "[room-session] current room sources",
+          sourceResult.sources
+        );
+      } catch (error) {
+        console.error(
+          "[room-session] failed to load sources:",
+          error
+        );
+      }
+    })
+    .catch((error) => {
+      console.error("[room-session] failed to start:", error);
+    });
     subscribePresence();
     fetchPomodoroState();
     fetchCourseName();
@@ -1619,6 +1662,23 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       try {
         await channelRef.current.send({ type: "broadcast", event: "room_closed", payload: {} });
       } catch {}
+    }
+      if (aiSessionIdRef.current) {
+      try {
+        const result = await endRoomSession(aiSessionIdRef.current);
+
+        console.log(
+          "[room-session] ended AI session",
+          result.sessionId
+        );
+
+        aiSessionIdRef.current = null;
+      } catch (error) {
+        console.error(
+          "[room-session] failed to end:",
+          error
+        );
+      }
     }
     await endSession();
     onLeave();
