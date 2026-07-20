@@ -18,6 +18,7 @@
 // access is server-side with the service key (tables are RLS-deny for client keys).
 import { requireUserOr401 } from "./_auth.js";
 import { rateLimit } from "./_ratelimit.js";
+import { embed, coerceUuid } from "./rag.js";
 import {
   BRAIN_SCHEMA_VERSION, JOB_TYPES, PERSONA_IDS,
   applyBrainPatch, brainToMarkdown, emptyBrainProfile, validateBrainProfile,
@@ -38,6 +39,11 @@ function sb() {
     async select(path: string) {
       const r = await fetch(`${url}/rest/v1/${path}`, { headers });
       if (!r.ok) throw new Error(`select ${path.split("?")[0]} failed (${r.status})`);
+      return (await r.json()) as any[];
+    },
+    async rpc(fn: string, args: any) {
+      const r = await fetch(`${url}/rest/v1/rpc/${fn}`, { method: "POST", headers, body: JSON.stringify(args) });
+      if (!r.ok) throw new Error(`rpc ${fn} failed (${r.status})`);
       return (await r.json()) as any[];
     },
     async insert(table: string, body: any, returning = true) {
@@ -453,7 +459,52 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true, sources: rows.map((r: any) => ({ id: r.id, documentId: r.document_id, title: titleById.get(r.document_id) ?? "Document", addedBy: r.added_by })) });
     }
 
-    return res.status(400).json({ error: "Unknown action. Use start, end, review, proposal, or sources." });
+    // ── autosources: auto-bind the caller's OWN most-relevant docs to the room ──
+    // The room tutor grounds ONLY on room_sources, and nothing ever populated it — so
+    // guided sessions taught from general knowledge even when the student had their whole
+    // course indexed. On session start the client calls this with the session topic; we
+    // pick the caller's documents most relevant to that topic (their own corpus only —
+    // same ownership boundary as ?action=sources) and bind up to the 12-doc cap so the
+    // in-room retrieval has real course material to teach from.
+    if (action === "autosources" && req.method === "POST") {
+      const { roomId, topic } = req.body ?? {};
+      if (!UUID_RE.test(String(roomId))) return res.status(400).json({ error: "valid roomId required" });
+      if (!(await memberOf(db, roomId, userId))) return res.status(403).json({ error: "not a member of this room" });
+
+      const t = String(topic ?? "").trim().slice(0, 2000);
+      const uid = encodeURIComponent(userId);
+      let docIds: string[] = [];
+
+      // Relevance-first: hybrid search over the caller's own corpus for the session topic.
+      if (t) {
+        try {
+          const [vec] = await embed([t]);
+          const hits = await db.rpc("rag_hybrid_search", {
+            p_user_id: userId, p_query_embedding: vec, p_query_text: t,
+            p_course_id: null, p_match_count: 30,
+          });
+          const seen = new Set<string>();
+          for (const h of hits ?? []) {
+            const d = String(h.document_id ?? "");
+            if (d && !seen.has(d)) { seen.add(d); docIds.push(d); }
+            if (docIds.length >= 12) break;
+          }
+        } catch { /* fall through to recency */ }
+      }
+      // Fallback: the caller's most-recent documents (e.g. no topic, or embedding failed).
+      if (docIds.length === 0) {
+        const docs = await db.select(`rag_documents?user_id=eq.${uid}&select=id&order=created_at.desc&limit=12`);
+        docIds = docs.map((d: any) => String(d.id));
+      }
+      if (docIds.length === 0) return res.status(200).json({ ok: true, bound: 0, reason: "no documents" });
+
+      const rows = await db.upsert("room_sources",
+        docIds.map((id) => ({ room_id: roomId, document_id: id, added_by: userId, enabled: true })),
+        "room_id,document_id");
+      return res.status(200).json({ ok: true, bound: rows.length });
+    }
+
+    return res.status(400).json({ error: "Unknown action. Use start, end, review, proposal, sources, or autosources." });
   } catch (e: any) {
     console.error("[room-session]", e?.message);
     return res.status(502).json({ error: e?.message ?? "room-session failed" });

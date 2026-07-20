@@ -2064,6 +2064,23 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     return String(d?.message ?? "");
   }
 
+  // Ground the in-room tutor: bind the student's own indexed documents most relevant to
+  // this topic into the room. The room AI grounds ONLY on room_sources, so without this
+  // it teaches from general knowledge even when the student's whole course is indexed.
+  // Best-effort — never blocks the session.
+  async function bindRoomSources(topic: string) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+      await fetch("/api/room-session?action=autosources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ roomId: room.id, topic }),
+      });
+    } catch { /* non-fatal — session still runs, just less grounded */ }
+  }
+
   // Reggie teaches one step, proactively — fetched once and cached per step index.
   async function gsTeachStep(idx: number, ctx: { mode: string; topic: string; steps: { title: string; goal: string; estMin: number }[] }) {
     const step = ctx.steps[idx];
@@ -2090,6 +2107,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     gsStopSpeak(); setGsVoiceOn(mode === "exam"); // exam prep is taught aloud by default
     setGs({ mode, topic: t, steps: [], currentIdx: 0, status: "planning", startedAt: Date.now() });
     try {
+      // Bind the student's own course materials to the room BEFORE teaching, so the
+      // in-room tutor's per-step retrieval has real lecture content to teach from.
+      await bindRoomSources(t);
       const verb = mode === "assignment" ? `complete the assignment "${t}"`
                  : mode === "exam" ? `prepare for an exam on ${t}`
                  : `learn ${t}`;
