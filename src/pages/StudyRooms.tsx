@@ -2,7 +2,7 @@
 // Architecture: root manages global-studying presence channel once; Lobby +
 // RoomView receive counts as props. Keeps room core + friends layer modular.
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
@@ -1006,6 +1006,19 @@ function parseGsPlan(text: string): { title: string; goal: string; estMin: numbe
   }
   return steps.slice(0, 7);
 }
+
+// A live study-room session should feel doable in one sitting. The LLM's per-step
+// minute guesses often sum to 80-90 min, which makes the "≈ N min left" chip read
+// implausibly long and undercuts the "smart estimate" story. Scale the whole plan
+// down proportionally so the total lands in a realistic ~35-min sprint, keeping each
+// step at a 2-min floor so nothing rounds to zero.
+const GS_SESSION_CAP_MIN = 35;
+function normalizeStepMinutes(steps: { title: string; goal: string; estMin: number }[]) {
+  const total = steps.reduce((s, x) => s + x.estMin, 0);
+  if (total <= GS_SESSION_CAP_MIN || total === 0) return steps;
+  const scale = GS_SESSION_CAP_MIN / total;
+  return steps.map(x => ({ ...x, estMin: Math.max(2, Math.round(x.estMin * scale)) }));
+}
 function parseFcCards(text: string): { q: string; a: string }[] {
   const cards: { q: string; a: string }[] = [];
   for (const line of String(text || "").split("\n")) {
@@ -1097,7 +1110,7 @@ function GsRichText({ text }: { text: string }) {
 }
 
 function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
-  const { userId, userData, setActiveRoomId, setWhiteboardSnapshot } = useApp();
+  const { userId, userData, setActiveRoomId, setWhiteboardSnapshot, assignments } = useApp();
   const [members,            setMembers]            = useState([]);
   const [workingOn,          setWorkingOn]          = useState("");
   const [requests,           setRequests]           = useState([]);
@@ -1930,6 +1943,43 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [gsAskOpen,     setGsAskOpen]     = useState(false);
   const [gsLaunchMode,  setGsLaunchMode]  = useState<"learn" | "assignment" | "exam">("learn");
   const [gsTopic,       setGsTopic]       = useState("");
+  // Assignment mode can pick a REAL Canvas assignment (now that file/assignment sync
+  // actually populates it) instead of typing a title. "__custom" = fall back to free text.
+  const [gsAssignmentId, setGsAssignmentId] = useState<string>("");
+  // Student's assignments, upcoming-first, for the assignment-mode picker.
+  const gsAssignmentOptions = useMemo(() => {
+    const now = Date.now();
+    return [...(assignments || [])]
+      .filter((a: any) => a && a.name)
+      .sort((a: any, b: any) => {
+        const ad = a.dueAt ? new Date(a.dueAt).getTime() : null;
+        const bd = b.dueAt ? new Date(b.dueAt).getTime() : null;
+        const af = ad != null && ad >= now, bf = bd != null && bd >= now;
+        if (af && bf) return ad! - bd!;          // both upcoming → soonest first
+        if (af !== bf) return af ? -1 : 1;        // upcoming before everything else
+        if (ad != null && bd != null) return bd - ad; // both past → most recent first
+        if ((ad != null) !== (bd != null)) return ad != null ? -1 : 1;
+        return 0;
+      })
+      .slice(0, 50);
+  }, [assignments]);
+  const gsStripHtml = (s: any) => String(s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  function gsAssignmentContext(a: any): string {
+    if (!a) return "";
+    const parts: string[] = [];
+    const desc = gsStripHtml(a.description);
+    if (desc) parts.push(desc.slice(0, 1000));
+    if (a.dueAt) { try { parts.push(`Due: ${new Date(a.dueAt).toLocaleString()}`); } catch {} }
+    if (a.pointsPossible) parts.push(`Worth ${a.pointsPossible} points`);
+    if (a.courseCode || a.courseName) parts.push(`Course: ${[a.courseCode, a.courseName].filter(Boolean).join(" — ")}`);
+    return parts.join("\n");
+  }
+  // Launch assignment mode from the picker: seed the topic + pass the real details.
+  function gsStartAssignment() {
+    const a = gsAssignmentOptions.find((x: any) => String(x.id) === gsAssignmentId);
+    if (a) beginGuidedSession("assignment", a.name, gsAssignmentContext(a));
+    else beginGuidedSession("assignment", gsTopic);   // "__custom" / free-text path
+  }
   // Voice teaching (TTS) — Reggie reads steps aloud; auto-on for exam prep.
   const gsAudioRef = useRef<HTMLAudioElement | null>(null);
   const [gsSpeaking, setGsSpeaking] = useState(false);
@@ -2031,7 +2081,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   }
 
   // Start a guided session: Reggie plans it, then proactively teaches step 1.
-  async function beginGuidedSession(mode: "learn" | "assignment" | "exam", topic: string) {
+  async function beginGuidedSession(mode: "learn" | "assignment" | "exam", topic: string, extraContext = "") {
     const t = (topic || "").trim();
     if (!t || gsBusy) return;
     setCenterTab("session");
@@ -2043,15 +2093,20 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       const verb = mode === "assignment" ? `complete the assignment "${t}"`
                  : mode === "exam" ? `prepare for an exam on ${t}`
                  : `learn ${t}`;
-      const planPrompt = `You are Reggie, my study tutor in a live study room. Build a focused, proactive plan to help me ${verb}. Return 4 to 6 steps. Output ONE line per step in EXACTLY this format and nothing else — no intro, no numbering:\nSTEP | <short step title> | <one-sentence goal> | <estimated minutes as a whole number>\n${mode === "assignment" ? "Guide me to do the work myself — never write the final answer for me." : ""}`;
-      let steps = parseGsPlan(await reggieRaw(planPrompt));
-      if (steps.length < 2) steps = defaultGsPlan(mode, t);
+      // When the student picked a real Canvas assignment, ground the plan in its actual
+      // requirements/due date so the steps map to the real rubric, not a generic guess.
+      const ctxBlock = extraContext.trim()
+        ? ` Base the plan on the assignment's real details:\n"""${extraContext.trim().slice(0, 1200)}"""\n`
+        : ` `;
+      const planPrompt = `You are Reggie, my study tutor in a live study room. Build a focused, proactive plan to help me ${verb}.${ctxBlock}Return 4 to 6 steps. Output ONE line per step in EXACTLY this format and nothing else — no intro, no numbering:\nSTEP | <short step title> | <one-sentence goal> | <estimated minutes as a whole number>\n${mode === "assignment" ? "Guide me to do the work myself — never write the final answer for me." : ""}`;
+      let steps = normalizeStepMinutes(parseGsPlan(await reggieRaw(planPrompt)));
+      if (steps.length < 2) steps = normalizeStepMinutes(defaultGsPlan(mode, t));
       const active = { mode, topic: t, steps, currentIdx: 0, status: "active" as const, startedAt: Date.now() };
       setGs(active);
       setGsNudge(pickGsNudge("start"));
       await gsTeachStep(0, active);
     } catch (err) {
-      const steps = defaultGsPlan(mode, t);
+      const steps = normalizeStepMinutes(defaultGsPlan(mode, t));
       setGs({ mode, topic: t, steps, currentIdx: 0, status: "active", startedAt: Date.now() });
       setGsStepContent({ 0: `⚠️ ${(err as Error)?.message || "Reggie had trouble planning."}\n\nWe can still work through it — tell me what you'd like to start with.` });
       setGsBusy(false); setGsBusyLabel("");
@@ -2270,6 +2325,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const gsTotalMin   = gs ? gs.steps.reduce((s, x) => s + x.estMin, 0) : 0;
   const gsRemainMin  = gs ? gs.steps.slice(gs.status === "done" ? gs.steps.length : gs.currentIdx).reduce((s, x) => s + x.estMin, 0) : 0;
   const gsProgress   = gs && gs.steps.length ? (gs.status === "done" ? 1 : gs.currentIdx / gs.steps.length) : 0;
+  // Launcher: show the real-assignment picker when in assignment mode and we have any.
+  const gsUsingPicker = gsLaunchMode === "assignment" && gsAssignmentOptions.length > 0 && gsAssignmentId !== "__custom";
+  const gsCanStart    = gsUsingPicker ? !!gsAssignmentId : !!gsTopic.trim();
 
   return (
     <div style={{ position: "relative" }}>
@@ -2420,19 +2478,36 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", justifyContent: "center" }}>
                         {([["learn", "Learn a topic", "📚"], ["assignment", "Work an assignment", "✍️"], ["exam", "Prep for an exam", "🎯"]] as const).map(([m, label, ic]) => {
                           const active = gsLaunchMode === m;
-                          return <button key={m} onClick={() => setGsLaunchMode(m)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "9px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}><span>{ic}</span>{label}</button>;
+                          return <button key={m} onClick={() => { setGsLaunchMode(m); setGsAssignmentId(""); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "9px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}><span>{ic}</span>{label}</button>;
                         })}
                       </div>
-                      <input value={gsTopic} onChange={e => setGsTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsTopic.trim()) beginGuidedSession(gsLaunchMode, gsTopic); }}
-                        placeholder={gsLaunchMode === "assignment" ? "Which assignment? e.g. Contracts essay #2" : gsLaunchMode === "exam" ? "Which exam? e.g. Land Reform midterm" : "What do you want to learn?"}
-                        style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
-                      {courseName && (
+                      {gsUsingPicker ? (
+                        <select value={gsAssignmentId}
+                          onChange={e => { const v = e.target.value; setGsAssignmentId(v); const a = gsAssignmentOptions.find((x: any) => String(x.id) === v); setGsTopic(a ? a.name : ""); }}
+                          style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12, cursor: "pointer" }}>
+                          <option value="" style={{ background: "#1a1a2e" }}>Choose an assignment…</option>
+                          {gsAssignmentOptions.map((a: any) => {
+                            const due = a.dueAt ? ` · due ${new Date(a.dueAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "";
+                            const cc = a.courseCode ? ` · ${a.courseCode}` : "";
+                            return <option key={a.id} value={String(a.id)} style={{ background: "#1a1a2e" }}>{`${a.name}${cc}${due}`}</option>;
+                          })}
+                          <option value="__custom" style={{ background: "#1a1a2e" }}>✏️ Type it instead…</option>
+                        </select>
+                      ) : (
+                        <input value={gsTopic} onChange={e => setGsTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsTopic.trim()) beginGuidedSession(gsLaunchMode, gsTopic); }}
+                          placeholder={gsLaunchMode === "assignment" ? "Which assignment? e.g. Contracts essay #2" : gsLaunchMode === "exam" ? "Which exam? e.g. Land Reform midterm" : "What do you want to learn?"}
+                          style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
+                      )}
+                      {gsLaunchMode === "assignment" && gsAssignmentId === "__custom" && gsAssignmentOptions.length > 0 && (
+                        <button onClick={() => { setGsAssignmentId(""); setGsTopic(""); }} style={{ background: "none", border: "none", color: "#a5b4fc", fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", marginBottom: 10 }}>← Pick from my assignments</button>
+                      )}
+                      {courseName && !gsUsingPicker && gsLaunchMode !== "assignment" && (
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", alignItems: "center", marginBottom: 16 }}>
                           <span style={{ fontSize: 11, color: "var(--text-dim)" }}>Try:</span>
                           <button onClick={() => setGsTopic(courseName)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 11px", fontSize: 11.5, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{courseName}</button>
                         </div>
                       )}
-                      <button onClick={() => beginGuidedSession(gsLaunchMode, gsTopic)} disabled={!gsTopic.trim() || gsBusy} style={{ background: (!gsTopic.trim() || gsBusy) ? "rgba(129,140,248,0.2)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "12px 26px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!gsTopic.trim() || gsBusy) ? "default" : "pointer", opacity: (!gsTopic.trim() || gsBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(99,102,241,0.35)" }}>{gsBusy ? "Reggie is planning…" : "Start session →"}</button>
+                      <button onClick={() => { if (gsUsingPicker) gsStartAssignment(); else beginGuidedSession(gsLaunchMode, gsTopic); }} disabled={!gsCanStart || gsBusy} style={{ background: (!gsCanStart || gsBusy) ? "rgba(129,140,248,0.2)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "12px 26px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!gsCanStart || gsBusy) ? "default" : "pointer", opacity: (!gsCanStart || gsBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(99,102,241,0.35)" }}>{gsBusy ? "Reggie is planning…" : "Start session →"}</button>
                     </div>
                   ) : gs.status === "done" ? (
                     /* Completion */

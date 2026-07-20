@@ -9,6 +9,41 @@ launch · **P2** cleanup / robustness.
 
 ---
 
+## 0. Proactive study planning — Reggie coaches *when*, not just *what*  `vision / P1`
+
+**The idea (founder, 2026-07-20).** Right now the guided session estimates how long the
+*work* takes. The bigger product is Reggie proactively planning a student's time around
+their real deadlines and the science of spaced repetition — turning "here's what to study"
+into "here's *when* and *in what order* to study it, so you actually retain it."
+
+Two concrete behaviours:
+1. **Single-task time coaching.** "This assignment usually takes ~3 hours and it's due
+   Thursday — start by Tuesday evening so you're not rushed." Uses the per-task time
+   estimate (see §1-of-study-room-polish, realistic ETA) + the real Canvas due date.
+2. **Multi-session spaced-repetition planning.** "You have a quiz Wednesday. It's Saturday.
+   These 4 topics each take ~40 min; for retention you should study them across today,
+   Monday, and Tuesday in this order, using active recall — here's the schedule." Combines:
+   the assignment/quiz deadline (Canvas), the topic breakdown (Reggie's plan generator),
+   per-topic time estimates, and the SM-2 spacing logic we already have in `src/lib/srs.ts`.
+
+**Why it's differentiated.** This is the "persistent Brain that actually helps you manage
+your semester" story — it's what a good human tutor does and what ChatGPT can't, because it
+requires knowing the student's real deadlines, their materials, and their retention state
+over time. It ties together three things we already have: Canvas deadlines, the guided-session
+plan generator, and SRS scheduling.
+
+**What it needs.** A planner that: reads upcoming Canvas assignments/quizzes with due dates →
+decomposes each into topics with time estimates → lays them out backward from the deadline
+across available days with spacing → surfaces it proactively (a Reggie nudge / a "study plan"
+card), not only when asked. The `planner` specialist route (`api/_reggie/specialists.ts`)
+and the guided-session engine are the natural homes. Prerequisite: reliable per-task time
+estimates (the realistic-ETA work) and reliable Canvas deadline data (now flowing after the
+file-ingestion work).
+
+**Effort.** Multi-day feature, post-MVP. Worth a dedicated spec when it comes up.
+
+---
+
 ## 1. Canvas token expiry — self-service re-auth + proactive nudge  `P0`
 
 **The problem.** Canvas access tokens expire (UofT's expired after ~10 days in testing —
