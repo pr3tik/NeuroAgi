@@ -76,6 +76,42 @@ button {
   --app-border:        rgba(255, 255, 255, 0.08);
 }
 
+/* ─── DEMO: "Warm Ink" liquid-glass atmosphere (activated by VITE_WARM_INK=1) ──
+   Ports the mobile-rework palette to web by overriding the shared design tokens:
+   a warm near-black ground (was cool #111), warm off-white text (was #F5F5F5), and
+   a sage accent replacing teal. Gold (#C49A3C) and card radius already match mobile.
+   Soft sage + indigo ambient glows go on <body> so translucent surfaces read as
+   frosted glass. Rides the existing token system — no per-page rewrites. Because
+   --color-bg is consumed as a color in two spots (a gradient stop + a box-shadow),
+   it stays a solid color here; the glow lives on the body background-image. */
+html.warm-ink {
+  --color-bg:        #141216;
+  --text-primary:    #ECE8E1;
+  --text-secondary:  rgba(236, 232, 225, 0.52);
+  --text-dim:        rgba(236, 232, 225, 0.42);
+  --text-tertiary:   rgba(236, 232, 225, 0.28);
+  --color-border:    rgba(255, 255, 255, 0.11);
+  --color-accent:    rgb(90, 165, 116);
+  --teal-rgb:        90, 165, 116;   /* sage — re-skins every accent usage */
+}
+html.warm-ink body {
+  background-image:
+    radial-gradient(58% 55% at 15% 6%,  rgba(96, 170, 122, 0.20) 0%, rgba(96, 170, 122, 0) 60%),
+    radial-gradient(60% 60% at 92% 92%, rgba(124, 134, 224, 0.15) 0%, rgba(124, 134, 224, 0) 62%),
+    radial-gradient(ellipse 90% 60% at 50% -10%, rgba(255, 255, 255, 0.03) 0%, transparent 100%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+/* .app-shell paints an opaque --color-bg over the body, so the ambient glows must
+   live here (the visible ground) to show. background-attachment:fixed anchors them. */
+html.warm-ink .app-shell {
+  background-image:
+    radial-gradient(58% 55% at 14% 4%,  rgba(96, 170, 122, 0.22) 0%, rgba(96, 170, 122, 0) 58%),
+    radial-gradient(62% 62% at 94% 96%, rgba(124, 134, 224, 0.16) 0%, rgba(124, 134, 224, 0) 60%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
 /* Smooth whole-app colour transition when theme switches */
 *, *::before, *::after {
   transition:
