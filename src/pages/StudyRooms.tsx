@@ -27,7 +27,7 @@ import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
   Timer, Coins, ThumbsUp, ThumbsDown, Image as ImageIcon, Hand, Zap, Hourglass,
-  RefreshCw, LogOut, Sparkles,
+  RefreshCw, LogOut, Sparkles, Video,
 } from "lucide-react";
 
 // ── Access filters ────────────────────────────────────────────────────────────
@@ -867,10 +867,10 @@ function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
     setSaving(false);
   }
 
-  return (
+  return createPortal(
     <div style={S.modalOverlay}>
       <div style={S.modalCard}>
-        <h2 style={{ fontSize:"20px", fontWeight:"700", color:"var(--text-primary)", marginBottom:"22px" }}>
+        <h2 style={{ fontSize:"20px", fontWeight:"700", color:"var(--text-primary)", marginBottom:"16px" }}>
           Create a Room
         </h2>
         <label style={S.fieldLabel}>Room name</label>
@@ -891,7 +891,7 @@ function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
             </option>
           ))}
         </select>
-        <div style={{ display:"flex", gap:"8px", marginBottom:"22px" }}>
+        <div style={{ display:"flex", gap:"8px", marginBottom:"16px" }}>
           {["public","invite"].map(t => (
             <button key={t} onClick={() => setRoomType(t)} style={{
               flex:1, padding:"9px 0", borderRadius:"9px",
@@ -932,7 +932,8 @@ function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -945,7 +946,7 @@ function AccessSettingsModal({ initial, hasCourse, onSave, onClose }: {
 }) {
   const [filters, setFilters] = useState<AccessFilters>(initial || {});
   const S = styles;
-  return (
+  return createPortal(
     <div style={S.modalOverlay}>
       <div style={{ ...S.modalCard, maxWidth:"380px" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px" }}>
@@ -963,7 +964,8 @@ function AccessSettingsModal({ initial, hasCourse, onSave, onClose }: {
           <button onClick={() => onSave(filters)} style={S.primaryBtnLarge}>Save</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1016,7 +1018,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [imageUploading,     setImageUploading]     = useState(false);
   const chatLoadedRef = useRef(false);
   // Phase 3 — Whiteboard
-  const [showBoard,          setShowBoard]          = useState(false);
+  const [showBoard,          setShowBoard]          = useState(true);   // redesign: board inline in center by default
   const [strokes,            setStrokes]            = useState<Stroke[]>([]);
   const [wbTool,             setWbTool]             = useState<Tool>("pen");
   const [wbStyle,            setWbStyle]            = useState<PenStyle>("normal");
@@ -1752,6 +1754,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [reggieInput, setReggieInput] = useState("");
   const [reggieBusy,  setReggieBusy]  = useState(false);
   const reggieSessionRef = useRef(false); // ensured an active AI session for this room yet?
+  const [focusMode, setFocusMode] = useState(false); // redesign: Focus Mode collapses the side panels
+  const [roomToast, setRoomToast] = useState<string | null>("🔥 Study streak · day 12");
+  useEffect(() => { const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, []);
 
   // room-ai requires an active AI session for the room. Idempotent — resumes if one exists.
   async function ensureRoomAiSession(token: string) {
@@ -1845,7 +1850,166 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const remaining = getRemaining(pomo);
 
   return (
-    <div>
+    <div style={{ position: "relative" }}>
+      {/* ══ Redesigned session room — indigo liquid-glass (Pass 1) ══════════════
+          Wired real: timer, participant count, chat input/send, Chat/Board/Voice/
+          Invite controls, whiteboard (Open board), participant tiles from presence,
+          Call Reggie (B1), End session. Placeholders (backburnered): live transcript
+          feed, real camera video, Focus Mode behavior, toasts, presenting badge. */}
+      <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+        background: "radial-gradient(60% 55% at 14% 2%, rgba(99,110,240,0.30), transparent 60%), radial-gradient(64% 64% at 92% 97%, rgba(108,98,210,0.22), transparent 62%), linear-gradient(160deg, rgba(56,60,138,0.15) 0%, rgba(28,26,55,0.06) 62%, transparent 100%)" }} />
+
+      <div style={{ position: "relative", zIndex: 1 }}>
+        {roomToast && !focusMode && (
+          <div style={{ position: "fixed", top: 18, right: 18, zIndex: 90, display: "flex", alignItems: "center", gap: 8, background: "rgba(129,140,248,0.92)", color: "#fff", padding: "10px 15px", borderRadius: 12, fontSize: 13, fontWeight: 600, boxShadow: "0 10px 34px rgba(30,27,75,0.5)" }}>{roomToast}</div>
+        )}
+        {focusMode && (
+          <button onClick={() => setFocusMode(false)} style={{ position: "fixed", top: 20, right: 20, zIndex: 90, display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(129,140,248,0.9)", color: "#fff", border: "none", borderRadius: 999, padding: "8px 15px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 26px rgba(30,27,75,0.45)" }}>Focus Mode · ON — exit</button>
+        )}
+        {/* Top bar — session timer + participant count */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 28 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+            <div style={{ fontFamily: "'Fraunces',serif", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#c7d2fe" : "var(--text-primary)" }}>
+              {pomo && pomo.phase === "focus" ? formatPomoTime(remaining) : "00:00"}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(!pomo || pomo.phase !== "focus") ? (
+                <button onClick={handlePomoStart} style={{ background: "rgba(129,140,248,0.22)", border: "1px solid rgba(129,140,248,0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>▶ Start focus sprint</button>
+              ) : pomo.paused ? (<>
+                <button onClick={handlePomoResume} style={{ background: "rgba(129,140,248,0.22)", border: "1px solid rgba(129,140,248,0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>▶ Resume</button>
+                <button onClick={handlePomoReset} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 14px", fontSize: 12, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Reset</button>
+              </>) : (<>
+                <button onClick={handlePomoPause} style={{ background: "rgba(129,140,248,0.22)", border: "1px solid rgba(129,140,248,0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>⏸ Pause</button>
+                <button onClick={handlePomoSkip} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 14px", fontSize: 12, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>End</button>
+              </>)}
+            </div>
+          </div>
+          <div style={{ position: "absolute", right: 0, top: 4, display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "6px 12px", fontSize: 12, color: "var(--text-secondary)" }}>
+            <Users size={13} /> {members.length}
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "300px 1fr 320px", gap: 22, alignItems: "stretch", height: "calc(100dvh - 176px)", minHeight: 480 }}>
+
+          {/* LEFT — Live Transcript + room controls */}
+          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(129,140,248,0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 12 }}>Live Transcript</p>
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                { who: "Prof Rex", t: "0:12", line: "Memory is stale — that core must write back before anyone else reads." },
+                { who: "Reggie", t: "0:31", line: "The invalidate path is where most people slip. Watch the board.", ai: true },
+                { who: "Wei", t: "0:44", line: "Walking through the transition table now." },
+              ].map((m, i) => (
+                <div key={i}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "baseline", marginBottom: 2 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: m.ai ? "#a78bfa" : "var(--text-secondary)" }}>{m.who}</span>
+                    <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{m.t}</span>
+                  </div>
+                  <p style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--text-secondary)", margin: 0 }}>{m.line}</p>
+                </div>
+              ))}
+              <p style={{ fontSize: 11, color: "var(--text-dim)", fontStyle: "italic", marginTop: 4 }}>Live transcription coming soon.</p>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "12px 0 10px" }}>
+              {[
+                { label: "Chat", icon: <MessageCircle size={13} />, on: showChat, act: () => (showChat ? setShowChat(false) : handleOpenChat()) },
+                { label: "Board", icon: <Pen size={13} />, on: showBoard, act: () => (showBoard ? setShowBoard(false) : handleOpenBoard()) },
+                { label: "Voice", icon: <Mic size={13} />, on: showVoice, act: () => setShowVoice(v => !v) },
+                { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
+              ].map(b => (
+                <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(129,140,248,0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && chatInput.trim()) sendChatMessage(); }} placeholder="Message the room…" style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "9px 11px", color: "var(--text-primary)", fontSize: 12.5, fontFamily: "inherit", outline: "none" }} />
+              <button onClick={() => chatInput.trim() && sendChatMessage()} style={{ background: "rgba(129,140,248,0.2)", border: "1px solid rgba(129,140,248,0.35)", borderRadius: 10, padding: "0 12px", color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>➤</button>
+            </div>
+          </div>
+
+          {/* CENTER — shared whiteboard */}
+          <div style={{ display: "flex", flexDirection: "column", background: "rgba(129,140,248,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
+            <div style={{ flex: 1, overflow: "auto", borderRadius: 14, ["--gold" as any]: "#818cf8", ["--gold-rgb" as any]: "129,140,248" }}>
+              {showBoard ? (
+                <Whiteboard
+                  strokes={strokes}
+                  liveStrokes={liveStrokes}
+                  tool={wbTool}
+                  style={wbStyle}
+                  color={wbColor}
+                  penWidth={wbPenWidth}
+                  eraserSize={wbEraserSize}
+                  bg={wbBg}
+                  onToolChange={setWbTool}
+                  onStyleChange={setWbStyle}
+                  onColorChange={setWbColor}
+                  onPenWidthChange={setWbPenWidth}
+                  onEraserSizeChange={setWbEraserSize}
+                  onBgChange={handleBgChange}
+                  onStrokeComplete={handleStrokeComplete}
+                  onEraseStroke={handleEraseStroke}
+                  onMoveStroke={handleMoveStroke}
+                  onReplaceImageStroke={handleReplaceImageStroke}
+                  onLiveStroke={handleLiveStroke}
+                  onClear={handleClearBoard}
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  onUndo={handleUndoStroke}
+                  onRedo={handleRedoStroke}
+                  peerCursors={peerCursors}
+                  laserPositions={laserPositions}
+                  onCursorMove={handleCursorMove}
+                  onLaserMove={handleLaserMove}
+                  onClose={() => setShowBoard(false)}
+                  activeSpeaker={activeSpeakerName}
+                  roomId={room.id}
+                />
+              ) : (
+                <div style={{ height: "100%", minHeight: 320, borderRadius: 14, background: "rgba(255,255,255,0.96)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <button onClick={() => setShowBoard(true)} style={{ background: "rgba(99,102,241,0.9)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Open board</button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT — Group session */}
+          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(129,140,248,0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>Group session</p>
+              <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "5px 10px", fontSize: 11, color: focusMode ? "#c7d2fe" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Focus Mode{focusMode ? " · ON" : ""}</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, alignContent: "start" }}>
+              {(members.length ? members : [{ userId, name: userData?.name || "You" }]).map((m, i) => {
+                const isMe = m.userId === userId;
+                const speaking = !!activeSpeakerName && activeSpeakerName === m.name;
+                const initial = (m.name || "?").charAt(0).toUpperCase();
+                return (
+                  <div key={m.userId || i} style={{
+                    gridColumn: isMe ? "1 / -1" : "auto",
+                    aspectRatio: isMe ? "16 / 10" : "1 / 1",
+                    borderRadius: 14,
+                    background: "linear-gradient(160deg, rgba(129,140,248,0.16), rgba(255,255,255,0.03))",
+                    border: `1.5px solid ${speaking ? "rgba(94,234,212,0.75)" : "rgba(255,255,255,0.12)"}`,
+                    boxShadow: speaking ? "0 0 0 3px rgba(94,234,212,0.18)" : "none",
+                    display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden",
+                  }}>
+                    <div style={{ width: isMe ? 62 : 48, height: isMe ? 62 : 48, borderRadius: "50%", background: "rgba(129,140,248,0.3)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMe ? 24 : 18, fontWeight: 600, color: "#e0e7ff" }}>{initial}</div>
+                    <span style={{ position: "absolute", bottom: 9, left: 12, fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)" }}>{isMe ? "You" : (m.name || "Guest")}</span>
+                    <div style={{ position: "absolute", bottom: 9, right: 12, display: "flex", gap: 7, color: speaking ? "#5eead4" : "var(--text-dim)" }}>
+                      <Mic size={12} /><Video size={12} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button onClick={() => setShowReggie(true)} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(94,234,212,0.3)", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#34d399" }} />Call Reggie</button>
+              <button onClick={() => (isHost ? handleCloseRoom() : handleLeave())} style={{ flex: 1, background: "rgba(239,68,68,0.85)", border: "none", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>End session</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {false && (<>
       {/* Header */}
       <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", flexWrap:"wrap", gap:"10px", marginBottom:"20px" }}>
         <div>
@@ -2020,6 +2184,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           ))}
         </div>
       )}
+      </>)}
 
       {/* Voice chat panel — collapses to slim bar when the whiteboard is open */}
       {showVoice && (
@@ -2085,42 +2250,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         </div>
       )}
 
-      {/* Whiteboard panel — session-only, clears when everyone leaves */}
-      {showBoard && (
-        <Whiteboard
-          strokes={strokes}
-          liveStrokes={liveStrokes}
-          tool={wbTool}
-          style={wbStyle}
-          color={wbColor}
-          penWidth={wbPenWidth}
-          eraserSize={wbEraserSize}
-          bg={wbBg}
-          onToolChange={setWbTool}
-          onStyleChange={setWbStyle}
-          onColorChange={setWbColor}
-          onPenWidthChange={setWbPenWidth}
-          onEraserSizeChange={setWbEraserSize}
-          onBgChange={handleBgChange}
-          onStrokeComplete={handleStrokeComplete}
-          onEraseStroke={handleEraseStroke}
-          onMoveStroke={handleMoveStroke}
-          onReplaceImageStroke={handleReplaceImageStroke}
-          onLiveStroke={handleLiveStroke}
-          onClear={handleClearBoard}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          onUndo={handleUndoStroke}
-          onRedo={handleRedoStroke}
-          peerCursors={peerCursors}
-          laserPositions={laserPositions}
-          onCursorMove={handleCursorMove}
-          onLaserMove={handleLaserMove}
-          onClose={() => setShowBoard(false)}
-          activeSpeaker={activeSpeakerName}
-          roomId={room.id}
-        />
-      )}
+      {/* Whiteboard now renders inline in the center pane (Pass 2). */}
 
       {showInvite && (
         <InviteModal room={room} userId={userId} userData={userData} onlineIds={onlineIds} onClose={() => setShowInvite(false)} />
@@ -2783,6 +2913,6 @@ const styles: Record<string, React.CSSProperties> = {
   primaryBtnLarge:{ flex:2, background:"var(--color-accent)", color:"#111", border:"none", borderRadius:"10px", padding:"12px", fontSize:"14px", fontWeight:"600", cursor:"pointer", fontFamily:"inherit" },
   leaveBtn:       { background:"rgba(255,59,48,0.1)", border:"1px solid rgba(255,59,48,0.22)", borderRadius:"8px", padding:"9px 16px", color:"rgba(255,100,90,0.9)", fontSize:"13px", fontWeight:"600", cursor:"pointer", fontFamily:"inherit", flexShrink:0 },
   modalOverlay:   { position:"fixed", top:0, left:0, right:0, bottom:0, zIndex:1000, background:"rgba(8,8,10,0.75)", backdropFilter:"blur(14px)", display:"flex", alignItems:"center", justifyContent:"center", padding:"24px" },
-  modalCard:      { width:"100%", maxWidth:"400px", background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"20px", padding:"28px 24px", boxShadow:"0 32px 80px rgba(0,0,0,0.5)" },
+  modalCard:      { width:"100%", maxWidth:"400px", maxHeight:"calc(100dvh - 40px)", overflowY:"auto", background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"20px", padding:"24px 22px", boxShadow:"0 32px 80px rgba(0,0,0,0.5)" },
   fieldLabel:     { fontSize:"12px", color:"var(--text-secondary)", fontWeight:"500" },
 };
