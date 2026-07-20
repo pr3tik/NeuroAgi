@@ -27,7 +27,7 @@ import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
   Timer, Coins, ThumbsUp, ThumbsDown, Image as ImageIcon, Hand, Zap, Hourglass,
-  RefreshCw, LogOut, Sparkles, Video, Volume2, VolumeX,
+  RefreshCw, LogOut, Sparkles, Video, Volume2, VolumeX, Music, Play, Pause, SkipForward,
 } from "lucide-react";
 
 // ── Access filters ────────────────────────────────────────────────────────────
@@ -1884,6 +1884,15 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [fcDone,    setFcDone]    = useState(false);
   const [fcResults, setFcResults] = useState<{ got: number; missed: number }>({ got: 0, missed: 0 });
 
+  // ── Focus music — iTunes 30s previews the tutor/you can play while studying ──
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [musicTracks,  setMusicTracks]  = useState<{ title: string; artist: string; previewUrl: string; artwork: string }[]>([]);
+  const [musicIdx,     setMusicIdx]     = useState(0);
+  const [musicPlaying, setMusicPlaying] = useState(false);
+  const [musicOpen,    setMusicOpen]    = useState(false);
+  const [musicLoading, setMusicLoading] = useState(false);
+  useEffect(() => () => { try { musicAudioRef.current?.pause(); } catch {} }, []);
+
   // room-ai requires an active AI session for the room. Idempotent — resumes if one exists.
   async function ensureRoomAiSession(token: string) {
     if (reggieSessionRef.current) return;
@@ -2109,6 +2118,40 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   }
   function fcReset() { setFcCards([]); setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }
 
+  // ── Focus music engine ──
+  async function loadMusic(query = "lofi study beats") {
+    setMusicLoading(true);
+    try {
+      const r = await fetch(`/api/music?term=${encodeURIComponent(query)}&limit=20`);
+      const d = await r.json().catch(() => ({}));
+      const tracks = (d?.tracks || []).filter((t: any) => t?.previewUrl);
+      setMusicTracks(tracks);
+      return tracks;
+    } catch { return []; } finally { setMusicLoading(false); }
+  }
+  function playMusicIdx(idx: number, tracks = musicTracks) {
+    const t = tracks[idx];
+    if (!t) return;
+    let a = musicAudioRef.current;
+    if (!a) { a = new Audio(); a.volume = 0.4; musicAudioRef.current = a; }
+    a.src = t.previewUrl;
+    a.onended = () => nextMusic();
+    setMusicIdx(idx);
+    a.play().then(() => setMusicPlaying(true)).catch(() => setMusicPlaying(false));
+  }
+  function nextMusic() {
+    if (!musicTracks.length) return;
+    playMusicIdx((musicIdx + 1) % musicTracks.length);
+  }
+  async function toggleMusic() {
+    const a = musicAudioRef.current;
+    if (musicPlaying && a) { a.pause(); setMusicPlaying(false); return; }
+    if (a && a.src) { a.play().then(() => setMusicPlaying(true)).catch(() => {}); return; }
+    let tracks = musicTracks;
+    if (!tracks.length) tracks = await loadMusic();
+    if (tracks.length) playMusicIdx(0, tracks);
+  }
+
   async function sendChatMessage() {
     const body = chatInput.trim();
     if (!body || chatSending) return;
@@ -2231,6 +2274,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 { label: "Chat", icon: <MessageCircle size={13} />, on: showChat, act: () => (showChat ? setShowChat(false) : handleOpenChat()) },
                 { label: "Board", icon: <Pen size={13} />, on: showBoard, act: () => (showBoard ? setShowBoard(false) : handleOpenBoard()) },
                 { label: "Voice", icon: <Mic size={13} />, on: showVoice, act: () => setShowVoice(v => !v) },
+                { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => setMusicOpen(o => !o) },
                 { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
               ].map(b => (
                 <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(129,140,248,0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
@@ -2751,6 +2795,37 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "9px 11px", color: "var(--text, #ECEBF0)", fontSize: 13, fontFamily: "inherit", outline: "none" }}
             />
             <button onClick={askRoomReggie} disabled={reggieBusy || !reggieInput.trim()} style={{ background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (reggieBusy || !reggieInput.trim()) ? "default" : "pointer", opacity: (reggieBusy || !reggieInput.trim()) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
+          </div>
+        </div>
+      )}
+
+      {/* Focus music — floating mini-player (iTunes 30s previews) */}
+      {musicOpen && (
+        <div style={{ position: "fixed", left: 20, bottom: 20, width: 300, maxWidth: "calc(100vw - 40px)", background: "var(--card, #16151c)", border: "1px solid rgba(129,140,248,0.25)", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.45)", zIndex: 60, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 13px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+            <Music size={15} color="#818cf8" />
+            <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text-primary)" }}>Focus music</span>
+            <button onClick={() => setMusicOpen(false)} aria-label="Close music" style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", display: "inline-flex" }}><X size={15} /></button>
+          </div>
+          <div style={{ padding: 13 }}>
+            {musicTracks.length === 0 ? (
+              <button onClick={() => toggleMusic()} disabled={musicLoading} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: musicLoading ? "default" : "pointer", opacity: musicLoading ? 0.7 : 1, fontFamily: "inherit" }}>{musicLoading ? "Finding tracks…" : <><Play size={14} />Play focus music</>}</button>
+            ) : (<>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+                {musicTracks[musicIdx]?.artwork
+                  ? <img src={musicTracks[musicIdx].artwork} alt="" style={{ width: 46, height: 46, borderRadius: 8, flexShrink: 0, objectFit: "cover" }} />
+                  : <div style={{ width: 46, height: 46, borderRadius: 8, background: "rgba(129,140,248,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Music size={20} color="#818cf8" /></div>}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{musicTracks[musicIdx]?.title}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{musicTracks[musicIdx]?.artist}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button onClick={() => toggleMusic()} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, background: "rgba(129,140,248,0.18)", border: "1px solid rgba(129,140,248,0.4)", borderRadius: 10, padding: "9px", fontSize: 13, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>{musicPlaying ? <><Pause size={14} />Pause</> : <><Play size={14} />Play</>}</button>
+                <button onClick={nextMusic} title="Next track" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "9px 12px", color: "var(--text-secondary)", cursor: "pointer", display: "inline-flex", alignItems: "center" }}><SkipForward size={14} /></button>
+              </div>
+              <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "9px 0 0", textAlign: "center" }}>30-second previews · Apple Music</p>
+            </>)}
           </div>
         </div>
       )}
