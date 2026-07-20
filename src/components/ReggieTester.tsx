@@ -32,6 +32,26 @@ function Panel() {
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [loading, setLoading] = useState(false);
+  // Trace lookup (turn observability — "where did Reggie grab its data?")
+  const [traceOpen, setTraceOpen]   = useState(false);
+  const [traceQuery, setTraceQuery] = useState("");
+  const [traceBusy, setTraceBusy]   = useState(false);
+  const [traceResult, setTraceResult] = useState<string | null>(null);
+
+  async function lookupTrace() {
+    const id = traceQuery.trim();
+    if (!id || traceBusy) return;
+    setTraceBusy(true); setTraceResult(null);
+    try {
+      const r = await fetch(`/api/agent-manager?traceId=${encodeURIComponent(id)}`);
+      const d = await r.json().catch(() => ({}));
+      setTraceResult(r.ok ? JSON.stringify(d.runs, null, 2) : `⚠ ${d?.error ?? `lookup failed (${r.status})`}`);
+    } catch (e: any) {
+      setTraceResult(`⚠ ${e?.message ?? "lookup failed"}`);
+    } finally {
+      setTraceBusy(false);
+    }
+  }
   const listRef = useRef<HTMLDivElement>(null);
 
   // Diagnostic: confirms in DevTools that the panel actually mounted (and whether a
@@ -108,10 +128,28 @@ function Panel() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: C.border }}>
         <div style={{ fontSize: 13, fontWeight: 700 }}>🤖 Reggie <span style={{ color: C.dim, fontWeight: 500 }}>· /api/agent-manager (beta test)</span></div>
         <div>
+          <button onClick={() => setTraceOpen(v => !v)} title="Look up a turn by its trace ID" style={{ background: "none", border: "none", color: traceOpen ? C.accent : C.dim, cursor: "pointer", fontSize: 12, marginRight: 8 }}>trace</button>
           <button onClick={() => setTurns([])} title="Clear" style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: 12, marginRight: 8 }}>clear</button>
           <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
         </div>
       </div>
+
+      {/* Trace lookup — paste the traceId from any Reggie answer (⧉ trace chip) to see
+          the persisted turn log: route, tools called, and the documents it drew from. */}
+      {traceOpen && (
+        <div style={{ padding: "10px 12px", borderBottom: C.border, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input value={traceQuery} onChange={e => setTraceQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") lookupTrace(); }}
+              placeholder="paste a traceId…"
+              style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: C.border, borderRadius: 8, padding: "6px 9px", color: C.text, fontSize: 12, fontFamily: "ui-monospace, monospace", outline: "none" }} />
+            <button onClick={lookupTrace} disabled={traceBusy} style={{ background: C.panel, border: C.border, borderRadius: 8, padding: "6px 12px", color: C.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{traceBusy ? "…" : "Look up"}</button>
+          </div>
+          {traceResult && (
+            <pre style={{ margin: 0, maxHeight: 180, overflow: "auto", background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 10px", fontSize: 10.5, lineHeight: 1.5, color: C.text, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{traceResult}</pre>
+          )}
+        </div>
+      )}
 
       <div ref={listRef} style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
         {turns.length === 0 && (

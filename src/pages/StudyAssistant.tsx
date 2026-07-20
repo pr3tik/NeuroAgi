@@ -23,6 +23,7 @@ import { supabase } from "../api/supabase";
 import { loadRecentMessages } from "../api/chat";
 import { sanitizeApiMessages } from "../lib/chatMessages";
 import { renderMessageHTML } from "../lib/markdown";
+import { SectionLabel } from "../components/uikit";
 import { tealAlpha } from "../lib/theme";
 
 // Concrete rgba (not var()) — ACCENT also feeds an SVG stroke= presentation
@@ -227,7 +228,9 @@ function AssistantBubble({ text, sources }: { text: string; sources?: { title: s
       />
 
       {sources && sources.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+        <div style={{ marginTop: "10px" }}>
+          <SectionLabel style={{ fontSize: 10, marginBottom: 6 }}>Sources</SectionLabel>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {sources.map((s, i) => (
             <span key={i} style={{
               fontSize: "11px",
@@ -241,6 +244,7 @@ function AssistantBubble({ text, sources }: { text: string; sources?: { title: s
               {s.title}{s.heading ? ` — ${s.heading}` : ""}
             </span>
           ))}
+          </div>
         </div>
       )}
     </div>

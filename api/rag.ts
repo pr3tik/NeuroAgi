@@ -535,6 +535,24 @@ async function backfill(body) {
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
+// Full document text for the reader. rag_sections is RLS-deny to client keys, so the
+// browser can't read it directly; this returns the joined section text server-side.
+// Ownership check mirrors action=query's posture (body userId — same trust level).
+async function docText(body) {
+  const { userId, documentId } = body ?? {};
+  if (!userId || !documentId) return { status: 400, json: { error: "userId and documentId required" } };
+  const { data: doc } = await supabase
+    .from("rag_documents").select("id, title").eq("id", documentId).eq("user_id", userId).maybeSingle();
+  if (!doc) return { status: 404, json: { error: "document not found" } };
+  const { data: secs } = await supabase
+    .from("rag_sections").select("heading, full_text, ordinal")
+    .eq("document_id", documentId).order("ordinal", { ascending: true }).limit(300);
+  const text = (secs ?? [])
+    .map(s => (s.heading ? `${s.heading}\n\n${s.full_text ?? ""}` : (s.full_text ?? "")))
+    .join("\n\n");
+  return { status: 200, json: { title: doc.title, text } };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -560,6 +578,7 @@ export default async function handler(req, res) {
     const result = action === "ingest"   ? await ingest(req.body)
                  : action === "embed"    ? await embedBatch(req.body)
                  : action === "query"    ? await query(req.body)
+                 : action === "doc"      ? await docText(req.body)
                  : action === "backfill" ? await backfill(req.body)
                  : { status: 400, json: { error: "Unknown action. Use ?action=ingest|embed|query|backfill" } };
     return res.status(result.status).json(result.json);

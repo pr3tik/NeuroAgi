@@ -245,6 +245,37 @@ describe("reggie tool-use loop", () => {
     expect(r.widgets).toEqual([]);   // what_if_plan isn't a renderable widget
   });
 
+  // Search-tag payload (PR #269). It was previously inline in runTools' serial loop; the
+  // concurrency refactor moved it into liftSources() and onto the parallel path too, so it
+  // is pinned here — rag_search and library_search are both read-only, meaning a step that
+  // calls both now runs concurrently and must still produce identical trace sources.
+  it("lifts retrieval passage identities onto the trace — identities only, never text", async () => {
+    const { liftSources } = await import("../api/_reggie/loop.ts");
+    const payload = JSON.stringify({
+      passages: [
+        { title: "syllabus.pdf", heading: "Grading", loc: 3, text: "SECRET PASSAGE TEXT" },
+        { label: "day1_slides.pdf", loc: null },
+      ],
+    });
+    const out = liftSources("rag_search", payload)!;
+    expect(out).toEqual([
+      { title: "syllabus.pdf", heading: "Grading", loc: "3" },
+      { title: "day1_slides.pdf", heading: null, loc: null },
+    ]);
+    expect(JSON.stringify(out)).not.toContain("SECRET PASSAGE TEXT");   // never persist text
+
+    // library_search uses `results`, not `passages`
+    expect(liftSources("library_search", JSON.stringify({ results: [{ title: "notes.md" }] })))
+      .toEqual([{ title: "notes.md", heading: null, loc: null }]);
+
+    expect(liftSources("canvas_get_grades", payload)).toBeUndefined();  // not a retrieval tool
+    expect(liftSources("rag_search", "not json")).toBeUndefined();      // malformed → no sources
+    expect(liftSources("rag_search", JSON.stringify({ passages: [] }))).toBeUndefined();
+    expect(liftSources("rag_search", JSON.stringify({
+      passages: Array.from({ length: 20 }, (_, i) => ({ title: `d${i}.pdf` })),
+    }))!.length).toBe(8);                                                // capped
+  });
+
   it("renderableWidget maps generate_quiz output to interactive quiz cards (and nothing else)", async () => {
     const { renderableWidget } = await import("../api/_reggie/loop.ts");
     expect(renderableWidget("generate_quiz", { quizQuestions: [

@@ -15,3 +15,5 @@ Thumbs.db
 # Large generated test fixtures (regenerate: npx tsx scripts/make-big-fixtures.ts)
 test-fixtures/big/
 eval-report.md
+.superpowers/
+.codebase-mcp/

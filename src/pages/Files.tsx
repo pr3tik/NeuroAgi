@@ -10,6 +10,7 @@ import { useApp }    from "../context/AppContext";
 import { supabase }  from "../api/supabase";
 import DocReader     from "../components/DocReader";
 import ContentConnector from "../components/ContentConnector";
+import { SectionHeader } from "../components/uikit";
 import { FileText, Presentation, Music, Film, Play, Image as ImageIcon, StickyNote, Paperclip, BookOpen, Check } from "lucide-react";
 
 // ── Design tokens ─────────────────────────────────────────────────────────
@@ -62,6 +63,7 @@ function mapFileRow(f: any) {
     highlights:  f.highlights   ?? null,
     processedAt: f.processed_at ?? null,
     contentText: f.content_text ?? null,
+    documentId:  f.document_id  ?? null,   // RAG link — set by server-side Canvas indexing
   };
 }
 
@@ -633,7 +635,8 @@ function DocCard({ file, color, onOpen, userId }: {
 function FileRow({ file, color, onOpenReader }: { file:any; color:string; onOpenReader:(f:any)=>void }) {
   const size  = formatSize(file.sizeBytes);
   const isPdf = ["pdf","docx","doc","pptx","ppt","txt","md"].includes((file.fileType ?? "").toLowerCase());
-  const hasReader = file.summary && isPdf;
+  // Readable if classically processed OR RAG-indexed (DocReader falls back to rag_sections).
+  const hasReader = (file.summary && isPdf) || Boolean(file.documentId);
 
   function handleClick() {
     if (hasReader) onOpenReader(file);
@@ -655,6 +658,13 @@ function FileRow({ file, color, onOpenReader }: { file:any; color:string; onOpen
               padding:"2px 6px", borderRadius:4, background:"rgba(var(--gold-rgb), 0.1)",
               color:"var(--gold)", border:"1px solid rgba(var(--gold-rgb), 0.22)", flexShrink:0,
             }}>Read</span>
+          )}
+          {file.documentId && (
+            <span style={{
+              fontSize:9, fontWeight:700, letterSpacing:"0.5px", textTransform:"uppercase",
+              padding:"2px 6px", borderRadius:4, background:"rgba(var(--teal-rgb), 0.1)",
+              color:"rgb(var(--teal-rgb))", border:"1px solid rgba(var(--teal-rgb), 0.25)", flexShrink:0,
+            }} title="Indexed — Reggie can teach from this file">Searchable</span>
           )}
         </div>
         <p style={{ color:"var(--text-dim)", fontSize:12, marginTop:2, marginBottom:0 }}>
@@ -684,20 +694,33 @@ export default function Files() {
   const { files, courses, userId, setPendingNav } = useApp() as any;
   const [viewingFile, setViewingFile] = useState<any>(null);
   const [savedDocs,   setSavedDocs]   = useState<any[]>([]);
+  const [dbCourses,   setDbCourses]   = useState<any[]>([]);   // ground-truth course names for grouping
+
+  useEffect(() => {
+    if (!userId) return;
+    supabase.from("courses")
+      .select("id, name, course_code")
+      .eq("user_id", userId)
+      .then(({ data }) => { if (data?.length) setDbCourses(data); });
+  }, [userId]);
 
   // List metadata only — content_text is never rendered in the list, and DocReader
   // lazy-fetches it by id when a doc is actually opened. Selecting it here shipped the
   // user's entire library text (up to 100 full documents) on every Files visit.
-  const SAVED_DOC_COLS = "id,course_id,lms_file_id,name,file_type,size_bytes,source_url,folder,status,storage_path,summary,highlights,processed_at";
+  const SAVED_DOC_COLS = "id,course_id,lms_file_id,name,file_type,size_bytes,source_url,folder,status,storage_path,summary,highlights,processed_at,document_id";
 
   useEffect(() => {
     if (!userId) return;
+    // Two populations: classically-processed files (processed_at set) AND server-side
+    // Canvas-indexed files (document_id set, processed_at null — the ingestion pipeline
+    // links straight into RAG). Without the OR, a student's whole indexed Canvas library
+    // was invisible on this page.
     supabase.from("files")
       .select(SAVED_DOC_COLS)
       .eq("user_id", userId)
-      .not("processed_at","is",null)
-      .order("processed_at", { ascending:false })
-      .limit(100)
+      .or("processed_at.not.is.null,document_id.not.is.null")
+      .order("processed_at", { ascending:false, nullsFirst:false })
+      .limit(150)
       .then(({ data }) => { if (data?.length) setSavedDocs(data.map(mapFileRow)); });
   }, [userId]);
 
@@ -706,9 +729,9 @@ export default function Files() {
     supabase.from("files")
       .select(SAVED_DOC_COLS)
       .eq("user_id", userId)
-      .not("processed_at","is",null)
-      .order("processed_at", { ascending:false })
-      .limit(100)
+      .or("processed_at.not.is.null,document_id.not.is.null")
+      .order("processed_at", { ascending:false, nullsFirst:false })
+      .limit(150)
       .then(({ data }) => { if (data?.length) setSavedDocs(data.map(mapFileRow)); });
   }, [userId]);
 
@@ -736,17 +759,29 @@ export default function Files() {
   const groups = useMemo(() => {
     const byDbId = new Map();
     courses.forEach((c: any, i: number) => {
-      if (c.dbId) byDbId.set(c.dbId, { course:c, color:colorFor(i), files:[] as any[] });
+      // Keys normalized to String — context dbId is a string while files.course_id
+      // comes back numeric from PostgREST, and Map.get is type-strict.
+      if (c.dbId != null) byDbId.set(String(c.dbId), { course:c, color:colorFor(i), files:[] as any[] });
+    });
+    // Fallback: the context cache can predate `dbId` (older canvas_data blobs), which
+    // left every course-linked file ungrouped in "My Documents". The DB courses table
+    // is the ground truth for course_id → name, so use it for any id context missed.
+    dbCourses.forEach((c: any, i: number) => {
+      const k = String(c.id);
+      if (!byDbId.has(k)) byDbId.set(k, {
+        course: { dbId: c.id, courseCode: c.course_code, name: c.name },
+        color: colorFor(byDbId.size + i), files: [] as any[],
+      });
     });
     const myDocs = { course:null, color:"var(--text-dim)", files:[] as any[] };
     for (const f of allFiles) {
-      const g = (f.courseDbId && byDbId.get(f.courseDbId)) || myDocs;
+      const g = (f.courseDbId != null && byDbId.get(String(f.courseDbId))) || myDocs;
       g.files.push(f);
     }
     const ordered = [...byDbId.values()].filter(g => g.files.length);
     if (myDocs.files.length) ordered.push(myDocs);
     return ordered;
-  }, [allFiles, courses]);
+  }, [allFiles, courses, dbCourses]);
 
   if (viewingFile) {
     return (
@@ -799,14 +834,12 @@ export default function Files() {
           {/* My Documents — premium card grid (Part B) */}
           {myDocsGroup && myDocsGroup.files.length > 0 && (
             <div>
-              <div style={{ display:"flex", alignItems:"baseline",
-                justifyContent:"space-between", marginBottom:14 }}>
-                <span style={{ color:"var(--text-secondary)", fontSize:13,
-                  fontWeight:600, letterSpacing:"0.3px" }}>My Documents</span>
-                <span style={{ color:"var(--text-dim)", fontSize:11 }}>
+              <SectionHeader
+                title="My Documents"
+                right={<span style={{ color:"var(--text-dim)", fontSize:11 }}>
                   {myDocsGroup.files.length} item{myDocsGroup.files.length !== 1 ? "s" : ""}
-                </span>
-              </div>
+                </span>}
+              />
               <div style={{
                 display:"grid",
                 gridTemplateColumns:"repeat(auto-fill, minmax(155px, 1fr))",

@@ -18,7 +18,12 @@ import type { ToolContext } from "./tools.js";
 import type { Specialist } from "./specialists.js";
 
 export interface ReggieEvent { type: string; [k: string]: any; }
-export interface ToolCallTrace { name: string; input: any; ok: boolean; preview: string; }
+export interface ToolCallTrace {
+  name: string; input: any; ok: boolean; preview: string;
+  // For retrieval tools: which documents the result actually came from — the "search
+  // tag" payload. Compact (title/heading/loc only, never passage text).
+  sources?: { title: string; heading?: string | null; loc?: string | null }[];
+}
 export interface RenderableWidget { type: string; data: any; }
 export interface ReggieResult { output: string; route: string; trace: ToolCallTrace[]; steps: number; budgetExhausted: boolean; widgets: RenderableWidget[]; }
 export interface HistoryTurn { role: "user" | "assistant"; content: string; }
@@ -104,6 +109,23 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+/** Retrieval tools: lift the returned passages' identities onto the trace entry so the turn
+ *  can report WHERE the answer's data came from (agent-manager aggregates these into the
+ *  response's `sources` + the persisted turn log). Identities only — never passage text. */
+export function liftSources(toolName: string, content: string): ToolCallTrace["sources"] {
+  if (toolName !== "rag_search" && toolName !== "library_search") return undefined;
+  try {
+    const parsed = JSON.parse(content);
+    const passages = parsed?.passages ?? parsed?.results ?? [];
+    if (!Array.isArray(passages) || !passages.length) return undefined;
+    return passages.slice(0, 8).map((p: any) => ({
+      title: String(p.title ?? p.label ?? "Document").slice(0, 120),
+      heading: p.heading ? String(p.heading).slice(0, 120) : null,
+      loc: p.loc != null ? String(p.loc) : null,
+    }));
+  } catch { return undefined; }   // non-JSON tool output — no sources
+}
+
 /** Invoke one tool → the shape the loop records. Never throws: a failure becomes an
  *  is_error tool_result the model can recover from. */
 async function invokeOne(tu: any, ctx: ToolContext): Promise<{ out: any; content: string; isError: boolean }> {
@@ -148,10 +170,12 @@ async function runTools(
 ): Promise<any[]> {
   const results: any[] = [];
   // Bookkeeping for one finished tool. Called in the model's tool order on BOTH paths, so
-  // trace, widget, and tool_result ordering never depends on which call finished first.
+  // trace, widget, source, and tool_result ordering never depends on which call finished
+  // first — the concurrent path must produce a byte-identical trace to the serial one.
   const record = (tu: any, { out, content, isError }: { out: any; content: string; isError: boolean }) => {
     if (!isError && widgets) { const w = renderableWidget(tu.name, out); if (w) widgets.push(w); }
-    trace.push({ name: tu.name, input: tu.input, ok: !isError, preview: content.slice(0, 200) });
+    const sources = isError ? undefined : liftSources(tu.name, content);
+    trace.push({ name: tu.name, input: tu.input, ok: !isError, preview: content.slice(0, 200), ...(sources ? { sources } : {}) });
     emit?.({ type: "tool_result", name: tu.name, ok: !isError });
     results.push({ type: "tool_result", tool_use_id: tu.id, content, ...(isError ? { is_error: true } : {}) });
   };

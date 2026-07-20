@@ -6,6 +6,7 @@ import { calendarDaysUntil } from "../lib/dueDate";
 import { Check, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import ManualUploadSheet from "../components/ManualUploadSheet";
+import { SectionHeader } from "../components/uikit";
 import { fetchAssignments, fetchModules } from "../../canvas-module/canvasApi";
 import { normalizeAssignment, normalizeModule } from "../../canvas-module/canvasTransform";
 import { supabase } from "../api/supabase";
@@ -788,22 +789,12 @@ export default function Canvas() {
       {/* Course Library */}
       <div style={{ marginTop: "80px" }}>
 
-        {/* Section header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "32px" }}>
-          <div>
-            <p style={{
-              fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "18px",
-              letterSpacing: "-0.18px", color: "#E3E2E2", margin: "0 0 4px",
-            }}>
-              Course Library
-            </p>
-            <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.5)", margin: 0 }}>
-              {courses.length} active course{courses.length !== 1 ? "s" : ""} this semester
-            </p>
-          </div>
-
-          {/* View toggle */}
-          <div style={{ display: "flex", gap: "8px" }}>
+        {/* Section header (uikit contract) */}
+        <SectionHeader
+          title="Course Library"
+          desc={`${courses.length} active course${courses.length !== 1 ? "s" : ""} this semester`}
+          style={{ marginBottom: "32px" }}
+          right={<div style={{ display: "flex", gap: "8px" }}>
             <button
               onClick={() => setGridView(true)}
               style={{
@@ -834,8 +825,8 @@ export default function Canvas() {
                 <line x1="3" y1="18" x2="3.01" y2="18"/>
               </svg>
             </button>
-          </div>
-        </div>
+          </div>}
+        />
 
         {/* Course grid */}
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: "20px", width: "100%" }}>
