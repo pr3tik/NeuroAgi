@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { calendarDaysUntil } from "../lib/dueDate";
 import { useApp } from "../context/AppContext";
-import { Flame } from "lucide-react";
+import { Flame, Layers, MessageCircle } from "lucide-react";
+import { supabase } from "../api/supabase";
+import { SectionHeader, ObjectCard, MetaLine } from "../components/uikit";
 import { coursesToGpa } from "../lib/gpa";
 import DailyBriefing from "../components/DailyBriefing";
 import SchoolPrompt from "../components/SchoolPrompt";
@@ -228,7 +230,35 @@ function EmptyState({ syncStatus, hasToken }) {
 }
 
 export default function Work() {
-  const { userData, courses, assignments, canvasToken, syncStatus, announcements } = useApp();
+  const { userId, userData, courses, assignments, canvasToken, syncStatus, announcements } = useApp();
+
+  // ── Home extras (UI/UX spec v2): resume state + indexed materials ──────────
+  // "Pick up where you left off" mirrors the reference's continue-learning card;
+  // "Your materials" shows what Reggie can actually teach from (rag_documents).
+  const [homeExtras, setHomeExtras] = useState<{ srsDue: number; materials: { id: string; name: string; count: number }[] }>({ srsDue: 0, materials: [] });
+  useEffect(() => {
+    if (!userId) return;
+    let dead = false;
+    (async () => {
+      try {
+        const [srsR, ragR] = await Promise.all([
+          supabase.from("srs_reviews").select("card_key").eq("user_id", userId).lte("due_at", new Date().toISOString()),
+          supabase.from("rag_documents").select("course_id").eq("user_id", userId),
+        ]);
+        const counts: Record<string, number> = {};
+        for (const r of (ragR.data ?? []) as any[]) { const k = r.course_id ?? "other"; counts[k] = (counts[k] || 0) + 1; }
+        const materials = Object.entries(counts)
+          .map(([cid, n]) => {
+            const c: any = (courses ?? []).find((x: any) => String(x.dbId) === String(cid));
+            return { id: cid, name: c?.courseCode || c?.name || (cid === "other" ? "Other uploads" : "Course"), count: n as number };
+          })
+          .sort((a, b) => b.count - a.count).slice(0, 4);
+        if (!dead) setHomeExtras({ srsDue: (srsR.data ?? []).length, materials });
+      } catch { /* non-fatal — sections simply don't render */ }
+    })();
+    return () => { dead = true; };
+  }, [userId, courses]);
+  const goPage = (k: string) => () => window.dispatchEvent(new CustomEvent("fschool:navigate", { detail: k }));
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
@@ -454,6 +484,62 @@ export default function Work() {
           <DailyBriefing isMobile={isMobile} />
         </div>
 
+        {/* ── Pick up where you left off + Your materials (spec v2 sections) ── */}
+        {(homeExtras.srsDue > 0 || homeExtras.materials.length > 0) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 26, marginBottom: isMobile ? "24px" : "32px", animation: "workRise 0.6s ease both", animationDelay: "140ms" }}>
+            <div>
+              <SectionHeader title="Pick up where you left off" desc="Jump back into what you were working on" />
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(250px, 330px))", gap: 12 }}>
+                {homeExtras.srsDue > 0 && (
+                  <ObjectCard
+                    icon={<Layers size={18} color="rgb(var(--teal-rgb))" />}
+                    typeLabel="Review"
+                    title={`${homeExtras.srsDue} flashcard${homeExtras.srsDue === 1 ? "" : "s"} due`}
+                    meta={["Spaced repetition", "5 min"]}
+                    onClick={goPage("study")}
+                  />
+                )}
+                {homeExtras.materials[0] && (() => {
+                  // Prefer a real course for the resume card; unlinked docs read awkwardly.
+                  const top = homeExtras.materials.find(m => m.id !== "other") ?? homeExtras.materials[0];
+                  const total = homeExtras.materials.reduce((s, m) => s + m.count, 0);
+                  return (
+                    <ObjectCard
+                      icon={<MessageCircle size={18} color="rgb(var(--teal-rgb))" />}
+                      typeLabel="Ask Reggie"
+                      title={top.id === "other" ? "Ask about your materials" : `Continue ${top.name}`}
+                      meta={[`${total} materials indexed`, "grounded answers"]}
+                      onClick={goPage("studyAssistant")}
+                    />
+                  );
+                })()}
+              </div>
+            </div>
+            {homeExtras.materials.length > 0 && (
+              <div>
+                <SectionHeader
+                  title="Your materials"
+                  desc="Course files Reggie can teach from"
+                  action="Open files"
+                  onAction={goPage("files")}
+                />
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {homeExtras.materials.map(m => (
+                    <div key={m.id} style={{
+                      display: "inline-flex", alignItems: "center", gap: 8,
+                      background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)",
+                      borderRadius: 999, padding: "8px 14px",
+                    }}>
+                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{m.name}</span>
+                      <MetaLine parts={[`${m.count} indexed`, "searchable"]} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Dashboard grid ── */}
         <div
           className="work-grid"
@@ -661,25 +747,13 @@ export default function Work() {
 
             {/* Upcoming assignments section */}
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 8px" }}>
-                <p style={{
-                  fontFamily: "Inter, sans-serif", fontWeight: 600,
-                  fontSize: "18px", lineHeight: "24px", letterSpacing: "-0.18px", color: "#E3E2E2", margin: 0,
-                }}>
-                  Upcoming Assignments
-                </p>
-                <button style={{
-                  fontFamily: "Inter, sans-serif",
-                  fontWeight: isMobile ? 600 : 400,
-                  fontSize: isMobile ? "12px" : "16px",
-                  lineHeight: isMobile ? "16px" : undefined,
-                  letterSpacing: isMobile ? "0.6px" : undefined,
-                  textAlign: "center",
-                  color: "#C8C5CB",
-                  background: "none", border: "none", cursor: "pointer", padding: 0,
-                }}>
-                  View All
-                </button>
+              <div style={{ padding: "0 8px" }}>
+                <SectionHeader
+                  title="Upcoming assignments"
+                  desc="From your Canvas courses, soonest first"
+                  action="View all"
+                  onAction={goPage("canvas")}
+                />
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? "12px" : "16px" }}>

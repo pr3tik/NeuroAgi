@@ -10,19 +10,16 @@ beforeEach(() => {
   })) as any;
 });
 
-// Tabs is now the ONLY nav mode (swipe removed), so BottomNav is the sole way to reach
-// every page — this list is the reachability guarantee the deleted nav.test.ts used to
-// give the swipe graph. Kept as an explicit list of the 12 routable pages (NOT derived
-// from LABEL, which carries a dead "courses" key with no route/tab).
-const ALL_PAGE_LABELS = [
-  "Work", "Canvas", "Study", "Leaderboard", "Identity",   // primary
-  "Assignment", "Toolkit", "Files", "Rooms", "Spaces", "Reggie", "Connections", // secondary
-];
+// The demo nav is the DEFAULT (VITE_DEMO_NAV unset → on): six destinations chaptered
+// by student intent (UI/UX spec v2). Other pages stay routable by key — they're just
+// not nav doors in the demo build (set VITE_DEMO_NAV=0 to restore the full nav).
+const DEMO_LABELS  = ["Today", "Reggie", "Study", "Canvas", "Files", "Rooms"];
+const GROUP_LABELS = ["Learn", "My courses", "Together"];
 
 describe("BottomNav (web sidebar)", () => {
-  it("shows EVERY routable page (primary + secondary) and no mobile 'More' sheet", () => {
+  it("shows the six demo destinations chaptered by intent group", () => {
     render(<BottomNav currentPage="work" onNavigate={vi.fn()} />);
-    for (const label of ALL_PAGE_LABELS)
+    for (const label of [...DEMO_LABELS, ...GROUP_LABELS])
       expect(screen.getByText(label), `sidebar missing "${label}"`).toBeInTheDocument();
     expect(screen.queryByText("More")).not.toBeInTheDocument();
   });
@@ -41,9 +38,11 @@ describe("BottomNav (web sidebar)", () => {
     expect(onToggle).toHaveBeenCalled();
   });
 
-  it("collapses to icon-only (labels hidden, expand affordance shown)", () => {
-    render(<BottomNav currentPage="work" onNavigate={vi.fn()} collapsed={true} onToggleCollapse={vi.fn()} />);
-    expect(screen.queryByText("Work")).not.toBeInTheDocument(); // labels hidden when collapsed
-    expect(screen.getByTitle("Expand sidebar")).toBeInTheDocument();
+  it("collapses to icon-only and expands on hover (labels return + pin affordance)", () => {
+    const { container } = render(<BottomNav currentPage="work" onNavigate={vi.fn()} collapsed={true} onToggleCollapse={vi.fn()} />);
+    expect(screen.queryByText("Today")).not.toBeInTheDocument(); // labels hidden when collapsed
+    fireEvent.mouseEnter(container.querySelector("aside")!);      // hover-expand overlay
+    expect(screen.getByText("Today")).toBeInTheDocument();
+    expect(screen.getByTitle("Keep sidebar open")).toBeInTheDocument(); // pin-open control
   });
 });

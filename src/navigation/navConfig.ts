@@ -2,7 +2,7 @@
 // LABEL maps page keys to display names used in the header.
 
 export const LABEL = {
-  work:        "Work",
+  work:        "Today",
   canvas:      "Canvas",
   assignment:  "Assignment",
   study:       "Study",
