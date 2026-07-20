@@ -1025,7 +1025,9 @@ function defaultGsPlan(mode: string, topic: string) {
 const GS_NUDGES: Record<string, string[]> = {
   start:    ["You've got this — one step at a time. 💪", "Locked in. Let's make this click. ✨", "Let's do this — I'm right here with you. 🙌"],
   progress: ["Nice — one down. Keep the momentum. 🔥", "Great pace. On to the next. 🚀", "That's real progress — proud of you. 🌟"],
+  stuck:    ["Totally normal to get stuck here — let's untangle it. 🧠", "Good — the hard parts are where learning happens. 💡", "No worries, let's slow it down together. 🤝"],
   done:     ["Session complete — you crushed it. 🎉", "Done! That was focused work. 🌟", "Nailed it. Come back anytime. 🎯"],
+  focus:    ["🔥 Deep focus time — you've got this.", "⚡ Locking in. Let's make these minutes count.", "💪 Heads down — I'm rooting for you.", "🌟 One sprint at a time. Let's go."],
 };
 function pickGsNudge(kind: string) {
   const arr = GS_NUDGES[kind] || GS_NUDGES.start;
@@ -1257,6 +1259,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 
   function handlePomoStart() {
     broadcastAndSavePomo({ phase: "focus", paused: false, startedAt: Date.now(), durationSec: sprintDurationRef.current, pausedRemaining: null });
+    setRoomToast(pickGsNudge("focus")); // Reggie cheers you into the sprint
   }
   function handlePomoPause() {
     const p = pomoRef.current;
@@ -1853,7 +1856,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const reggieSessionRef = useRef(false); // ensured an active AI session for this room yet?
   const [focusMode, setFocusMode] = useState(false); // redesign: Focus Mode collapses the side panels
   const [roomToast, setRoomToast] = useState<string | null>("🔥 Study streak · day 12");
-  useEffect(() => { const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, []);
+  useEffect(() => { if (!roomToast) return; const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, [roomToast]);
 
   // ── Guided study session (proactive, Reggie-driven) — center-stage tutor flow ──
   const [centerTab,     setCenterTab]     = useState<"board" | "session" | "flashcards">("board");
