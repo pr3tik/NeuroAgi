@@ -27,7 +27,7 @@ import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
   Timer, Coins, ThumbsUp, ThumbsDown, Image as ImageIcon, Hand, Zap, Hourglass,
-  RefreshCw, LogOut, Sparkles, Video,
+  RefreshCw, LogOut, Sparkles, Video, Volume2, VolumeX,
 } from "lucide-react";
 
 // ── Access filters ────────────────────────────────────────────────────────────
@@ -1045,12 +1045,26 @@ function GsRichText({ text }: { text: string }) {
       {blocks.map((b, i) => {
         const trimmed = b.trim();
         if (/^([-*_=]){3,}$/.test(trimmed)) return <div key={i} style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "1px 0" }} />;
-        const bullet = /^\s*[-•]\s+/.test(b) || /^\s*\*\s+/.test(b);
-        const clean = b.replace(/^\s*[-•*]\s+/, "").replace(/^#+\s*/, "");
+        const lines = b.split("\n").filter(l => l.trim());
+        const hasBullets = lines.some(l => /^\s*[-•]\s+/.test(l) || /^\s*\*\s+/.test(l));
+        if (hasBullets) {
+          return (
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {lines.map((l, j) => {
+                const isB = /^\s*[-•]\s+/.test(l) || /^\s*\*\s+/.test(l);
+                return (
+                  <p key={j} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: "var(--text-secondary)", display: "flex", gap: 8 }}>
+                    {isB && <span style={{ color: "#818cf8", flexShrink: 0 }}>•</span>}
+                    <span>{gsInline(l.replace(/^\s*[-•*]\s+/, "").replace(/^#+\s*/, ""))}</span>
+                  </p>
+                );
+              })}
+            </div>
+          );
+        }
         return (
-          <p key={i} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.62, color: "var(--text-secondary)", whiteSpace: "pre-wrap", display: "flex", gap: 8 }}>
-            {bullet && <span style={{ color: "#818cf8", flexShrink: 0 }}>•</span>}
-            <span>{gsInline(clean)}</span>
+          <p key={i} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.62, color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
+            {gsInline(b.replace(/^#+\s*/, ""))}
           </p>
         );
       })}
@@ -1845,6 +1859,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [gsAskOpen,     setGsAskOpen]     = useState(false);
   const [gsLaunchMode,  setGsLaunchMode]  = useState<"learn" | "assignment" | "exam">("learn");
   const [gsTopic,       setGsTopic]       = useState("");
+  // Voice teaching (TTS) — Reggie reads steps aloud; auto-on for exam prep.
+  const gsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [gsSpeaking, setGsSpeaking] = useState(false);
+  const [gsVoiceOn,  setGsVoiceOn]  = useState(false);
+  const gsCurContent = gs && gs.status === "active" ? gsStepContent[gs.currentIdx] : undefined;
+  useEffect(() => { if (gsVoiceOn && gsCurContent) gsSpeak(gsCurContent); /* eslint-disable-next-line */ }, [gsCurContent, gsVoiceOn]);
+  useEffect(() => () => { try { gsAudioRef.current?.pause(); } catch {} }, []);
 
   // room-ai requires an active AI session for the room. Idempotent — resumes if one exists.
   async function ensureRoomAiSession(token: string) {
@@ -1927,6 +1948,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     setCenterTab("session");
     setGsBusy(true); setGsBusyLabel("Reggie is planning your session…");
     setGsStepContent({}); setGsExtra({}); setGsNudge(""); setGsAskOpen(false);
+    gsStopSpeak(); setGsVoiceOn(mode === "exam"); // exam prep is taught aloud by default
     setGs({ mode, topic: t, steps: [], currentIdx: 0, status: "planning", startedAt: Date.now() });
     try {
       const verb = mode === "assignment" ? `complete the assignment "${t}"`
@@ -1995,7 +2017,46 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   }
 
   function endGuidedSession() {
+    gsStopSpeak(); setGsVoiceOn(false);
     setGs(null); setGsStepContent({}); setGsExtra({}); setGsNudge(""); setGsAsk(""); setGsAskOpen(false); setCenterTab("board");
+  }
+
+  // ── Voice teaching (TTS via ElevenLabs) — reads a step aloud; strips markdown/emoji first ──
+  function gsStripForSpeech(text: string) {
+    return String(text || "")
+      .replace(/\*\*/g, "").replace(/\*/g, "").replace(/`+/g, "")
+      .replace(/^#+\s*/gm, "").replace(/^\s*[-•]\s+/gm, "")
+      .replace(/[✅✨🔥💪🚀🌟🎯🙌🧠💡🎉📚✍️🔊]/g, "")
+      .replace(/\n{2,}/g, ". ").replace(/\s+/g, " ").trim().slice(0, 1800);
+  }
+  function gsStopSpeak() {
+    const a = gsAudioRef.current;
+    if (a) { try { a.pause(); a.currentTime = 0; } catch {} }
+    setGsSpeaking(false);
+  }
+  async function gsSpeak(text: string) {
+    const clean = gsStripForSpeech(text);
+    if (!clean) return;
+    gsStopSpeak();
+    setGsSpeaking(true);
+    try {
+      const r = await fetch("/api/tts?action=stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: clean }),
+      });
+      if (!r.ok) throw new Error(`TTS ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      let a = gsAudioRef.current;
+      if (!a) { a = new Audio(); gsAudioRef.current = a; }
+      a.onended = () => { setGsSpeaking(false); URL.revokeObjectURL(url); };
+      a.onerror = () => { setGsSpeaking(false); };
+      a.src = url;
+      await a.play();
+    } catch {
+      setGsSpeaking(false);
+    }
   }
 
   async function sendChatMessage() {
@@ -2238,6 +2299,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                             <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{gs.topic}</span>
                           </div>
                           <div style={{ display: "inline-flex", alignItems: "center", gap: 10, flexShrink: 0, fontSize: 11.5, color: "var(--text-dim)" }}>
+                            <button onClick={() => { const on = !gsVoiceOn; setGsVoiceOn(on); if (on) { const c = gsStepContent[gs.currentIdx]; if (c) gsSpeak(c); } else gsStopSpeak(); }} title={gsVoiceOn ? "Auto-read is on — Reggie reads each step aloud" : "Auto-read steps aloud"} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: gsVoiceOn ? "rgba(94,234,212,0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsVoiceOn ? "rgba(94,234,212,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 600, color: gsVoiceOn ? "#5eead4" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{gsVoiceOn ? <Volume2 size={12} /> : <VolumeX size={12} />}{gsVoiceOn ? "Auto-read" : "Voice"}</button>
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }} title="Time focused"><Timer size={12} />{formatPomoTime(gsElapsedSec)}</span>
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#a5b4fc" }} title="Reggie's estimate">≈ {gsRemainMin} min left</span>
                           </div>
@@ -2260,9 +2322,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       )}
                       {/* Teaching content — scrolls within the stage */}
                       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
-                        <div style={{ marginBottom: 10 }}>
-                          <h4 style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 3px" }}>{gs.steps[gs.currentIdx]?.title}</h4>
-                          <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0 }}>{gs.steps[gs.currentIdx]?.goal}</p>
+                        <div style={{ marginBottom: 10, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                          <div style={{ minWidth: 0 }}>
+                            <h4 style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 3px" }}>{gs.steps[gs.currentIdx]?.title}</h4>
+                            <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0 }}>{gs.steps[gs.currentIdx]?.goal}</p>
+                          </div>
+                          <button onClick={() => (gsSpeaking ? gsStopSpeak() : gsSpeak(gsStepContent[gs.currentIdx] || ""))} disabled={!gsStepContent[gs.currentIdx]} title={gsSpeaking ? "Stop reading" : "Read this step aloud"} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, background: gsSpeaking ? "rgba(94,234,212,0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsSpeaking ? "rgba(94,234,212,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 11.5, fontWeight: 600, color: gsSpeaking ? "#5eead4" : "var(--text-secondary)", cursor: gsStepContent[gs.currentIdx] ? "pointer" : "default", opacity: gsStepContent[gs.currentIdx] ? 1 : 0.5, fontFamily: "inherit" }}>{gsSpeaking ? <><VolumeX size={12} />Stop</> : <><Volume2 size={12} />Read aloud</>}</button>
                         </div>
                         <div style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 14 }}>
                           <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Sparkles size={15} color="#c4b5fd" /></div>
