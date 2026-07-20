@@ -443,6 +443,14 @@ export default function App() {
     }, 180);
   }, []);
 
+  // Pages render without props, so in-page actions (e.g. the Home resume cards)
+  // navigate by dispatching `fschool:navigate` with { detail: pageKey }.
+  useEffect(() => {
+    const onNav = (e: any) => { if (e?.detail) navigate(String(e.detail)); };
+    window.addEventListener("fschool:navigate", onNav);
+    return () => window.removeEventListener("fschool:navigate", onNav);
+  }, [navigate]);
+
   useEffect(() => {
     if (!pendingNav) return;
     navigate(pendingNav.page ?? pendingNav);

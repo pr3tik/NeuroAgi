@@ -12,7 +12,7 @@ const RAIL_W   = 232;
 
 // label = full (sidebar), short = compact (bottom bar, falls back to label).
 const ITEMS = {
-  work:        { label: "Work" },
+  work:        { label: "Today" },
   canvas:      { label: "Canvas" },
   study:       { label: "Study" },
   leaderboard: { label: "Leaderboard", short: "Ranks" },
@@ -31,6 +31,15 @@ const ITEMS = {
 // to restore the full nav for dev work — all pages stay routable either way; the flag
 // only controls which nav doors are shown.
 const DEMO_NAV = import.meta.env.VITE_DEMO_NAV !== "0";
+// Sidebar chapters (UI/UX spec v2): group destinations by student intent, the way the
+// reference groups its nav (LEARN / GROW). Same six destinations, now legible as a story:
+// today's landing → learn on my own → my actual coursework → study with others.
+const DEMO_GROUPS: { label: string | null; keys: string[] }[] = [
+  { label: null,         keys: ["work"] },
+  { label: "Learn",      keys: ["studyAssistant", "study"] },
+  { label: "My courses", keys: ["canvas", "files"] },
+  { label: "Together",   keys: ["rooms"] },
+];
 const PRIMARY   = DEMO_NAV
   ? ["work", "canvas", "files", "study", "studyAssistant", "rooms"]
   : ["work", "canvas", "study", "leaderboard", "identity"];
@@ -185,15 +194,37 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
             </button>
           )}
         </div>
-        {PRIMARY.map(key => (
-          <SideItem key={key} pageKey={key} active={currentPage === key} collapsed={vis} onClick={() => go(key)} />
-        ))}
-        {SECONDARY.length > 0 && (
-          <div style={{ height: "1px", background: "var(--color-border)", margin: vis ? "8px 6px" : "8px 13px" }} />
+        {DEMO_NAV ? (
+          /* Chaptered nav: group labels when expanded, thin dividers when collapsed. */
+          DEMO_GROUPS.map((g, gi) => (
+            <div key={g.label ?? "home"} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {gi > 0 && vis && (
+                <div style={{ height: 1, background: "var(--color-border)", margin: "7px 6px" }} />
+              )}
+              {g.label && !vis && (
+                <p style={{
+                  fontSize: 10.5, fontWeight: 600, letterSpacing: "0.09em", textTransform: "uppercase",
+                  color: "var(--text-dim)", margin: "13px 13px 3px", fontFamily: "inherit",
+                }}>{g.label}</p>
+              )}
+              {g.keys.map(key => (
+                <SideItem key={key} pageKey={key} active={currentPage === key} collapsed={vis} onClick={() => go(key)} />
+              ))}
+            </div>
+          ))
+        ) : (
+          <>
+            {PRIMARY.map(key => (
+              <SideItem key={key} pageKey={key} active={currentPage === key} collapsed={vis} onClick={() => go(key)} />
+            ))}
+            {SECONDARY.length > 0 && (
+              <div style={{ height: "1px", background: "var(--color-border)", margin: vis ? "8px 6px" : "8px 13px" }} />
+            )}
+            {SECONDARY.map(key => (
+              <SideItem key={key} pageKey={key} active={currentPage === key} collapsed={vis} onClick={() => go(key)} />
+            ))}
+          </>
         )}
-        {SECONDARY.map(key => (
-          <SideItem key={key} pageKey={key} active={currentPage === key} collapsed={vis} onClick={() => go(key)} />
-        ))}
       </aside>
     );
   }
@@ -240,11 +271,13 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
         {PRIMARY.map(key => (
           <BarItem key={key} pageKey={key} active={currentPage === key} onClick={() => go(key)} />
         ))}
-        <BarItem
-          pageKey="more" iconName="more" label="More"
-          active={moreOpen || moreActive}
-          onClick={() => setMoreOpen(v => !v)}
-        />
+        {SECONDARY.length > 0 && (
+          <BarItem
+            pageKey="more" iconName="more" label="More"
+            active={moreOpen || moreActive}
+            onClick={() => setMoreOpen(v => !v)}
+          />
+        )}
       </nav>
     </>
   );
