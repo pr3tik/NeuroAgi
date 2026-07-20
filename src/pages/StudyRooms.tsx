@@ -1752,7 +1752,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [reggieInput, setReggieInput] = useState("");
   const [reggieBusy,  setReggieBusy]  = useState(false);
   const reggieSessionRef = useRef(false); // ensured an active AI session for this room yet?
-  const [focusMode, setFocusMode] = useState(false); // redesign: Focus Mode toggle (placeholder behavior)
+  const [focusMode, setFocusMode] = useState(false); // redesign: Focus Mode collapses the side panels
+  const [roomToast, setRoomToast] = useState<string | null>("🔥 Study streak · day 12");
+  useEffect(() => { const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, []);
 
   // room-ai requires an active AI session for the room. Idempotent — resumes if one exists.
   async function ensureRoomAiSession(token: string) {
@@ -1856,6 +1858,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         background: "radial-gradient(60% 55% at 14% 3%, rgba(99,102,241,0.50), transparent 58%), radial-gradient(66% 66% at 93% 97%, rgba(124,58,237,0.44), transparent 60%), linear-gradient(155deg, rgba(67,56,202,0.34) 0%, rgba(30,27,75,0.14) 60%, transparent 100%)" }} />
 
       <div style={{ position: "relative", zIndex: 1 }}>
+        {roomToast && !focusMode && (
+          <div style={{ position: "fixed", top: 18, right: 18, zIndex: 90, display: "flex", alignItems: "center", gap: 8, background: "rgba(129,140,248,0.92)", color: "#fff", padding: "10px 15px", borderRadius: 12, fontSize: 13, fontWeight: 600, boxShadow: "0 10px 34px rgba(30,27,75,0.5)" }}>{roomToast}</div>
+        )}
+        {focusMode && (
+          <button onClick={() => setFocusMode(false)} style={{ position: "fixed", top: 20, right: 20, zIndex: 90, display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(129,140,248,0.9)", color: "#fff", border: "none", borderRadius: 999, padding: "8px 15px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 26px rgba(30,27,75,0.45)" }}>Focus Mode · ON — exit</button>
+        )}
         {/* Top bar — session timer + participant count */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 18 }}>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
@@ -1879,10 +1887,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "300px 1fr 320px", gap: 16, alignItems: "stretch", height: "calc(100dvh - 150px)", minHeight: 480 }}>
+        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "300px 1fr 320px", gap: 16, alignItems: "stretch", height: "calc(100dvh - 150px)", minHeight: 480 }}>
 
           {/* LEFT — Live Transcript + room controls */}
-          <div style={{ display: "flex", flexDirection: "column", background: "rgba(129,140,248,0.07)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
+          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(129,140,248,0.07)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
             <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 12 }}>Live Transcript</p>
             <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
               {[
@@ -1962,7 +1970,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           </div>
 
           {/* RIGHT — Group session */}
-          <div style={{ display: "flex", flexDirection: "column", background: "rgba(129,140,248,0.07)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
+          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(129,140,248,0.07)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>Group session</p>
               <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "5px 10px", fontSize: 11, color: focusMode ? "#c7d2fe" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Focus Mode{focusMode ? " · ON" : ""}</button>
