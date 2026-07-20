@@ -234,22 +234,26 @@ export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = n
   // uuid". Map it to the app course when we can; otherwise ingest UNLINKED (null) —
   // the file is still fully RAG-indexed and findable, just not tied to a course row.
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  let courseUuid: string | null = null;
+  // TWO course refs, because the schemas differ: the rag_* course_id columns are
+  // uuid-typed (a numeric id would throw), but the files.course_id column references
+  // courses(id) WHATEVER its type — and in production courses.id is numeric. Keeping
+  // only a uuid (the old behavior) nulled files.course_id for every Canvas ingest,
+  // which dumped the whole indexed library into "My Documents" ungrouped.
+  let courseRef:  string | null = null;   // matched courses.id, any type → files row
+  let courseUuid: string | null = null;   // uuid only → rag_* columns
   if (courseId && UUID_RE.test(String(courseId))) {
-    courseUuid = String(courseId);
+    courseRef = courseUuid = String(courseId);
   } else if (courseId) {
     // Best-effort map: the app may have a course row keyed by the LMS's native id.
     for (const col of ["canvas_course_id", "lms_course_id", "external_id"]) {
       try {
         const { data, error } = await supabase.from("courses")
           .select("id").eq("user_id", userId).eq(col, String(courseId)).limit(1).maybeSingle();
-        if (!error && data?.id) { courseUuid = data.id; break; }
+        if (!error && data?.id != null) { courseRef = String(data.id); break; }
       } catch { /* column doesn't exist — try the next */ }
     }
-    // The matched course row's id must ITSELF be a uuid — some courses tables key
-    // rows by the native LMS id (so `id` could be "4552"). Only keep a real uuid.
-    if (courseUuid && !UUID_RE.test(String(courseUuid))) courseUuid = null;
-    if (!courseUuid) console.warn(`[lms-ingest] courseId "${courseId}" is not an app UUID and no uuid-keyed course row matched — ingesting unlinked`);
+    courseUuid = courseRef && UUID_RE.test(courseRef) ? courseRef : null;
+    if (!courseUuid) console.warn(`[lms-ingest] courseId "${courseId}" → files-row ref ${courseRef ?? "none"}; rag ingests unlinked (non-uuid course key)`);
   }
 
   // ── 1. Dedup (canonical AND raw form — older rows stored the raw URL) ────
@@ -374,7 +378,7 @@ export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = n
   // ── 6. Record in files table (upsert — safe on re-ingest) ────────────────
   const fileRow: Record<string, any> = {
     user_id:      userId,
-    course_id:    courseUuid,
+    course_id:    courseRef,
     lms_file_id:  file.lmsFileId || `ing_${djb2(canonical)}`,
     name:         file.metadata?.originalFilename ?? file.name,
     file_type:    fileType,
@@ -390,7 +394,7 @@ export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = n
   if (upsertErr) {
     // Older schemas may lack columns (storage_path/provider) — retry minimal shape.
     const { error: retryErr } = await supabase.from("files").insert({
-      user_id: userId, course_id: courseUuid,
+      user_id: userId, course_id: courseRef,
       name: fileRow.name, source_url: canonical, document_id: documentId,
     });
     if (retryErr) console.error("[lms-ingest] files upsert error (non-fatal):", upsertErr.message);

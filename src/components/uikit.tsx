@@ -21,11 +21,13 @@ export function SectionLabel({ children, style }: { children: React.ReactNode; s
   );
 }
 
-export function SectionHeader({ title, desc, action, onAction }: {
+export function SectionHeader({ title, desc, action, onAction, right, style }: {
   title: string; desc?: string; action?: string; onAction?: () => void;
+  right?: React.ReactNode;   // custom right-side content (e.g. a view toggle) instead of/next to the text action
+  style?: React.CSSProperties;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 14, ...style }}>
       <div style={{ minWidth: 0 }}>
         <p style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 16.5, letterSpacing: "-0.18px", color: "var(--text-primary)", margin: 0 }}>{title}</p>
         {desc && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "var(--text-dim)", margin: "3px 0 0" }}>{desc}</p>}
@@ -36,6 +38,7 @@ export function SectionHeader({ title, desc, action, onAction }: {
           color: "rgb(var(--teal-rgb))", background: "none", border: "none", cursor: "pointer", padding: 0,
         }}>{action}</button>
       )}
+      {right}
     </div>
   );
 }
