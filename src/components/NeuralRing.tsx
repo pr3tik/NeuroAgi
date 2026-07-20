@@ -2160,6 +2160,8 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     const speakLive = voice && !muted;                 // sentence-chunked TTS while streaming
     let streamed = "", toolNote = "", finalOut = "", errMsg = null;
     let widgets: Array<{ type: string; data: any }> = [];
+    let turnSources: Array<{ title: string; heading?: string | null; loc?: string | null }> = [];
+    let turnTraceId: string | null = null;
     const paint = () => setStreamingMsg([toolNote, voice ? "" : streamed].filter(Boolean).join("\n\n"));
 
     // ── Streaming TTS (voice mode): speak each sentence the moment it closes — same
@@ -2212,7 +2214,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
           onReset:      ()  => { streamed = ""; paint(); chunker.reset(); },
           onToolCall:   (n) => { toolNote = `🔧 ${reggieToolLabel(n)}…`; paint(); },
           onToolResult: ()  => { /* keep the note until the next token/reset */ },
-          onDone:       (r) => { finalOut = r.output || ""; widgets = r.widgets || []; },
+          onDone:       (r) => { finalOut = r.output || ""; widgets = r.widgets || []; turnSources = r.sources || []; turnTraceId = r.traceId || null; },
           onError:      (m) => { errMsg = m; },
         },
         abortCtrlRef.current?.signal,
@@ -2256,7 +2258,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
 
     if (speakLive) {
       // Audio for every sentence is already queued — commit the bubble, wait it out.
-      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}) }]);
+      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}), ...(turnSources.length ? { sources: turnSources } : {}), ...(turnTraceId ? { traceId: turnTraceId } : {}) }]);
       lastSpokenTextRef.current = out;
       await ttsChain;
       voiceTTSAbortRef.current = false;
@@ -2268,7 +2270,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       await speakAndType(out);
       if (quizCards) setMessages(m => [...m, { role: "assistant", content: "Here's your quiz:", quiz: quizCards }]);
     } else {
-      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}) }]);
+      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}), ...(turnSources.length ? { sources: turnSources } : {}), ...(turnTraceId ? { traceId: turnTraceId } : {}) }]);
     }
 
     // ── Voice actions (parity with the classic tutor, shared executors). Gate on the
@@ -3091,6 +3093,30 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                         : m.content
                       }
                       {m.quiz && <InlineQuiz cards={m.quiz} userId={userId} courseId={null} />}
+                      {/* Search tags: which documents this answer drew from (+ traceId for debugging —
+                          click copies it; paste into ReggieTester's trace lookup). */}
+                      {m.sources?.length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", marginTop: "9px", alignItems: "center" }}>
+                          {m.sources.slice(0, 5).map((s, si) => (
+                            <span key={si} title={s.heading || s.title} style={{
+                              fontSize: "10.5px", padding: "2px 9px", borderRadius: "20px",
+                              background: "rgba(var(--teal-rgb),0.12)", border: "1px solid rgba(var(--teal-rgb),0.28)",
+                              color: "rgb(var(--teal-rgb))", fontWeight: 500, maxWidth: "180px",
+                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            }}>
+                              {s.title}{s.loc ? ` · p.${s.loc}` : ""}
+                            </span>
+                          ))}
+                          {m.traceId && (
+                            <button
+                              onClick={() => { try { navigator.clipboard.writeText(m.traceId); } catch {} }}
+                              title={`Copy trace ID for debugging: ${m.traceId}`}
+                              style={{ fontSize: "10px", padding: "2px 7px", borderRadius: "20px", background: "none",
+                                border: "1px dashed rgba(255,255,255,0.18)", color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}
+                            >⧉ trace</button>
+                          )}
+                        </div>
+                      )}
                       {m.hasArtifact && (
                         <button
                           onClick={() => { setArtifactType(m.artifactType || "viz"); setArtifactOpen(true); }}

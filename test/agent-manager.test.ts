@@ -51,9 +51,11 @@ afterEach(() => vi.unstubAllGlobals());
 async function load() { vi.resetModules(); return (await import("../api/agent-manager.ts")).default; }
 
 describe("agent-manager (Reggie front door)", () => {
-  it("405 on non-POST; 400 on missing userId or message", async () => {
+  it("405 on non-POST/GET; GET without traceId → 400; 400 on missing message", async () => {
     const h = await load();
-    let res = makeRes(); await h({ method: "GET", body: {} }, res); expect(res.statusCode).toBe(405);
+    let res = makeRes(); await h({ method: "PUT", body: {} }, res); expect(res.statusCode).toBe(405);
+    // GET is the trace-lookup route now — without a traceId it's a 400, not a 405.
+    res = makeRes(); await h({ method: "GET", query: {}, body: {} }, res); expect(res.statusCode).toBe(400);
     res = makeRes(); await h({ method: "POST", body: { message: "hi" } }, res); expect(res.statusCode).toBe(401);   // has message, no auth → 401 (auth is the first gate)
     res = makeRes(); await h({ method: "POST", body: { userId: "u1" } }, res); expect(res.statusCode).toBe(400);   // no message → 400 (checked before auth)
   });
