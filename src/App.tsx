@@ -91,14 +91,21 @@ const SHELL_STYLES = `
   }
   /* On web (≥768px): BottomNav becomes a fixed left sidebar, so push the page
      content over to make room (232px rail / 64px collapsed — must match RAIL_W in
-     BottomNav.tsx). The shell always carries .nav-tabs (tabs is the only nav mode). */
+     BottomNav.tsx). The shell always carries .nav-tabs (tabs is the only nav mode).
+
+     Content is also capped at a readable width and CENTERED in the leftover space —
+     on wide monitors, full-bleed pages stretched sections absurdly far apart. The
+     max() keeps the sidebar offset as the floor, so content never slides under the
+     rail on medium screens; on wide screens both margins equalize → centered. */
   @media (min-width: 768px) {
     .nav-tabs .app-page-transition {
-      margin-left: 232px;
+      max-width: 1240px;
+      margin-left: max(232px, calc((100% - 1240px) / 2));
+      margin-right: max(0px, calc((100% - 1240px) / 2));
       transition: margin-left 0.2s var(--ease-apple);
     }
     .nav-tabs.nav-collapsed .app-page-transition {
-      margin-left: 64px;
+      margin-left: max(64px, calc((100% - 1240px) / 2));
     }
   }
 `;
