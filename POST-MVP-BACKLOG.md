@@ -188,10 +188,10 @@ Being handled by the retrieval-focused engineer, tracked here for completeness:
   own indexed material. (Biggest single accuracy win.)
 - **Add a citation instruction** to the default Reggie path (`api/_reggie/specialists.ts`
   `base()`); other paths cite, this one doesn't.
-- **Run `supabase-rag-fts-order-fix.sql` in prod** — the full-text arm of hybrid search
-  applies `LIMIT` without `ORDER BY`, returning arbitrary rows on broad queries. Source files
-  patched 2026-07-20; the migration must be run in the Supabase SQL Editor to fix the live
-  functions.
+- ~~**Run `supabase-rag-fts-order-fix.sql` in prod**~~ — ✅ DONE 2026-07-20. The full-text
+  arm of hybrid search applied `LIMIT` without `ORDER BY`, returning arbitrary rows on broad
+  queries. Migration run in the Supabase SQL Editor; live functions fixed and verified
+  (broad query returns real passages, fallback=false).
 - **`rag_search` shared rate-limit bucket** — in-process tool calls fall back to
   `ip:unknown`, so all users share one 20/min bucket; retrieval 429s under load and Reggie
   silently answers ungrounded.
