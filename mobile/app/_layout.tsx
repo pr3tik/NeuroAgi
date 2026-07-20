@@ -4,12 +4,20 @@
 // throws "crypto.getRandomValues is not a function".
 import "react-native-get-random-values";
 
-import { registerGlobals } from "@livekit/react-native";
-// Must run before any LiveKit/WebRTC API is touched — installs RTCPeerConnection
-// and friends onto global. This file is the earliest app code Metro loads
-// (package.json's "main" is expo-router/entry, which renders this layout first;
+import { Platform } from "react-native";
+// LiveKit's WebRTC layer is native-only. On web (`expo start --web`), react-native-web
+// has no `requireNativeComponent`, so eagerly importing @livekit/react-native crashes
+// every route to the error screen. Guard it with a runtime `require` (not a static
+// import): Metro still bundles the module, but the factory only executes on native, so
+// the native component is never instantiated on web.
+// On native this still runs before any LiveKit/WebRTC API is touched — installs
+// RTCPeerConnection and friends onto global. This file is the earliest app code Metro
+// loads (package.json's "main" is expo-router/entry, which renders this layout first;
 // App.tsx/index.ts are unused leftover scaffold from before expo-router was added).
-registerGlobals();
+if (Platform.OS !== "web") {
+  const { registerGlobals } = require("@livekit/react-native");
+  registerGlobals();
+}
 
 import { useEffect } from "react";
 import { View } from "react-native";
