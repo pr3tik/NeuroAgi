@@ -475,7 +475,7 @@ export default function Work() {
                 className="work-hero work-card-large"
                 style={{
                   ...glassCard,
-                  background: "linear-gradient(0deg, rgba(0,0,0,0.2), rgba(0,0,0,0.2)), radial-gradient(90.05% 130.96% at 9.95% 57.96%, rgba(35,35,36,0.6) 17.31%, rgba(74,74,75,0.6) 38.94%, rgba(117,117,118,0.6) 57.52%, rgba(25,25,25,0.6) 99.04%)",
+                  background: "rgba(255,255,255,0.045)",
                   padding: isMobile ? "24px" : "40px",
                   borderRadius: isMobile ? "12px" : "32px",
                   position: "relative", overflow: "hidden",
@@ -624,7 +624,7 @@ export default function Work() {
                 {/* GPA card */}
                 <div style={{
                   flex: 1, height: "78px", borderRadius: "30px",
-                  background: "linear-gradient(0deg, rgba(0,0,0,0.2), rgba(0,0,0,0.2)), radial-gradient(90.05% 130.96% at 9.95% 57.96%, rgba(35,35,36,0.6) 17.31%, rgba(74,74,75,0.6) 38.94%, rgba(117,117,118,0.6) 57.52%, rgba(25,25,25,0.6) 99.04%)",
+                  background: "rgba(255,255,255,0.045)",
                   border: "1px solid rgba(255,255,255,0.08)",
                   backdropFilter: "blur(10px)",
                   position: "relative", overflow: "hidden",
@@ -751,7 +751,7 @@ export default function Work() {
                 position: "relative", overflow: "hidden",
                 borderRadius: isMobile ? "16px" : "32px",
                 height: "165px",
-                background: "linear-gradient(0deg, rgba(0,0,0,0.2), rgba(0,0,0,0.2)), radial-gradient(90.05% 130.96% at 9.95% 57.96%, rgba(35,35,36,0.6) 17.31%, rgba(74,74,75,0.6) 38.94%, rgba(117,117,118,0.6) 57.52%, rgba(25,25,25,0.6) 99.04%)",
+                background: "rgba(255,255,255,0.045)",
                 boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
                 backdropFilter: "blur(10px)",
               }}
@@ -836,7 +836,7 @@ export default function Work() {
               className="work-card-large"
               style={{
                 ...glassCard,
-                background: "linear-gradient(0deg, rgba(0,0,0,0.2), rgba(0,0,0,0.2)), radial-gradient(90.05% 130.96% at 9.95% 57.96%, rgba(35,35,36,0.6) 17.31%, rgba(74,74,75,0.6) 38.94%, rgba(117,117,118,0.6) 57.52%, rgba(25,25,25,0.6) 99.04%)",
+                background: "rgba(255,255,255,0.045)",
                 position: "relative", overflow: "hidden",
               }}
             >
