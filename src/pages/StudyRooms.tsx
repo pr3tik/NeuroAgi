@@ -2356,8 +2356,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           Invite controls, whiteboard (Open board), participant tiles from presence,
           Call Reggie (B1), End session. Placeholders (backburnered): live transcript
           feed, real camera video, Focus Mode behavior, toasts, presenting badge. */}
-      <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        background: "radial-gradient(60% 55% at 14% 2%, rgba(99,110,240,0.30), transparent 60%), radial-gradient(64% 64% at 92% 97%, rgba(108,98,210,0.22), transparent 62%), linear-gradient(160deg, rgba(56,60,138,0.15) 0%, rgba(28,26,55,0.06) 62%, transparent 100%)" }} />
+      {/* Ambient purple glow removed — the room now sits on the app's warm-ink ground. */}
 
       <div style={{ position: "relative", zIndex: 1, height: "calc(100dvh - 92px)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {roomToast && !focusMode && (
