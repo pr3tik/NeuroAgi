@@ -1083,16 +1083,28 @@ function GsRichText({ text }: { text: string }) {
         const trimmed = b.trim();
         if (/^([-*_=]){3,}$/.test(trimmed)) return <div key={i} style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "1px 0" }} />;
         const lines = b.split("\n").filter(l => l.trim());
-        const hasBullets = lines.some(l => /^\s*[-•]\s+/.test(l) || /^\s*\*\s+/.test(l));
-        if (hasBullets) {
+        // Line-level specials: bullets, "## headings", and "---" dividers can appear
+        // MID-block (Reggie writes them with single newlines), so block-level checks
+        // miss them and the raw "##"/"---" leaked into the UI. Render line-by-line
+        // whenever any special line is present.
+        const isBullet  = (l: string) => /^\s*[-•]\s+/.test(l) || /^\s*\*\s+/.test(l);
+        const isHeading = (l: string) => /^\s*#{1,6}\s+/.test(l);
+        const isDivider = (l: string) => /^\s*([-*_=]){3,}\s*$/.test(l);
+        if (lines.some(l => isBullet(l) || isHeading(l) || isDivider(l))) {
           return (
             <div key={i} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {lines.map((l, j) => {
-                const isB = /^\s*[-•]\s+/.test(l) || /^\s*\*\s+/.test(l);
+                if (isDivider(l)) return <div key={j} style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "4px 0" }} />;
+                if (isHeading(l)) return (
+                  <p key={j} style={{ margin: "4px 0 1px", fontSize: 14, fontWeight: 700, lineHeight: 1.4, color: "var(--text-primary)" }}>
+                    {gsInline(l.replace(/^\s*#{1,6}\s+/, ""))}
+                  </p>
+                );
+                const isB = isBullet(l);
                 return (
                   <p key={j} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: "var(--text-secondary)", display: "flex", gap: 8 }}>
                     {isB && <span style={{ color: "#818cf8", flexShrink: 0 }}>•</span>}
-                    <span>{gsInline(l.replace(/^\s*[-•*]\s+/, "").replace(/^#+\s*/, ""))}</span>
+                    <span>{gsInline(l.replace(/^\s*[-•*]\s+/, ""))}</span>
                   </p>
                 );
               })}
@@ -2936,8 +2948,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               </div>
             )}
             {reggieMsgs.map((m, i) => (
-              <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", padding: "8px 11px", borderRadius: 12, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", background: m.role === "user" ? "rgba(167,139,250,0.16)" : "rgba(255,255,255,0.05)", color: "var(--text, #ECEBF0)" }}>
-                {m.content}
+              <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", padding: "8px 11px", borderRadius: 12, fontSize: 13, lineHeight: 1.5, whiteSpace: m.role === "user" ? "pre-wrap" : "normal", background: m.role === "user" ? "rgba(167,139,250,0.16)" : "rgba(255,255,255,0.05)", color: "var(--text, #ECEBF0)" }}>
+                {/* Assistant replies are markdown-ish (##/---/bullets/**bold**) — render them,
+                    don't leak raw syntax. User messages stay literal. */}
+                {m.role === "user" ? m.content : <GsRichText text={m.content} />}
               </div>
             ))}
             {reggieBusy && <div style={{ alignSelf: "flex-start", color: "var(--text-dim)", fontSize: 13 }}>Reggie is thinking…</div>}
