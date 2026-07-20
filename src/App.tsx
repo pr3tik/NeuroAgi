@@ -150,7 +150,7 @@ export default function App() {
   const [onboardingInitName,  setOnboardingInitName] = useState("");
   const [currentPage,         setCurrentPage]        = useState("work");
   const [visible,             setVisible]            = useState(true);
-  const [navCollapsed,        setNavCollapsed]       = useState(false);
+  const [navCollapsed,        setNavCollapsed]       = useState(true); // collapsed by default; expands on hover (or pin-open via the toggle)
 
   // ── Notification bell state ────────────────────────────────────────────────
   const [unreadCount,   setUnreadCount]   = useState(0);
