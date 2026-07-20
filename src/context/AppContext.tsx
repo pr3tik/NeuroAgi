@@ -1,7 +1,7 @@
 // AppContext.jsx — Shared state for Canvas token, user data, courses, assignments.
 // User identity is a UUID persisted in localStorage (no Supabase auth required).
 
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { supabase }                  from "../api/supabase";
 import { syncCanvasData, loadCanvasData } from "../api/canvasSync";
 import { getTokenSummary, onTokenAwarded } from "../api/tokens";
@@ -266,6 +266,39 @@ export function AppProvider({ children }) {
     init();
   }, [userId]);
 
+  // ── Canvas file indexing ───────────────────────────────────────────────────
+  // syncCanvasData only stores file METADATA — the bytes are never fetched, so the
+  // tutor can't read a word of the student's actual course material (retrieval has
+  // nothing to retrieve). /api/canvas-files downloads and indexes them. It's batched
+  // server-side because one scanned PDF can take minutes (OCR + embedding), so loop
+  // until it reports nothing remaining.
+  const [fileIndex, setFileIndex] = useState({ phase: "idle", indexed: 0, remaining: 0 });
+  const fileIndexRan = useRef(false);
+
+  const indexCanvasFiles = useCallback(async () => {
+    if (fileIndexRan.current) return;   // once per session; the endpoint also dedups server-side
+    fileIndexRan.current = true;
+    let indexed = 0;
+    try {
+      for (let round = 0; round < 40; round++) {
+        const r = await fetch("/api/canvas-files?action=sync", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ limit: 5 }),
+        });
+        if (!r.ok) break;
+        const d = await r.json();
+        if (d?.processed) {
+          indexed += d.indexed ?? 0;
+          setFileIndex({ phase: "indexing", indexed, remaining: d.remaining ?? 0 });
+        }
+        if (!d?.remaining) break;
+        await new Promise(res => setTimeout(res, 1200));   // don't hammer Canvas
+      }
+    } catch { /* non-fatal — the tutor still works on whatever got indexed */ }
+    setFileIndex(prev => ({ ...prev, phase: "done", remaining: 0 }));
+  }, []);
+
   // Auto-sync when token is present
   useEffect(() => {
     if (!canvasToken || !canvasBaseUrl) return;
@@ -281,6 +314,8 @@ export function AppProvider({ children }) {
           }
         }
         setSyncStatus("synced");
+        // Fire-and-forget: file indexing is slow and must never block or fail the sync.
+        indexCanvasFiles();
       } catch (err) {
         const isCors = err instanceof TypeError && err.message.includes("fetch");
         setSyncStatus(isCors ? "cors-error" : "error");
@@ -570,6 +605,8 @@ export function AppProvider({ children }) {
       assignmentGroups,
       discussionTopics,
       syncStatus,
+      fileIndex,
+      indexCanvasFiles,
       saveCanvasCredentials,
       updateUserField,
       addManualCourse,

@@ -210,6 +210,11 @@ export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = n
   file: {
     name: string; mimeType: string; sourceUrl: string; provider: string;
     bytes?: Buffer | string | null; storagePath?: string | null; bucket?: string | null;
+    // Stable dedup key for the files row. Defaults to a hash of the canonical source
+    // URL, but callers with a stable native id (e.g. Canvas file id) should pass it so
+    // re-ingesting UPDATES the existing row instead of inserting a second one under a
+    // different key — `files` is unique on (user_id, lms_file_id).
+    lmsFileId?: string | null;
     metadata?: any;
   };
 }): Promise<{ status: number; json: any }> {
@@ -370,7 +375,7 @@ export async function ingestLmsFile({ userId, courseId = null, file, baseUrl = n
   const fileRow: Record<string, any> = {
     user_id:      userId,
     course_id:    courseUuid,
-    lms_file_id:  `ing_${djb2(canonical)}`,
+    lms_file_id:  file.lmsFileId || `ing_${djb2(canonical)}`,
     name:         file.metadata?.originalFilename ?? file.name,
     file_type:    fileType,
     source_url:   canonical,
