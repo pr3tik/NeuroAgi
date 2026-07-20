@@ -165,14 +165,18 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
         boxShadow: (!vis && collapsed) ? "8px 0 32px rgba(0,0,0,0.35)" : "none",
         transition: "width 0.2s var(--ease-apple), padding 0.2s var(--ease-apple), box-shadow 0.2s var(--ease-apple)",
       }}>
-        {/* Brand + collapse toggle */}
+        {/* Brand + collapse toggle — the logo mark is PERMANENT and the row height is
+            FIXED in both states, so expanding only reveals the name + pin beside it and
+            nothing below ever shifts vertically. */}
         <div style={{
-          display: "flex", alignItems: "center",
-          justifyContent: vis ? "center" : "space-between",
-          padding: vis ? "0 0 16px" : "4px 9px 16px",
+          display: "flex", alignItems: "center", gap: 9,
+          justifyContent: vis ? "center" : "flex-start",
+          height: 44, boxSizing: "border-box",
+          padding: vis ? "0 0 14px" : "0 4px 14px 4px",
         }}>
+          <img src="/fschoolai-logo.jpeg" alt="FschoolAI" style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
           {!vis && (
-            <span style={{ fontSize: "13px", fontWeight: 700, letterSpacing: "0.4px", color: "var(--text-primary)" }}>
+            <span style={{ fontSize: "13px", fontWeight: 700, letterSpacing: "0.4px", color: "var(--text-primary)", whiteSpace: "nowrap" }}>
               FschoolAI
             </span>
           )}
@@ -182,7 +186,7 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
               title={collapsed ? "Keep sidebar open" : "Collapse sidebar"}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
-                width: 30, height: 30, flexShrink: 0, borderRadius: "8px",
+                width: 30, height: 30, flexShrink: 0, borderRadius: "8px", marginLeft: "auto",
                 background: collapsed ? "rgba(255,255,255,0.05)" : "rgba(var(--teal-rgb),0.16)",
                 border: "1px solid var(--color-border)",
                 cursor: "pointer", outline: "none",
