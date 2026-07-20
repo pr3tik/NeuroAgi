@@ -2001,6 +2001,20 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 );
               })}
             </div>
+            {room.join_code && (
+              <div style={{ marginTop: 12 }}>
+                {members.length <= 1 && (
+                  <p style={{ fontSize: 11, color: "var(--text-dim)", margin: "0 0 8px", textAlign: "center" }}>You're the first one here — share the code to invite others.</p>
+                )}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "10px 14px" }}>
+                  <div>
+                    <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 2 }}>Room code</div>
+                    <div style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, letterSpacing: 3, color: "#c7d2fe" }}>{room.join_code}</div>
+                  </div>
+                  <button onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }} style={{ background: "rgba(129,140,248,0.16)", border: "1px solid rgba(129,140,248,0.3)", borderRadius: 9, padding: "6px 13px", fontSize: 12, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button onClick={() => setShowReggie(true)} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(94,234,212,0.3)", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#34d399" }} />Call Reggie</button>
               <button onClick={() => (isHost ? handleCloseRoom() : handleLeave())} style={{ flex: 1, background: "rgba(239,68,68,0.85)", border: "none", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>End session</button>

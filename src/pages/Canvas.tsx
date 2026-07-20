@@ -775,8 +775,8 @@ export default function Canvas() {
           fontSize: "16px", lineHeight: "24px", color: "#C8C5CB",
           textAlign: "center", maxWidth: "628px", margin: "0 auto",
         }}>
-          Manage your academic curriculum, track student progress, and utilize
-          AI-enhanced teaching tools across all active departments.
+          All your courses, assignments, and materials in one place — synced
+          from Canvas and kept up to date automatically.
         </p>
       </div>
 
