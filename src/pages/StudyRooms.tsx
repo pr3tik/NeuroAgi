@@ -983,6 +983,81 @@ function cursorColor(uid: string) {
 // ─────────────────────────────────────────────────────────────────────────────
 // RoomView — Phase 2A: + Pomodoro, Goal prompt, Session summary
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Guided study session (proactive) — plan parsing, fallbacks, nudges, rich text ──
+function parseGsPlan(text: string): { title: string; goal: string; estMin: number }[] {
+  const steps: { title: string; goal: string; estMin: number }[] = [];
+  for (const line of String(text || "").split("\n")) {
+    const m = line.match(/STEP\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(\d+)/i);
+    if (m) steps.push({ title: m[1].trim().replace(/\*\*/g, ""), goal: m[2].trim().replace(/\*\*/g, ""), estMin: Math.min(30, Math.max(1, parseInt(m[3], 10) || 5)) });
+  }
+  return steps.slice(0, 7);
+}
+function defaultGsPlan(mode: string, topic: string) {
+  if (mode === "assignment") return [
+    { title: "Understand the task", goal: `Break down what "${topic}" is actually asking`, estMin: 5 },
+    { title: "Gather what you need", goal: "Pull the relevant course material and notes", estMin: 6 },
+    { title: "Outline your approach", goal: "Plan the structure before you start", estMin: 8 },
+    { title: "Do the work", goal: "Complete it step by step, Reggie coaching you", estMin: 15 },
+    { title: "Review & polish", goal: "Check it against the rubric", estMin: 6 },
+  ];
+  if (mode === "exam") return [
+    { title: "Map the topics", goal: `List what "${topic}" will cover`, estMin: 4 },
+    { title: "Core concepts", goal: "Re-learn the key ideas", estMin: 12 },
+    { title: "Practice problems", goal: "Test yourself on the hard parts", estMin: 12 },
+    { title: "Fix the gaps", goal: "Drill what you missed", estMin: 8 },
+    { title: "Final review", goal: "Quick pass to lock it in", estMin: 5 },
+  ];
+  return [
+    { title: "Warm up", goal: `Recall what you already know about ${topic}`, estMin: 3 },
+    { title: "Core idea", goal: `Understand the main concept of ${topic}`, estMin: 8 },
+    { title: "Work an example", goal: "Apply it to a concrete problem", estMin: 8 },
+    { title: "Check yourself", goal: "Quiz to confirm you've got it", estMin: 5 },
+  ];
+}
+const GS_NUDGES: Record<string, string[]> = {
+  start:    ["You've got this — one step at a time. 💪", "Locked in. Let's make this click. ✨", "Let's do this — I'm right here with you. 🙌"],
+  progress: ["Nice — one down. Keep the momentum. 🔥", "Great pace. On to the next. 🚀", "That's real progress — proud of you. 🌟"],
+  done:     ["Session complete — you crushed it. 🎉", "Done! That was focused work. 🌟", "Nailed it. Come back anytime. 🎯"],
+};
+function pickGsNudge(kind: string) {
+  const arr = GS_NUDGES[kind] || GS_NUDGES.start;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+// Render inline markdown: **bold** then *italic* within the non-bold segments.
+function gsInline(text: string): any[] {
+  const out: any[] = [];
+  String(text || "").split(/(\*\*[^*]+\*\*)/g).forEach((bp, bi) => {
+    if (bp.startsWith("**") && bp.endsWith("**") && bp.length > 4) {
+      out.push(<strong key={`b${bi}`} style={{ color: "var(--text-primary)", fontWeight: 600 }}>{bp.slice(2, -2)}</strong>);
+      return;
+    }
+    bp.split(/(\*[^*\n]+\*)/g).forEach((ip, ii) => {
+      if (ip.startsWith("*") && ip.endsWith("*") && ip.length > 2) out.push(<em key={`i${bi}-${ii}`} style={{ color: "var(--text-secondary)" }}>{ip.slice(1, -1)}</em>);
+      else if (ip) out.push(<span key={`s${bi}-${ii}`}>{ip}</span>);
+    });
+  });
+  return out;
+}
+function GsRichText({ text }: { text: string }) {
+  const blocks = String(text || "").split(/\n{2,}/).filter(b => b.trim());
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+      {blocks.map((b, i) => {
+        const trimmed = b.trim();
+        if (/^([-*_=]){3,}$/.test(trimmed)) return <div key={i} style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "1px 0" }} />;
+        const bullet = /^\s*[-•]\s+/.test(b) || /^\s*\*\s+/.test(b);
+        const clean = b.replace(/^\s*[-•*]\s+/, "").replace(/^#+\s*/, "");
+        return (
+          <p key={i} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.62, color: "var(--text-secondary)", whiteSpace: "pre-wrap", display: "flex", gap: 8 }}>
+            {bullet && <span style={{ color: "#818cf8", flexShrink: 0 }}>•</span>}
+            <span>{gsInline(clean)}</span>
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const { userId, userData, setActiveRoomId, setWhiteboardSnapshot } = useApp();
   const [members,            setMembers]            = useState([]);
@@ -1758,6 +1833,19 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [roomToast, setRoomToast] = useState<string | null>("🔥 Study streak · day 12");
   useEffect(() => { const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, []);
 
+  // ── Guided study session (proactive, Reggie-driven) — center-stage tutor flow ──
+  const [centerTab,     setCenterTab]     = useState<"board" | "session">("board");
+  const [gs,            setGs]            = useState<null | { mode: "learn" | "assignment" | "exam"; topic: string; steps: { title: string; goal: string; estMin: number }[]; currentIdx: number; status: "planning" | "active" | "done"; startedAt: number }>(null);
+  const [gsBusy,        setGsBusy]        = useState(false);
+  const [gsBusyLabel,   setGsBusyLabel]   = useState("");
+  const [gsStepContent, setGsStepContent] = useState<Record<number, string>>({});
+  const [gsExtra,       setGsExtra]       = useState<Record<number, string[]>>({});
+  const [gsNudge,       setGsNudge]       = useState("");
+  const [gsAsk,         setGsAsk]         = useState("");
+  const [gsAskOpen,     setGsAskOpen]     = useState(false);
+  const [gsLaunchMode,  setGsLaunchMode]  = useState<"learn" | "assignment" | "exam">("learn");
+  const [gsTopic,       setGsTopic]       = useState("");
+
   // room-ai requires an active AI session for the room. Idempotent — resumes if one exists.
   async function ensureRoomAiSession(token: string) {
     if (reggieSessionRef.current) return;
@@ -1797,6 +1885,117 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     } finally {
       setReggieBusy(false);
     }
+  }
+
+  // ── Guided session engine — drives Reggie proactively through a step-by-step plan ──
+  // Send a raw prompt to the in-room private Reggie and return the text (grounded server-side).
+  async function reggieRaw(prompt: string): Promise<string> {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error("Sign in to use Reggie.");
+    await ensureRoomAiSession(token);
+    const r = await fetch("/api/room-ai?action=private", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ roomId: room.id, message: prompt }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d?.error || `Reggie couldn't respond (${r.status})`);
+    return String(d?.message ?? "");
+  }
+
+  // Reggie teaches one step, proactively — fetched once and cached per step index.
+  async function gsTeachStep(idx: number, ctx: { mode: string; topic: string; steps: { title: string; goal: string; estMin: number }[] }) {
+    const step = ctx.steps[idx];
+    if (!step) return;
+    setGsBusy(true); setGsBusyLabel(`Reggie is preparing step ${idx + 1}…`);
+    try {
+      const teachPrompt = `We're in a guided ${ctx.mode} session on "${ctx.topic}". We are on step ${idx + 1} of ${ctx.steps.length}: "${step.title}" — ${step.goal}. Teach me THIS step now: proactive, warm, and clear, in 3 to 5 short paragraphs, grounded in my own course materials where relevant. ${ctx.mode === "assignment" ? "Coach me to do the work myself and give one concrete next action — do NOT write the final answer for me." : "End with a one-line check: what I should be able to do before we move on."} Do not greet me again — just continue the session.`;
+      const content = await reggieRaw(teachPrompt);
+      setGsStepContent(prev => ({ ...prev, [idx]: content || "Let's work through this step together — tell me where you'd like to start." }));
+    } catch (err) {
+      setGsStepContent(prev => ({ ...prev, [idx]: `⚠️ ${(err as Error)?.message || "Reggie couldn't load this step."}\n\nLet's keep going — what part of "${step.title}" would you like to tackle?` }));
+    } finally {
+      setGsBusy(false); setGsBusyLabel("");
+    }
+  }
+
+  // Start a guided session: Reggie plans it, then proactively teaches step 1.
+  async function beginGuidedSession(mode: "learn" | "assignment" | "exam", topic: string) {
+    const t = (topic || "").trim();
+    if (!t || gsBusy) return;
+    setCenterTab("session");
+    setGsBusy(true); setGsBusyLabel("Reggie is planning your session…");
+    setGsStepContent({}); setGsExtra({}); setGsNudge(""); setGsAskOpen(false);
+    setGs({ mode, topic: t, steps: [], currentIdx: 0, status: "planning", startedAt: Date.now() });
+    try {
+      const verb = mode === "assignment" ? `complete the assignment "${t}"`
+                 : mode === "exam" ? `prepare for an exam on ${t}`
+                 : `learn ${t}`;
+      const planPrompt = `You are Reggie, my study tutor in a live study room. Build a focused, proactive plan to help me ${verb}. Return 4 to 6 steps. Output ONE line per step in EXACTLY this format and nothing else — no intro, no numbering:\nSTEP | <short step title> | <one-sentence goal> | <estimated minutes as a whole number>\n${mode === "assignment" ? "Guide me to do the work myself — never write the final answer for me." : ""}`;
+      let steps = parseGsPlan(await reggieRaw(planPrompt));
+      if (steps.length < 2) steps = defaultGsPlan(mode, t);
+      const active = { mode, topic: t, steps, currentIdx: 0, status: "active" as const, startedAt: Date.now() };
+      setGs(active);
+      setGsNudge(pickGsNudge("start"));
+      await gsTeachStep(0, active);
+    } catch (err) {
+      const steps = defaultGsPlan(mode, t);
+      setGs({ mode, topic: t, steps, currentIdx: 0, status: "active", startedAt: Date.now() });
+      setGsStepContent({ 0: `⚠️ ${(err as Error)?.message || "Reggie had trouble planning."}\n\nWe can still work through it — tell me what you'd like to start with.` });
+      setGsBusy(false); setGsBusyLabel("");
+    }
+  }
+
+  // Advance to the next step (or finish). Marks progress + a motivational beat.
+  function gsNext() {
+    if (!gs || gsBusy) return;
+    setGsAskOpen(false);
+    if (gs.currentIdx >= gs.steps.length - 1) {
+      setGs(g => g ? { ...g, status: "done" } : g);
+      setGsNudge(pickGsNudge("done"));
+      return;
+    }
+    const next = gs.currentIdx + 1;
+    const ctx = { ...gs, currentIdx: next };
+    setGs(g => g ? { ...g, currentIdx: next } : g);
+    setGsNudge(pickGsNudge("progress"));
+    if (!gsStepContent[next]) gsTeachStep(next, ctx);
+  }
+
+  // "I'm stuck" — Reggie re-explains the current step more simply, without moving on.
+  async function gsStuck() {
+    if (!gs || gsBusy) return;
+    const idx = gs.currentIdx; const step = gs.steps[idx];
+    setGsNudge(pickGsNudge("stuck"));
+    setGsBusy(true); setGsBusyLabel("Reggie is breaking it down…");
+    try {
+      const p = `I'm stuck on step ${idx + 1} ("${step.title}") of our session on "${gs.topic}". Re-explain it more simply, with a small concrete example, in 2 to 3 short paragraphs. Don't move on yet.`;
+      const extra = await reggieRaw(p);
+      setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), `**You:** I'm stuck.`, extra] }));
+    } catch (err) {
+      setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), `⚠️ ${(err as Error)?.message || "Reggie couldn't respond."}`] }));
+    } finally { setGsBusy(false); setGsBusyLabel(""); }
+  }
+
+  // Inline "ask a question" about the current step.
+  async function gsAskSend() {
+    const q = gsAsk.trim();
+    if (!q || !gs || gsBusy) return;
+    const idx = gs.currentIdx; setGsAsk("");
+    setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), `**You:** ${q}`] }));
+    setGsBusy(true); setGsBusyLabel("Reggie is answering…");
+    try {
+      const p = `While we're on step ${idx + 1} ("${gs.steps[idx].title}") of our ${gs.mode} session on "${gs.topic}", I have a question: ${q}. Answer briefly and tie it back to the step.`;
+      const a = await reggieRaw(p);
+      setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), a] }));
+    } catch (err) {
+      setGsExtra(prev => ({ ...prev, [idx]: [...(prev[idx] || []), `⚠️ ${(err as Error)?.message || "Reggie couldn't respond."}`] }));
+    } finally { setGsBusy(false); setGsBusyLabel(""); }
+  }
+
+  function endGuidedSession() {
+    setGs(null); setGsStepContent({}); setGsExtra({}); setGsNudge(""); setGsAsk(""); setGsAskOpen(false); setCenterTab("board");
   }
 
   async function sendChatMessage() {
@@ -1848,6 +2047,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 
   const S = styles;
   const remaining = getRemaining(pomo);
+
+  // Guided-session metrics (recomputed each tick via the 1s interval above).
+  const gsElapsedSec = gs ? Math.max(0, Math.floor((Date.now() - gs.startedAt) / 1000)) : 0;
+  const gsTotalMin   = gs ? gs.steps.reduce((s, x) => s + x.estMin, 0) : 0;
+  const gsRemainMin  = gs ? gs.steps.slice(gs.status === "done" ? gs.steps.length : gs.currentIdx).reduce((s, x) => s + x.estMin, 0) : 0;
+  const gsProgress   = gs && gs.steps.length ? (gs.status === "done" ? 1 : gs.currentIdx / gs.steps.length) : 0;
 
   return (
     <div style={{ position: "relative" }}>
@@ -1926,10 +2131,26 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             </div>
           </div>
 
-          {/* CENTER — shared whiteboard */}
+          {/* CENTER — Whiteboard / Guided session (proactive tutor) */}
           <div style={{ display: "flex", flexDirection: "column", background: "rgba(129,140,248,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
+            {/* Center tab strip — collaborative board vs. Reggie-guided session */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexShrink: 0 }}>
+              {([["board", "Whiteboard"], ["session", "Guided session"]] as const).map(([key, label]) => {
+                const active = centerTab === key;
+                return (
+                  <button key={key} onClick={() => setCenterTab(key)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
+                    {key === "session" && <Sparkles size={12} />}{label}
+                    {key === "session" && gs && gs.status !== "done" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
+                  </button>
+                );
+              })}
+              {centerTab === "session" && gs && (
+                <button onClick={endGuidedSession} style={{ marginLeft: "auto", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 999, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, color: "#fca5a5", cursor: "pointer", fontFamily: "inherit" }}>End session</button>
+              )}
+            </div>
             <div style={{ flex: 1, minHeight: 0, overflow: "hidden", borderRadius: 14, ["--gold" as any]: "#818cf8", ["--gold-rgb" as any]: "129,140,248" }}>
-              {showBoard ? (
+              {centerTab === "board" ? (
+                showBoard ? (
                 <Whiteboard
                   strokes={strokes}
                   liveStrokes={liveStrokes}
@@ -1963,9 +2184,110 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   activeSpeaker={activeSpeakerName}
                   roomId={room.id}
                 />
+                ) : (
+                  <div style={{ height: "100%", minHeight: 320, borderRadius: 14, background: "rgba(255,255,255,0.96)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <button onClick={() => setShowBoard(true)} style={{ background: "rgba(99,102,241,0.9)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Open board</button>
+                  </div>
+                )
               ) : (
-                <div style={{ height: "100%", minHeight: 320, borderRadius: 14, background: "rgba(255,255,255,0.96)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <button onClick={() => setShowBoard(true)} style={{ background: "rgba(99,102,241,0.9)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Open board</button>
+                /* ── Guided session stage — proactive, Reggie-driven ── */
+                <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  {!gs ? (
+                    /* Launcher */
+                    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(129,140,248,0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(129,140,248,0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><Sparkles size={26} color="#c7d2fe" /></div>
+                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Start a guided session</h3>
+                      <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie plans it, teaches you step by step, and tracks your progress — grounded in your own course materials.</p>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", justifyContent: "center" }}>
+                        {([["learn", "Learn a topic", "📚"], ["assignment", "Work an assignment", "✍️"], ["exam", "Prep for an exam", "🎯"]] as const).map(([m, label, ic]) => {
+                          const active = gsLaunchMode === m;
+                          return <button key={m} onClick={() => setGsLaunchMode(m)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "9px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}><span>{ic}</span>{label}</button>;
+                        })}
+                      </div>
+                      <input value={gsTopic} onChange={e => setGsTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsTopic.trim()) beginGuidedSession(gsLaunchMode, gsTopic); }}
+                        placeholder={gsLaunchMode === "assignment" ? "Which assignment? e.g. Contracts essay #2" : gsLaunchMode === "exam" ? "Which exam? e.g. Land Reform midterm" : "What do you want to learn?"}
+                        style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
+                      {courseName && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", alignItems: "center", marginBottom: 16 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-dim)" }}>Try:</span>
+                          <button onClick={() => setGsTopic(courseName)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 11px", fontSize: 11.5, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{courseName}</button>
+                        </div>
+                      )}
+                      <button onClick={() => beginGuidedSession(gsLaunchMode, gsTopic)} disabled={!gsTopic.trim() || gsBusy} style={{ background: (!gsTopic.trim() || gsBusy) ? "rgba(129,140,248,0.2)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "12px 26px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!gsTopic.trim() || gsBusy) ? "default" : "pointer", opacity: (!gsTopic.trim() || gsBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(99,102,241,0.35)" }}>{gsBusy ? "Reggie is planning…" : "Start session →"}</button>
+                    </div>
+                  ) : gs.status === "done" ? (
+                    /* Completion */
+                    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
+                      <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
+                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Session complete</h3>
+                      <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}>{gsNudge || "Great work — you finished every step."}</p>
+                      <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{gs.steps.length} steps · {formatPomoTime(gsElapsedSec)} focused · {gs.topic}</p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => { setGs(null); setGsTopic(""); setGsStepContent({}); setGsExtra({}); setGsNudge(""); }} style={{ background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Start another</button>
+                        <button onClick={() => setCenterTab("board")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Back to whiteboard</button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Active session */
+                    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                      {/* Progress header */}
+                      <div style={{ flexShrink: 0, marginBottom: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 10 }}>
+                          <div style={{ display: "inline-flex", alignItems: "baseline", gap: 7, minWidth: 0 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#a5b4fc" }}>{gs.mode === "assignment" ? "Assignment" : gs.mode === "exam" ? "Exam prep" : "Learning"}</span>
+                            <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{gs.topic}</span>
+                          </div>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 10, flexShrink: 0, fontSize: 11.5, color: "var(--text-dim)" }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }} title="Time focused"><Timer size={12} />{formatPomoTime(gsElapsedSec)}</span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#a5b4fc" }} title="Reggie's estimate">≈ {gsRemainMin} min left</span>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ flex: 1, height: 7, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                            <div style={{ width: `${Math.round(gsProgress * 100)}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #6366f1, #818cf8, #5eead4)", transition: "width 0.4s ease" }} />
+                          </div>
+                          <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", flexShrink: 0 }}>Step {Math.min(gs.currentIdx + 1, gs.steps.length)} of {gs.steps.length}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 5, marginTop: 9, flexWrap: "wrap" }}>
+                          {gs.steps.map((s, i) => {
+                            const state = i < gs.currentIdx ? "done" : i === gs.currentIdx ? "cur" : "todo";
+                            return <span key={i} title={s.title} style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 999, background: state === "cur" ? "rgba(129,140,248,0.25)" : state === "done" ? "rgba(94,234,212,0.14)" : "rgba(255,255,255,0.04)", border: `1px solid ${state === "cur" ? "rgba(129,140,248,0.5)" : state === "done" ? "rgba(94,234,212,0.3)" : "rgba(255,255,255,0.08)"}`, color: state === "cur" ? "#c7d2fe" : state === "done" ? "#5eead4" : "var(--text-dim)", fontWeight: state === "todo" ? 400 : 600 }}>{state === "done" ? "✓ " : ""}{i + 1}</span>;
+                          })}
+                        </div>
+                      </div>
+                      {gsNudge && (
+                        <div style={{ flexShrink: 0, marginBottom: 10, background: "rgba(94,234,212,0.09)", border: "1px solid rgba(94,234,212,0.22)", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, color: "#7dd3c8", display: "flex", alignItems: "center", gap: 7 }}><Sparkles size={13} />{gsNudge}</div>
+                      )}
+                      {/* Teaching content — scrolls within the stage */}
+                      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+                        <div style={{ marginBottom: 10 }}>
+                          <h4 style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 3px" }}>{gs.steps[gs.currentIdx]?.title}</h4>
+                          <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0 }}>{gs.steps[gs.currentIdx]?.goal}</p>
+                        </div>
+                        <div style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 14 }}>
+                          <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Sparkles size={15} color="#c4b5fd" /></div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            {gsStepContent[gs.currentIdx] ? <GsRichText text={gsStepContent[gs.currentIdx]} /> : <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)", fontStyle: "italic" }}>{gsBusyLabel || "Reggie is preparing this step…"}</p>}
+                            {(gsExtra[gs.currentIdx] || []).map((t, i) => (
+                              <div key={i} style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}><GsRichText text={t} /></div>
+                            ))}
+                            {gsBusy && gsStepContent[gs.currentIdx] && <p style={{ fontSize: 12, color: "var(--text-dim)", margin: "10px 0 0", fontStyle: "italic" }}>{gsBusyLabel || "Reggie is thinking…"}</p>}
+                          </div>
+                        </div>
+                      </div>
+                      {gsAskOpen && (
+                        <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 10 }}>
+                          <input value={gsAsk} onChange={e => setGsAsk(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsAsk.trim()) gsAskSend(); }} placeholder="Ask Reggie about this step…" autoFocus style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "9px 12px", color: "var(--text-primary)", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                          <button onClick={gsAskSend} disabled={!gsAsk.trim() || gsBusy} style={{ background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (!gsAsk.trim() || gsBusy) ? "default" : "pointer", opacity: (!gsAsk.trim() || gsBusy) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
+                        </div>
+                      )}
+                      <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 12 }}>
+                        <button onClick={gsStuck} disabled={gsBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.6 : 1, fontFamily: "inherit" }}>I'm stuck</button>
+                        <button onClick={() => setGsAskOpen(o => !o)} style={{ background: gsAskOpen ? "rgba(167,139,250,0.15)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsAskOpen ? "rgba(167,139,250,0.35)" : "rgba(255,255,255,0.12)"}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: gsAskOpen ? "#c4b5fd" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Ask a question</button>
+                        <button onClick={gsNext} disabled={gsBusy} style={{ marginLeft: "auto", background: gsBusy ? "rgba(129,140,248,0.25)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.7 : 1, fontFamily: "inherit", boxShadow: "0 6px 18px rgba(99,102,241,0.3)" }}>{gs.currentIdx >= gs.steps.length - 1 ? "Finish ✓" : "Continue →"}</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
