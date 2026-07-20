@@ -100,6 +100,27 @@ function markCacheBreakpoint(blocks: any[]): any[] {
   return blocks;
 }
 
+/** MOVE the message-level breakpoint rather than accumulate one per step.
+ *
+ *  Anthropic rejects requests carrying more than 4 cache_control blocks, and marking
+ *  every step's tool_result left the older marks in `messages` — by step 4 a turn sent
+ *  tools(1) + system(1) + 3 marked messages = 5 → API 400 → the whole turn failed
+ *  (worst on exactly the multi-step turns this file optimizes). A single moving
+ *  breakpoint on the NEWEST tool_result is also the cache-optimal shape: a breakpoint
+ *  caches its entire prefix, and lookups match the longest previously-cached prefix,
+ *  so each step still reads the prior step's cache and extends it. Steady state is
+ *  tools(1) + system(1) + one message mark = 3 ≤ 4, at any number of steps. */
+function moveCacheBreakpoint(messages: any[], newResults: any[]): any[] {
+  for (const m of messages) {
+    if (m?.role === "user" && Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (b && typeof b === "object" && b.cache_control) delete b.cache_control;
+      }
+    }
+  }
+  return markCacheBreakpoint(newResults);
+}
+
 /** Bound a tool invocation by wall clock. The tool itself keeps running (we can't cancel a
  *  handler mid-flight) but the loop stops waiting on it — the turn's latency is capped. */
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -264,7 +285,7 @@ export async function runReggie(opts: RunOpts): Promise<ReggieResult> {
     messages.push({ role: "assistant", content: r.contentBlocks });
     const toolUses = (r.contentBlocks || []).filter((b: any) => b?.type === "tool_use");
     const results = await runTools(toolUses, ctx, trace, emit, widgets);
-    messages.push({ role: "user", content: markCacheBreakpoint(results) });
+    messages.push({ role: "user", content: moveCacheBreakpoint(messages, results) });
   }
 
   return forceFinalBlocking(specialist, voiceMode ? "voice" : specialist.task, system, ctx, messages, trace, widgets, maxSteps, emit);
@@ -319,7 +340,7 @@ export async function runReggieStream(opts: RunOpts): Promise<ReggieResult> {
     const toolUses = (turn.contentBlocks || []).filter((b: any) => b?.type === "tool_use");
     emit?.({ type: "reset" });                                   // discard the pre-tool preamble on the client
     const results = await runTools(toolUses, ctx, trace, emit, widgets);
-    messages.push({ role: "user", content: markCacheBreakpoint(results) });
+    messages.push({ role: "user", content: moveCacheBreakpoint(messages, results) });
   }
 
   // Budget exhausted (steps or wall clock) → one final tool-less streamed turn.

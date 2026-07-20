@@ -301,6 +301,31 @@ describe("reggie tool-use loop", () => {
     expect(r.output).toBe("blocking fallback answer");
     expect(events.some((e) => e.type === "token" && e.text.includes("blocking fallback"))).toBe(true);
   });
+  it("keeps total cache_control blocks ≤ 4 at every step of a multi-tool turn (moving breakpoint)", async () => {
+    // Anthropic rejects >4 cache_control blocks per request. The message-level breakpoint
+    // must MOVE to the newest tool_result, never accumulate one per step.
+    const toolTurn = () => anthropic(
+      [{ type: "tool_use", id: "t" + Math.random().toString(36).slice(2, 6), name: "what_if_plan", input: { basePlan, changes: { dropTopics: ["Kinetics"] } } }], "tool_use");
+    const fn = scripted([
+      () => toolTurn(), () => toolTurn(), () => toolTurn(), () => toolTurn(),
+      () => anthropic([{ type: "text", text: "done" }], "end_turn"),
+    ]);
+    const runReggie = await load();
+    await runReggie({ specialist, userMessage: "go", ctx: { userId: "u1" } });
+    const countMarks = (v: any): number => {
+      let n = 0;
+      const walk = (x: any) => {
+        if (Array.isArray(x)) return x.forEach(walk);
+        if (x && typeof x === "object") { if (x.cache_control) n++; Object.values(x).forEach(walk); }
+      };
+      walk(v); return n;
+    };
+    const counts = fn.mock.calls.map((c) => countMarks(JSON.parse(c[1].body)));
+    expect(fn.mock.calls.length).toBeGreaterThanOrEqual(5);   // 4 tool steps + final
+    for (const n of counts) expect(n).toBeLessThanOrEqual(4); // hard API limit
+    expect(Math.max(...counts)).toBeLessThanOrEqual(3);        // tools + system + ONE moving mark
+  });
+
 });
 
 // Voice-mode turns must route to the latency-first "voice" gateway task (Haiku),
@@ -318,5 +343,6 @@ describe("voice task routing", () => {
     expect(r.model).toBe("claude-sonnet-4-6");
     delete process.env.ANTHROPIC_MODEL_VOICE;
   });
+
 });
 
