@@ -787,84 +787,20 @@ export async function loadCanvasData(userId) {
 }
 
 // ── Brain DB Sync Helper ──────────────────────────────────────────────────────
-// Writes course and assignment data to fschool.* tables in NeuroAGI Brain DB.
-// Called fire-and-forget after each Canvas sync — never blocks the main sync.
-//
-// Brain DB schema (fschool schema):
-//   fschool.courses:     person_id, canvas_course_id, name, course_code, current_score, final_score, synced_at
-//   fschool.assignments: person_id, canvas_assignment_id, course_id, title, due_at, score, points_possible, missing, late, synced_at
-
+// Sync course + assignment summaries to the NeuroAGI Brain DB — now SERVER-SIDE (F-5 fix).
+// The Brain-DB write key must NEVER live in the browser bundle (a VITE_ var is inlined into the
+// public JS). So instead of writing the Brain DB directly from the browser, this POSTs the
+// freshly-synced Canvas data to our own /api/brain-sync endpoint, which holds the server-only
+// BRAIN_SUPABASE_KEY and derives person_id from the caller's verified JWT. Fire-and-forget, never
+// blocks the main sync; installApiAuth attaches the user's token to same-origin /api/* requests.
 async function syncToBrainDB(userId, courses, assignments, courseIdMap, now) {
-  const brainUrl = import.meta.env?.VITE_BRAIN_SUPABASE_URL;
-  const brainKey = import.meta.env?.VITE_BRAIN_SUPABASE_KEY;
-
-  // Gracefully skip if Brain DB not configured
-  if (!brainUrl || !brainKey) return;
-
-  // Fetch user's brain_person_id from FschoolAI DB
-  const { data: userData } = await supabase
-    .from('users')
-    .select('brain_person_id')
-    .eq('id', userId)
-    .maybeSingle();
-
-  const brainPersonId = userData?.brain_person_id;
-  if (!brainPersonId) return; // User not yet linked to Brain DB
-
-  const brainHeaders = {
-    'apikey':        brainKey,
-    'Authorization': `Bearer ${brainKey}`,
-    'Content-Type':  'application/json',
-    'Prefer':        'resolution=merge-duplicates,return=minimal',
-  };
-
-  // Upsert courses to fschool.courses
-  if (courses.length) {
-    const courseRows = courses.map(c => ({
-      person_id:        brainPersonId,
-      canvas_course_id: String(c.id),
-      name:             c.name,
-      course_code:      c.courseCode ?? null,
-      current_score:    c.currentScore ?? null,
-      final_score:      c.finalScore ?? null,
-      synced_at:        now,
-    }));
-
-    // Courses go to fschool_COURSES (was wrongly POSTing to fschool_assignments — the
-    // assignments table lacks name/course_code/*_score, so PostgREST 400'd and, since
-    // fetch doesn't reject on 4xx, the .catch never fired and courses silently never synced).
-    const cr = await fetch(`${brainUrl}/rest/v1/fschool_courses`, {
+  try {
+    await fetch('/api/brain-sync', {
       method:  'POST',
-      headers: brainHeaders,
-      body:    JSON.stringify(courseRows),
-    }).catch(err => { console.error('[syncToBrainDB] courses write failed:', err.message); return null; });
-    if (cr && !cr.ok) console.error('[syncToBrainDB] courses write HTTP', cr.status, (await cr.text().catch(() => '')).slice(0, 200));
-  }
-
-  // Upsert assignments to fschool.assignments (cap at 100 most recent)
-  const recentAssignments = assignments
-    .filter(a => a.dueAt)
-    .sort((a, b) => +new Date(b.dueAt) - +new Date(a.dueAt))
-    .slice(0, 100);
-
-  if (recentAssignments.length) {
-    const assignRows = recentAssignments.map(a => ({
-      person_id:            brainPersonId,
-      canvas_assignment_id: String(a.id),
-      canvas_course_id:     String(a.courseId),
-      title:                a.name,
-      due_at:               a.dueAt ?? null,
-      score:                a.submission?.score ?? null,
-      points_possible:      a.pointsPossible ?? null,
-      missing:              a.submission?.missing ?? false,
-      late:                 a.submission?.late ?? false,
-      synced_at:            now,
-    }));
-
-    await fetch(`${brainUrl}/rest/v1/fschool_assignments`, {
-      method:  'POST',
-      headers: brainHeaders,
-      body:    JSON.stringify(assignRows),
-    }).catch(err => console.error('[syncToBrainDB] assignments write failed:', err.message));
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ courses, assignments }),
+    });
+  } catch (err) {
+    console.error('[syncToBrainDB] server sync failed:', err?.message);
   }
 }
