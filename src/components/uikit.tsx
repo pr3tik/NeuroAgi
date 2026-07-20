@@ -14,7 +14,7 @@ import React from "react";
 export function SectionLabel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <p style={{
-      fontFamily: "Inter, sans-serif", fontSize: 11, fontWeight: 600,
+      fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600,
       letterSpacing: "0.08em", textTransform: "uppercase",
       color: "var(--text-dim)", margin: 0, ...style,
     }}>{children}</p>
@@ -29,12 +29,12 @@ export function SectionHeader({ title, desc, action, onAction, right, style }: {
   return (
     <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 14, ...style }}>
       <div style={{ minWidth: 0 }}>
-        <p style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 16.5, letterSpacing: "-0.18px", color: "var(--text-primary)", margin: 0 }}>{title}</p>
-        {desc && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "var(--text-dim)", margin: "3px 0 0" }}>{desc}</p>}
+        <p style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 16.5, letterSpacing: "-0.18px", color: "var(--text-primary)", margin: 0 }}>{title}</p>
+        {desc && <p style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--text-dim)", margin: "3px 0 0" }}>{desc}</p>}
       </div>
       {action && (
         <button onClick={onAction} style={{
-          fontFamily: "Inter, sans-serif", fontSize: 13, fontWeight: 500, whiteSpace: "nowrap",
+          fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, whiteSpace: "nowrap",
           color: "rgb(var(--teal-rgb))", background: "none", border: "none", cursor: "pointer", padding: 0,
         }}>{action}</button>
       )}
@@ -48,7 +48,7 @@ export function MetaLine({ parts, style }: { parts: (string | number | null | un
   if (!clean.length) return null;
   return (
     <p style={{
-      fontFamily: "Inter, sans-serif", fontSize: 12, color: "var(--text-dim)",
+      fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--text-dim)",
       fontVariantNumeric: "tabular-nums", margin: 0, ...style,
     }}>{clean.join(" · ")}</p>
   );
@@ -79,7 +79,7 @@ export function ObjectCard({ icon, typeLabel, title, meta, onClick, style }: {
       <div style={{ minWidth: 0, flex: 1 }}>
         {typeLabel && <SectionLabel style={{ fontSize: 10, marginBottom: 3 }}>{typeLabel}</SectionLabel>}
         <p style={{
-          fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14, color: "var(--text-primary)",
+          fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 14, color: "var(--text-primary)",
           margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>{title}</p>
         {meta && <MetaLine parts={meta} style={{ marginTop: 3 }} />}
