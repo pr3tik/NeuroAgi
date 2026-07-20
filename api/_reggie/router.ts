@@ -80,7 +80,14 @@ export async function classifyIntent(message: string, routes: string[], hint?: s
     const prompt =
       `Route the student's message to exactly ONE specialist. Reply with ONLY the label, nothing else.\n\n${menu}\n\n` +
       `Message: ${JSON.stringify(msg.slice(0, 400))}`;
-    const r = await callModel({ task: "classify", messages: [{ role: "user", content: prompt }], max_tokens: 16, metadata: { tool: "reggie.route" } });
+    // Tight budget: this is a 16-token label on the turn's critical path, and it already
+    // fails open to `tutor` (which carries the widest tool set, so a miss degrades reply
+    // quality slightly rather than breaking the turn). Waiting out the gateway's default
+    // 30s × 3 attempts here would be strictly worse for the student than routing to tutor.
+    const r = await callModel({
+      task: "classify", messages: [{ role: "user", content: prompt }], max_tokens: 16,
+      timeoutMs: 3000, maxRetries: 1, metadata: { tool: "reggie.route" },
+    });
     if (r.ok) {
       const pick = String(r.content || "").trim().toLowerCase().replace(/[^a-z_]/g, "");
       if (set.has(pick)) return pick;

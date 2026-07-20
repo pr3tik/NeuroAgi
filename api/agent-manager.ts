@@ -51,6 +51,12 @@ function logReggieTurn(row: {
   traceId: string; userId: string; route: string; status: "ok" | "error";
   latencyMs: number; steps?: number; budgetExhausted?: boolean;
   trace?: ToolCallTrace[]; sources?: any[]; error?: string;
+  /** Wall-clock breakdown of the turn: auth, preflight (brain context ‖ routing), and
+   *  time-to-first-token. `latencyMs` alone says a turn was slow; these say WHICH segment
+   *  was slow, which is the difference between attributing a latency regression and
+   *  guessing at it. Rides in the same row rather than a second log line so there is one
+   *  place to query a turn from. */
+  timing?: { auth_ms: number; preflight_ms: number; ttft_ms: number | null; streamed: boolean };
 }) {
   try {
     const c = obs(); if (!c) return;
@@ -63,12 +69,14 @@ function logReggieTurn(row: {
         route: row.route, steps: row.steps ?? null, budget_exhausted: row.budgetExhausted ?? null,
         tools: (row.trace ?? []).map(t => ({ name: t.name, ok: t.ok })),
         sources: row.sources ?? [],
+        timing: row.timing ?? null,
       },
     }).then(() => {}, (e: any) => console.error("[agent-manager] turn log failed:", e?.message));
   } catch { /* observability must never break a turn */ }
 }
 
 export default async function handler(req: any, res: any) {
+  const t0 = Date.now();
   res.setHeader?.("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") return res.status(200).end();
 
@@ -103,37 +111,19 @@ export default async function handler(req: any, res: any) {
   // id then flows to every in-process tool call as the trusted internal identity.
   const _authed = await requireUserOr401(req, res); if (!_authed) return;
   userId = _authed;
+  const tAuth = Date.now();
 
   const traceId = randomUUID();       // this turn's identity — returned to the client + persisted
   const turnStart = Date.now();
 
-  // 1. Brain context — best-effort; never blocks the turn (tutor-context returns
-  //    {context:null} when the brain env / person link is absent).
-  let brainContext: string | null = null;
-  try {
-    const { body } = await callApi(tutorContext, {
-      body: { userId, userMessage: message, brainPersonId, activeCourseId: courseId },
-      internalUserId: userId,
-    });
-    brainContext = body?.context ?? null;
-  } catch { /* brain is optional */ }
-
-  // 2. Route — an explicit product action maps straight to a specialist; free-form
-  //    "ask" is classified.
-  let route: string;
-  if (action && action !== "ask") route = hintToRoute(action) ?? "tutor";
-  else route = await classifyIntent(message, ROUTES, hint);
-  const specialist = SPECIALISTS[route] ?? SPECIALISTS.tutor;
-
   const hist = Array.isArray(history) ? history : [];
 
-  // Public origin of THIS request — forwarded to tools whose handlers self-call other
-  // endpoints via the host header (writing-tracker -> /api/claude). Falls back to prod.
-  const oHost = String(req.headers?.["x-forwarded-host"] || req.headers?.host || "fschoolai.com");
-  const oProto = String(req.headers?.["x-forwarded-proto"] || (/^(localhost|127\.)/i.test(oHost) ? "http" : "https"));
-  const origin = { host: oHost, proto: oProto };
-
-  // 3a. Streaming (SSE): stream tokens + tool-call progress as the loop runs.
+  // ── Open the SSE response BEFORE the preflight. Auth has passed, so nothing after this
+  // point needs to answer with a JSON status code, and the client's first read (plus the
+  // proxy's decision not to buffer) no longer waits on brain context + routing. The `open`
+  // frame is a no-op for the client dispatcher — its job is to push bytes through any
+  // intermediary immediately so the connection is live while the preflight runs.
+  let send: ((event: string, data: any) => void) | null = null;
   if (wantStream) {
     res.statusCode = 200;
     res.setHeader?.("Content-Type", "text/event-stream; charset=utf-8");
@@ -141,27 +131,69 @@ export default async function handler(req: any, res: any) {
     res.setHeader?.("Connection", "keep-alive");
     res.setHeader?.("X-Accel-Buffering", "no");        // disable proxy buffering (nginx/vercel)
     res.flushHeaders?.();
-    const send = (event: string, data: any) => {
+    send = (event: string, data: any) => {
       try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
     };
+    send("open", { ok: true });
+  }
+
+  // ── Preflight: brain context and routing are INDEPENDENT, so they run concurrently.
+  // Both were awaited in series before, and each is a network round trip (tutor-context
+  // does a Haiku classify + DB reads; classifyIntent may do a Haiku classify) — serially
+  // that is a full second of dead air before the model is even asked to start. Neither
+  // needs the other's result, so the preflight now costs max(a, b) instead of a + b.
+
+  // 1. Brain context — best-effort; never blocks the turn (tutor-context returns
+  //    {context:null} when the brain env / person link is absent).
+  const brainContextP: Promise<string | null> = callApi(tutorContext, {
+    body: { userId, userMessage: message, brainPersonId, activeCourseId: courseId },
+    internalUserId: userId,
+  }).then((r) => r.body?.context ?? null).catch(() => null);   // brain is optional
+
+  // 2. Route — an explicit product action maps straight to a specialist; free-form
+  //    "ask" is classified. An explicit action resolves synchronously (no model call).
+  const routeP: Promise<string> = (action && action !== "ask")
+    ? Promise.resolve(hintToRoute(action) ?? "tutor")
+    : classifyIntent(message, ROUTES, hint).catch(() => "tutor");
+
+  const [brainContext, route] = await Promise.all([brainContextP, routeP]);
+  const specialist = SPECIALISTS[route] ?? SPECIALISTS.tutor;
+  const tPreflight = Date.now();
+
+  // Public origin of THIS request — forwarded to tools whose handlers self-call other
+  // endpoints via the host header (writing-tracker -> /api/claude). Falls back to prod.
+  const oHost = String(req.headers?.["x-forwarded-host"] || req.headers?.host || "fschoolai.com");
+  const oProto = String(req.headers?.["x-forwarded-proto"] || (/^(localhost|127\.)/i.test(oHost) ? "http" : "https"));
+  const origin = { host: oHost, proto: oProto };
+
+  // 3a. Streaming (SSE): stream tokens + tool-call progress as the loop runs. Headers are
+  // already flushed (above) — this just drives the loop over the open connection.
+  if (send) {
+    const sse = send;   // captured non-null binding for the closures below
+    let tFirstToken = 0;
     try {
       const result = await runReggieStream({
         specialist, userMessage: message, brainContext, history: hist, voiceMode: !!voiceMode,
         ctx: { userId, courseId, assignmentId, origin },
-        emit: (e) => { if (e.type !== "final") send(e.type, e); },   // `final` is superseded by `done`
+        emit: (e) => {
+          if (e.type === "token" && !tFirstToken) tFirstToken = Date.now();
+          if (e.type !== "final") sse(e.type, e);   // `final` is superseded by `done`
+        },
       });
       const sources = deriveSources(result.trace);
-      send("done", {
+      sse("done", {
         ok: true, route: result.route, output: result.output, toolCalls: result.trace,
         widgets: result.widgets ?? [],
         steps: result.steps, budgetExhausted: result.budgetExhausted, brainContextUsed: !!brainContext,
         traceId, sources,
       });
       logReggieTurn({ traceId, userId, route: result.route, status: "ok", latencyMs: Date.now() - turnStart,
-        steps: result.steps, budgetExhausted: result.budgetExhausted, trace: result.trace, sources });
+        steps: result.steps, budgetExhausted: result.budgetExhausted, trace: result.trace, sources,
+        timing: { auth_ms: tAuth - t0, preflight_ms: tPreflight - tAuth, ttft_ms: tFirstToken ? tFirstToken - t0 : null, streamed: true } });
     } catch (e: any) {
-      send("error", { error: e?.message ?? "Reggie failed", traceId });
-      logReggieTurn({ traceId, userId, route: route ?? "unknown", status: "error", latencyMs: Date.now() - turnStart, error: e?.message });
+      sse("error", { error: e?.message ?? "Reggie failed", traceId });
+      logReggieTurn({ traceId, userId, route: route ?? "unknown", status: "error", latencyMs: Date.now() - turnStart, error: e?.message,
+        timing: { auth_ms: tAuth - t0, preflight_ms: tPreflight - tAuth, ttft_ms: null, streamed: true } });
     } finally {
       try { res.end(); } catch { /* already closed */ }
     }
@@ -176,7 +208,8 @@ export default async function handler(req: any, res: any) {
     });
     const sources = deriveSources(result.trace);
     logReggieTurn({ traceId, userId, route: result.route, status: "ok", latencyMs: Date.now() - turnStart,
-      steps: result.steps, budgetExhausted: result.budgetExhausted, trace: result.trace, sources });
+      steps: result.steps, budgetExhausted: result.budgetExhausted, trace: result.trace, sources,
+      timing: { auth_ms: tAuth - t0, preflight_ms: tPreflight - tAuth, ttft_ms: null, streamed: false } });
     return res.status(200).json({
       ok: true,
       route: result.route,
@@ -189,7 +222,8 @@ export default async function handler(req: any, res: any) {
       traceId, sources,
     });
   } catch (e: any) {
-    logReggieTurn({ traceId, userId, route: route ?? "unknown", status: "error", latencyMs: Date.now() - turnStart, error: e?.message });
+    logReggieTurn({ traceId, userId, route: route ?? "unknown", status: "error", latencyMs: Date.now() - turnStart, error: e?.message,
+      timing: { auth_ms: tAuth - t0, preflight_ms: tPreflight - tAuth, ttft_ms: null, streamed: false } });
     return res.status(502).json({ error: e?.message ?? "Reggie failed", traceId });
   }
 }

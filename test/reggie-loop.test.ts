@@ -23,19 +23,26 @@ const basePlan = { examDate: "2026-08-10", sessions: [{ date: "2026-08-01", topi
 
 async function load() { vi.resetModules(); return (await import("../api/_reggie/loop.ts")).runReggie; }
 
+// The loop asks the gateway to prompt-cache, so `system` goes on the wire as an array of
+// cache_control-bearing text blocks rather than a bare string. Read either shape.
+function systemText(body: any): string {
+  const s = body?.system;
+  return Array.isArray(s) ? s.map((b: any) => b?.text ?? "").join("") : String(s ?? "");
+}
+
 describe("reggie tool-use loop", () => {
   it("voiceMode:true appends the voice-tag protocol to the system prompt; absent by default", async () => {
     const fn = scripted([() => anthropic([{ type: "text", text: "hi" }], "end_turn")]);
     const runReggie = await load();
     await runReggie({ specialist, userMessage: "hello", ctx: { userId: "u1" }, voiceMode: true });
     const body1 = JSON.parse(fn.mock.calls[0][1].body);
-    expect(body1.system).toContain("VOICE mode");
+    expect(systemText(body1)).toContain("VOICE mode");
     for (const tag of ["[SYNC]", "[GENERATE_FLASHCARDS:", "[VOICE:", "[SPEED:", "[TONE:"]) {
-      expect(body1.system).toContain(tag);   // pin every tag the client parser handles
+      expect(systemText(body1)).toContain(tag);   // pin every tag the client parser handles
     }
     await runReggie({ specialist, userMessage: "hello again", ctx: { userId: "u1" } });
     const body2 = JSON.parse(fn.mock.calls[1][1].body);
-    expect(body2.system).not.toContain("VOICE mode");
+    expect(systemText(body2)).not.toContain("VOICE mode");
   });
 
 
@@ -119,6 +126,77 @@ describe("reggie tool-use loop", () => {
     expect(sent.messages[0].role).toBe("user"); // never opens on assistant / blank
   });
 
+  // ── Latency contract ────────────────────────────────────────────────────────
+  it("prompt-caches the tool block and the system prefix (the stable per-step prefix)", async () => {
+    const fn = scripted([() => anthropic([{ type: "text", text: "hi" }], "end_turn")]);
+    const runReggie = await load();
+    await runReggie({ specialist, userMessage: "hello", ctx: { userId: "u1" } });
+    const body = JSON.parse(fn.mock.calls[0][1].body);
+    // tools come FIRST in Anthropic's cache hierarchy, so the breakpoint on the last tool
+    // caches the whole (cross-user, byte-identical) catalog.
+    expect(body.tools.at(-1).cache_control).toEqual({ type: "ephemeral" });
+    expect(body.system.at(-1).cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("announces every tool_call in a step before any result — the calls run concurrently", async () => {
+    scripted([
+      () => anthropic([
+        { type: "tool_use", id: "tu1", name: "what_if_plan", input: { basePlan, changes: {} } },
+        { type: "tool_use", id: "tu2", name: "what_if_plan", input: { basePlan, changes: { dropTopics: ["Kinetics"] } } },
+      ], "tool_use"),
+      () => anthropic([{ type: "text", text: "done" }], "end_turn"),
+    ]);
+    const runReggie = await load();
+    const events: string[] = [];
+    const r = await runReggie({ specialist, userMessage: "x", ctx: { userId: "u1" }, emit: (e) => events.push(e.type) });
+    const calls = events.filter((t) => t === "tool_call" || t === "tool_result");
+    // Serial execution would interleave (call, result, call, result); concurrent execution
+    // fires both calls, then both results.
+    expect(calls).toEqual(["tool_call", "tool_call", "tool_result", "tool_result"]);
+    // trace/result order still follows the model's tool order, not completion order
+    expect(r.trace.map((t: any) => t.name)).toEqual(["what_if_plan", "what_if_plan"]);
+    expect(r.trace.every((t: any) => t.ok)).toBe(true);
+  });
+
+  it("falls back to SERIAL execution when a step includes a mutating tool", async () => {
+    // save_flashcards writes; it is deliberately NOT on the read-only allow-list, so the
+    // whole step keeps the original one-at-a-time semantics rather than newly exposing a
+    // write path to interleaving. Ordering is the observable contract.
+    const mixed: any = { ...specialist, tools: ["what_if_plan", "save_flashcards"] };
+    scripted([
+      () => anthropic([
+        { type: "tool_use", id: "tu1", name: "what_if_plan", input: { basePlan, changes: {} } },
+        { type: "tool_use", id: "tu2", name: "save_flashcards", input: { course: "bio", cards: [{ question: "q", answer: "a" }] } },
+      ], "tool_use"),
+      () => anthropic([{ type: "text", text: "done" }], "end_turn"),
+    ]);
+    const runReggie = await load();
+    const events: string[] = [];
+    await runReggie({ specialist: mixed, userMessage: "x", ctx: { userId: "u1" }, emit: (e) => events.push(e.type) });
+    expect(events.filter((t) => t === "tool_call" || t === "tool_result"))
+      .toEqual(["tool_call", "tool_result", "tool_call", "tool_result"]);
+  });
+
+  it("does not parallelize a single-tool step (nothing to overlap)", async () => {
+    scripted([
+      () => anthropic([{ type: "tool_use", id: "tu1", name: "what_if_plan", input: { basePlan, changes: {} } }], "tool_use"),
+      () => anthropic([{ type: "text", text: "done" }], "end_turn"),
+    ]);
+    const runReggie = await load();
+    const events: string[] = [];
+    await runReggie({ specialist, userMessage: "x", ctx: { userId: "u1" }, emit: (e) => events.push(e.type) });
+    expect(events.filter((t) => t === "tool_call" || t === "tool_result")).toEqual(["tool_call", "tool_result"]);
+  });
+
+  it("tells the model not to preamble before tool calls and to batch them into one turn", async () => {
+    const fn = scripted([() => anthropic([{ type: "text", text: "hi" }], "end_turn")]);
+    const runReggie = await load();
+    await runReggie({ specialist, userMessage: "hello", ctx: { userId: "u1" } });
+    const sys = systemText(JSON.parse(fn.mock.calls[0][1].body));
+    expect(sys).toMatch(/do NOT write any text before them/i);
+    expect(sys).toMatch(/SAME turn/i);
+  });
+
   it("emits route/tool_call/tool_result/final progress events", async () => {
     scripted([
       () => anthropic([{ type: "tool_use", id: "tu1", name: "what_if_plan", input: { basePlan, changes: {} } }], "tool_use"),
@@ -167,6 +245,37 @@ describe("reggie tool-use loop", () => {
     expect(r.widgets).toEqual([]);   // what_if_plan isn't a renderable widget
   });
 
+  // Search-tag payload (PR #269). It was previously inline in runTools' serial loop; the
+  // concurrency refactor moved it into liftSources() and onto the parallel path too, so it
+  // is pinned here — rag_search and library_search are both read-only, meaning a step that
+  // calls both now runs concurrently and must still produce identical trace sources.
+  it("lifts retrieval passage identities onto the trace — identities only, never text", async () => {
+    const { liftSources } = await import("../api/_reggie/loop.ts");
+    const payload = JSON.stringify({
+      passages: [
+        { title: "syllabus.pdf", heading: "Grading", loc: 3, text: "SECRET PASSAGE TEXT" },
+        { label: "day1_slides.pdf", loc: null },
+      ],
+    });
+    const out = liftSources("rag_search", payload)!;
+    expect(out).toEqual([
+      { title: "syllabus.pdf", heading: "Grading", loc: "3" },
+      { title: "day1_slides.pdf", heading: null, loc: null },
+    ]);
+    expect(JSON.stringify(out)).not.toContain("SECRET PASSAGE TEXT");   // never persist text
+
+    // library_search uses `results`, not `passages`
+    expect(liftSources("library_search", JSON.stringify({ results: [{ title: "notes.md" }] })))
+      .toEqual([{ title: "notes.md", heading: null, loc: null }]);
+
+    expect(liftSources("canvas_get_grades", payload)).toBeUndefined();  // not a retrieval tool
+    expect(liftSources("rag_search", "not json")).toBeUndefined();      // malformed → no sources
+    expect(liftSources("rag_search", JSON.stringify({ passages: [] }))).toBeUndefined();
+    expect(liftSources("rag_search", JSON.stringify({
+      passages: Array.from({ length: 20 }, (_, i) => ({ title: `d${i}.pdf` })),
+    }))!.length).toBe(8);                                                // capped
+  });
+
   it("renderableWidget maps generate_quiz output to interactive quiz cards (and nothing else)", async () => {
     const { renderableWidget } = await import("../api/_reggie/loop.ts");
     expect(renderableWidget("generate_quiz", { quizQuestions: [
@@ -192,6 +301,31 @@ describe("reggie tool-use loop", () => {
     expect(r.output).toBe("blocking fallback answer");
     expect(events.some((e) => e.type === "token" && e.text.includes("blocking fallback"))).toBe(true);
   });
+  it("keeps total cache_control blocks ≤ 4 at every step of a multi-tool turn (moving breakpoint)", async () => {
+    // Anthropic rejects >4 cache_control blocks per request. The message-level breakpoint
+    // must MOVE to the newest tool_result, never accumulate one per step.
+    const toolTurn = () => anthropic(
+      [{ type: "tool_use", id: "t" + Math.random().toString(36).slice(2, 6), name: "what_if_plan", input: { basePlan, changes: { dropTopics: ["Kinetics"] } } }], "tool_use");
+    const fn = scripted([
+      () => toolTurn(), () => toolTurn(), () => toolTurn(), () => toolTurn(),
+      () => anthropic([{ type: "text", text: "done" }], "end_turn"),
+    ]);
+    const runReggie = await load();
+    await runReggie({ specialist, userMessage: "go", ctx: { userId: "u1" } });
+    const countMarks = (v: any): number => {
+      let n = 0;
+      const walk = (x: any) => {
+        if (Array.isArray(x)) return x.forEach(walk);
+        if (x && typeof x === "object") { if (x.cache_control) n++; Object.values(x).forEach(walk); }
+      };
+      walk(v); return n;
+    };
+    const counts = fn.mock.calls.map((c) => countMarks(JSON.parse(c[1].body)));
+    expect(fn.mock.calls.length).toBeGreaterThanOrEqual(5);   // 4 tool steps + final
+    for (const n of counts) expect(n).toBeLessThanOrEqual(4); // hard API limit
+    expect(Math.max(...counts)).toBeLessThanOrEqual(3);        // tools + system + ONE moving mark
+  });
+
 });
 
 // Voice-mode turns must route to the latency-first "voice" gateway task (Haiku),
@@ -209,5 +343,6 @@ describe("voice task routing", () => {
     expect(r.model).toBe("claude-sonnet-4-6");
     delete process.env.ANTHROPIC_MODEL_VOICE;
   });
+
 });
 

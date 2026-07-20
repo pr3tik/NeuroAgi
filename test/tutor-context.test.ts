@@ -15,8 +15,8 @@
 //  - ./_brain/identity.js → resolveFschoolPerson (always null → legacy context_window path only)
 //  - ./rag.js            → embed (used by the strategy-hint fetch's dynamic import)
 // Left REAL (pure / no module-load side effects): ./course-source.js (the label mapping under
-// test) and ./_reggie/canvasLive.js (userUniversityId — just does a fetch, which the global
-// fetch stub answers by URL like every other DB read here).
+// test) and ./_reggie/canvasLive.js (deriveUniversityId — a pure function over the users row
+// the global fetch stub answers with, like every other DB read here).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { makeRes } from "./helpers";
 
@@ -121,6 +121,44 @@ describe("tutor-context handler — BR-05 sources (grounding chips)", () => {
     expect(res.body.sources).toEqual([]);
     expect(res.body).toHaveProperty("strategyHintId", null);
     expect(res.body).toHaveProperty("strategyHintKind", null);
+  });
+});
+
+// The classifier round trip is ~700ms on the hot path of every tutor turn, and it can only
+// ever return a class about the student's OWN records. A message that names none of those
+// is "none" by construction — so the call is skipped, not made and discarded.
+describe("tutor-context handler — classifier fast path (latency)", () => {
+  function stub() {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => { calls.push(String(url)); return OK([]); }));
+    return calls;
+  }
+  const anthropicCalls = (calls: string[]) => calls.filter((u) => u.includes("api.anthropic.com"));
+
+  it("skips the classifier for a message with no record signal", async () => {
+    const calls = stub();
+    const handler = await load();
+    const res = makeRes();
+    await handler({ method: "POST", body: { userMessage: "explain photosynthesis to me" } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(anthropicCalls(calls)).toEqual([]);
+  });
+
+  it("still classifies when the message names the student's own records", async () => {
+    for (const msg of [
+      "what's my score in BIO 101?",
+      "which assignments am I missing?",
+      "show me my Physics flashcards",
+      "send me the syllabus",
+      "do you have the Haskell project file?",
+      "how am I doing in chem?",
+    ]) {
+      vi.unstubAllGlobals();
+      const calls = stub();
+      const handler = await load();
+      await handler({ method: "POST", body: { userMessage: msg } }, makeRes());
+      expect(anthropicCalls(calls).length, `should classify: ${msg}`).toBe(1);
+    }
   });
 });
 

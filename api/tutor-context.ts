@@ -48,7 +48,7 @@ import { requireUserOr401 } from "./_auth.js";
 import { postgrestStore, recall, renderStudentBrainState } from "./_brain/kernel.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
 import { courseSourceBoost, courseSourceLabel } from "./course-source.js";
-import { userUniversityId } from "./_reggie/canvasLive.js";
+import { deriveUniversityId } from "./_reggie/canvasLive.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -67,15 +67,27 @@ export default async function handler(req, res) {
   const _uid = await requireUserOr401(req, res); if (!_uid) return;
   if (req.body && typeof req.body === "object") req.body.userId = _uid;
   const { userId, userMessage, courseIds = [], activeCourseId = null } = req.body ?? {};
-  // Resolve the brain person from the verified user — never trust a body brainPersonId (that
-  // let anyone read another user's brain context by passing their person id).
-  let brainPersonId = null;
-  { const sbU = process.env.SUPABASE_URL, sbK = process.env.SUPABASE_SERVICE_KEY;
-    if (sbU && sbK) {
-      const r = await fetch(`${sbU}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=brain_person_id`, { headers: { apikey: sbK, Authorization: `Bearer ${sbK}` } }).catch(() => null);
-      if (r && r.ok) brainPersonId = ((await r.json().catch(() => []))?.[0]?.brain_person_id) ?? null;
-    } }
   if (!userId || !userMessage) return res.status(200).json({ context: null });
+
+  // ── The caller's users row, read ONCE and shared ───────────────────────────
+  // brain_person_id (brain + kernel reads) and university_id (library scoping) live on the
+  // same row but used to cost two separate SELECTs — and the brain_person_id one was
+  // AWAITED before anything else started, so it serialized the whole handler behind itself.
+  // One promise, consumed concurrently by every branch that needs it.
+  //
+  // Security unchanged: the person is resolved from the VERIFIED user id, never from a body
+  // brainPersonId (which let anyone read another user's brain context by passing their id).
+  const userRowP: Promise<any> = (async () => {
+    try {
+      const r = await fetch(
+        `${supabaseUrl}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=brain_person_id,university_id,canvas_base_url&limit=1`,
+        { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } },
+      );
+      if (!r.ok) return null;
+      return (await r.json())?.[0] ?? null;
+    } catch { return null; }
+  })();
+  const brainPersonIdP: Promise<string | null> = userRowP.then((row) => row?.brain_person_id ?? null);
 
   const sbHeaders = {
     "apikey":        supabaseKey,
@@ -88,18 +100,25 @@ export default async function handler(req, res) {
   // ── 0a. Fetch brain.context_window in parallel with classification ─────────
   // Pre-cached by brain_scheduler — no 600ms Brain DB penalty on hot path
   let brainContext = null;
-  const brainFetch = (brainUrl && brainKey && brainPersonId)
-    ? fetch(
-        `${brainUrl}/rest/v1/context_window?person_id=eq.${brainPersonId}&select=stress_level,momentum_state,active_deadline,recent_summary,what_to_focus_on,what_not_to_mention&limit=1`,
-        {
-          headers: {
-            "apikey":         brainKey,
-            "Authorization":  `Bearer ${brainKey}`,
-            "Content-Type":   "application/json",
-            "Accept-Profile": "brain",   // context_window lives in brain schema
-          },
-        }
-      ).then(r => r.ok ? r.json() : null).catch(() => null)
+  const brainFetch = (brainUrl && brainKey)
+    ? (async () => {
+        try {
+          const brainPersonId = await brainPersonIdP;
+          if (!brainPersonId) return null;
+          const r = await fetch(
+            `${brainUrl}/rest/v1/context_window?person_id=eq.${encodeURIComponent(brainPersonId)}&select=stress_level,momentum_state,active_deadline,recent_summary,what_to_focus_on,what_not_to_mention&limit=1`,
+            {
+              headers: {
+                "apikey":         brainKey,
+                "Authorization":  `Bearer ${brainKey}`,
+                "Content-Type":   "application/json",
+                "Accept-Profile": "brain",   // context_window lives in brain schema
+              },
+            }
+          );
+          return r.ok ? await r.json() : null;
+        } catch { return null; }
+      })()
     : Promise.resolve(null);
 
   // ── 0a′. NeuroAGI kernel recall — the LIVE brain (product DB). Runs in parallel. ─────
@@ -110,7 +129,7 @@ export default async function handler(req, res) {
   const kernelFetch = (supabaseUrl && supabaseKey)
     ? (async () => {
         try {
-          const pid = brainPersonId ?? await resolveFschoolPerson({ url: supabaseUrl, key: supabaseKey }, userId);
+          const pid = (await brainPersonIdP) ?? await resolveFschoolPerson({ url: supabaseUrl, key: supabaseKey }, userId);
           if (!pid) return null;
           const store = postgrestStore(supabaseUrl, supabaseKey);
           const mems = await recall(store, [`person:${pid}`], { limit: 15, reinforce: false });
@@ -150,7 +169,7 @@ export default async function handler(req, res) {
 
           // BR-02 (Gap 8): scope the shared course library to the caller's own institution so
           // course facts can't cross schools. Degrade to unscoped when no Canvas is connected.
-          const uni = await userUniversityId(userId);
+          const uni = deriveUniversityId(await userRowP);
           const uniFilter = uni ? `&university_id=eq.${encodeURIComponent(uni)}` : "";
 
           const libUrl = `${supabaseUrl}/rest/v1/course_content?${courseFilter}${uniFilter}&is_private=eq.false&select=id,content_type,text,summary,module_name,week_number,seen_by_count&order=seen_by_count.desc&limit=20`;
@@ -276,9 +295,26 @@ export default async function handler(req, res) {
   let queryType = "none";
   let keyword   = null;
 
+  // Cheap gate before the model call. Every non-"none" class this classifier can return
+  // (assignment_detail / course_grades / missing_late / flashcard_detail / file_lookup) is
+  // about the student's OWN records, and a message asking for those effectively always
+  // names one — a grade word, a deadline word, a study-aid word, a document word, or a
+  // course code. When none of that is present the answer is "none", so the Haiku round trip
+  // is ~700ms of pure latency on the hot path for the most common message there is
+  // ("explain photosynthesis", "hey", "why did that make sense?"). The gate is deliberately
+  // over-inclusive: a false positive only costs the call we used to always make, while the
+  // classifier still has the last word on everything it sees.
+  const RECORD_SIGNALS = /\b(grade|grades|grading|score|scores|scored|gpa|mark|marks|percent|standing|passing|assignment|assignments|homework|hw|due|deadline|deadlines|overdue|missing|late|submit|submitted|submission|turned in|hand(ed)? in|flashcard|flashcards|deck|decks|file|files|document|documents|doc|docx|pdf|ppt|slide|slides|syllabus|reading|readings|handout|handouts|attachment|attachments|upload|uploaded|project|paper|essay|lab|labs|quiz|quizzes|exam|exams|midterm|finals?|rubric|transcript|credit|credits)\b|how('?m| am| is| are| did)\b[^.?!]{0,20}\b(i|we|my)\b[^.?!]{0,20}\bdoing\b|how did i do\b|am i (passing|failing)\b/i;
+  const COURSE_CODE = /\b[A-Za-z]{2,4}\s?\d{2,4}\b/;   // "BIO 101", "MATH240"
+  const needsLookup = RECORD_SIGNALS.test(userMessage) || COURSE_CODE.test(userMessage);
+
   try {
+    if (!needsLookup) throw new Error("skip-classify");   // → queryType stays "none"
     const classifyRes = await fetch("https://api.anthropic.com/v1/messages", {
       method:  "POST",
+      // Bounded: a stalled classifier must degrade to "none" (brain + library context still
+      // flow), never hold the student's answer open.
+      signal:  AbortSignal.timeout(4000),
       headers: {
         "Content-Type":      "application/json",
         "x-api-key":         anthropicKey,

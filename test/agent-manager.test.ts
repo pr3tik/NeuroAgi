@@ -94,6 +94,43 @@ describe("agent-manager (Reggie front door)", () => {
     expect(runReggie).not.toHaveBeenCalled();
   });
 
+  // ── Latency contract ────────────────────────────────────────────────────────
+  it("opens the SSE stream before the brain-context preflight resolves", async () => {
+    // Brain context is held open; the connection must already be live (headers flushed +
+    // an `open` frame on the wire) so the client and any proxy aren't waiting on it.
+    let release: (v: any) => void = () => {};
+    const gate = new Promise((r) => { release = r; });
+    vi.resetModules();
+    vi.doMock("../api/tutor-context.js", () => ({
+      default: async (_req: any, res: any) => { await gate; return res.status(200).json({ context: "BRAIN CTX" }); },
+    }));
+    const h = (await import("../api/agent-manager.ts")).default;
+    const res = makeSSERes();
+    const turn = h({ method: "POST", body: { userId: "u1", message: "what's my grade in bio", stream: true } }, res);
+
+    await new Promise((r) => setTimeout(r, 0));   // let the handler reach the preflight await
+    expect(String(res.headers["Content-Type"])).toMatch(/event-stream/);
+    expect(res.written.join("")).toContain("event: open");
+    expect(res.ended).toBe(false);                // still streaming, preflight in flight
+
+    release(null);
+    await turn;
+    expect(res.written.join("")).toContain("event: done");
+    vi.doUnmock("../api/tutor-context.js");
+  });
+
+  it("still answers when the brain-context preflight fails (it is best-effort, not a gate)", async () => {
+    vi.resetModules();
+    vi.doMock("../api/tutor-context.js", () => ({ default: async () => { throw new Error("brain down"); } }));
+    const h = (await import("../api/agent-manager.ts")).default;
+    const res = makeRes();
+    await h({ method: "POST", body: { userId: "u1", message: "what's my grade in bio" } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.brainContextUsed).toBe(false);
+    expect(runReggie.mock.calls.at(-1)![0].brainContext).toBeNull();
+    vi.doUnmock("../api/tutor-context.js");
+  });
+
   it("passes conversation history through to the loop", async () => {
     const h = await load(); const res = makeRes();
     const history = [{ role: "user", content: "explain kinetics" }, { role: "assistant", content: "reaction rates" }];
