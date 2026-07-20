@@ -726,7 +726,11 @@ export default function StudyAssistant() {
     <div style={{
       display: "flex",
       flexDirection: "column",
-      height: "calc(100dvh - 56px)", // subtract app header
+      // Fill the shell's viewport-locked column exactly (App.tsx .page-locked makes
+      // .app-main a flex column sized to the viewport minus the real header height —
+      // no more hardcoded calc(100dvh - 56px) drifting out of sync with shell padding).
+      flex: 1,
+      minHeight: 0,
       position: "relative",
     }}>
       <style>{`
