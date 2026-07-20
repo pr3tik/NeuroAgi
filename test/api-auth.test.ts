@@ -79,6 +79,66 @@ describe("requireUser", () => {
     expect(updates).toEqual([]);                                                          // no write
   });
 
+  // ── Verified-token cache (latency): two network round trips per call, on the hot path of
+  // every chat turn. Memoized per token — but never at the cost of correctness.
+  it("memoizes a verified token so repeat calls skip the GoTrue round trip", async () => {
+    let hits = 0;
+    getUserImpl = async () => { hits++; return { data: { user: { id: "auth-123" } }, error: null }; };
+    authRows = [{ id: "profile-abc" }];
+    const { requireUser } = await load();
+    const req = { headers: { authorization: "Bearer good" } };
+    expect(await requireUser(req)).toEqual({ userId: "profile-abc", authId: "auth-123" });
+    expect(await requireUser(req)).toEqual({ userId: "profile-abc", authId: "auth-123" });
+    expect(hits).toBe(1);
+  });
+
+  it("never serves a different token from the cache", async () => {
+    getUserImpl = async (t: string) => ({ data: { user: { id: `auth-${t}` } }, error: null });
+    authRows = [{ id: "profile-abc" }];
+    const { requireUser } = await load();
+    expect((await requireUser({ headers: { authorization: "Bearer aaa" } }))!.authId).toBe("auth-aaa");
+    expect((await requireUser({ headers: { authorization: "Bearer bbb" } }))!.authId).toBe("auth-bbb");
+  });
+
+  it("does not cache failures — a just-linked account isn't locked out", async () => {
+    getUserImpl = async () => ({ data: { user: { id: "auth-123" } }, error: null });
+    authRows = [];                                   // no profile linked yet
+    const { requireUser } = await load();
+    const req = { headers: { authorization: "Bearer good" } };
+    expect(await requireUser(req)).toBeNull();
+    authRows = [{ id: "profile-abc" }];              // the row appears (backfill/link)
+    expect(await requireUser(req)).toEqual({ userId: "profile-abc", authId: "auth-123" });
+  });
+
+  it("never serves a token past its own exp, even inside the TTL", async () => {
+    getUserImpl = async () => ({ data: { user: { id: "auth-123" } }, error: null });
+    authRows = [{ id: "profile-abc" }];
+    const { requireUser } = await load();
+    // A well-formed JWT whose exp is already in the past. GoTrue would reject it; the point
+    // here is that the CACHE must not extend its life either.
+    const b64 = (o: any) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    const expired = `h.${b64({ exp: Math.floor(Date.now() / 1000) - 10 })}.s`;
+    const req = { headers: { authorization: `Bearer ${expired}` } };
+    let hits = 0;
+    getUserImpl = async () => { hits++; return { data: { user: { id: "auth-123" } }, error: null }; };
+    await requireUser(req);
+    await requireUser(req);
+    expect(hits).toBe(2);   // re-verified every time; the expired token was never cached
+  });
+
+  it("AUTH_CACHE_TTL_MS=0 disables the cache entirely", async () => {
+    process.env.AUTH_CACHE_TTL_MS = "0";
+    let hits = 0;
+    getUserImpl = async () => { hits++; return { data: { user: { id: "auth-123" } }, error: null }; };
+    authRows = [{ id: "profile-abc" }];
+    const { requireUser } = await load();
+    const req = { headers: { authorization: "Bearer good" } };
+    await requireUser(req);
+    await requireUser(req);
+    expect(hits).toBe(2);
+    delete process.env.AUTH_CACHE_TTL_MS;
+  });
+
   it("requireUserOr401 sends 401 when unauthenticated", async () => {
     const { requireUserOr401 } = await load();
     const res: any = { statusCode: 0, body: null, status(c: number) { this.statusCode = c; return this; }, json(o: any) { this.body = o; return this; } };

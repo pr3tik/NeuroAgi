@@ -2149,8 +2149,12 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   };
 
   const runReggieTurn = async (text) => {
+    // Only the last few turns are sent: the server caps history at 10 turns anyway, so
+    // anything older was uploaded and discarded — on a long session that is a steadily
+    // growing request body in front of every answer.
     const history = messages
       .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .slice(-10)
       .map(m => ({ role: m.role, content: m.content }));
     abortCtrlRef.current = new AbortController();
     // Stale barge-in context from a previous turn must not leak into this one (the

@@ -5,7 +5,7 @@
 // cross-cutting concerns that don't belong in any one caller:
 //
 //   • routing      — a task label → (provider, model) map, env-overridable (PRD §7.1)
-//   • prompt cache  — opt-in cache_control breakpoint on the system prefix (Anthropic)
+//   • prompt cache  — opt-in cache_control breakpoints on the tool + system prefix (Anthropic)
 //   • cost          — per-model USD accounting incl. cache-read/write tiers
 //   • resilience    — retry w/ backoff on 429/5xx/network, optional model fallback
 //   • timeouts      — per-attempt deadline via AbortController
@@ -46,6 +46,7 @@ export interface GatewayRequest {
   max_tokens?: number;
   tools?: any[];
   cache?: boolean;                   // add an ephemeral cache breakpoint on the system prefix
+  cacheTools?: boolean;              // add an ephemeral cache breakpoint on the TOOL definitions
   thinking?: boolean;                // opt-in adaptive thinking (Anthropic, supported models)
   temperature?: number;             // Groq only; ignored for Anthropic (would 400)
   fallback?: boolean;                // allow model fallback on failure (default: route's setting)
@@ -285,7 +286,14 @@ function buildBody(provider: Provider, model: string, req: GatewayRequest, strea
       : text;
   }
 
-  if (Array.isArray(req.tools) && req.tools.length) body.tools = req.tools;
+  // tools: the LARGEST stable prefix in an agent turn (Reggie's catalog is thousands of
+  // tokens and is byte-identical for every user on a given specialist). Anthropic's cache
+  // hierarchy is tools → system → messages, so a breakpoint on the last tool caches the
+  // whole tool block — a cross-user, cross-turn hit that removes most of the prefill from
+  // time-to-first-token on every step of the tool-use loop. Cheaper AND faster.
+  if (Array.isArray(req.tools) && req.tools.length) {
+    body.tools = req.cacheTools ? withCacheBreakpoint(req.tools) : req.tools;
+  }
 
   // Adaptive thinking — never budget_tokens (would 400 on these models). Enabled when
   // the caller asks OR the route is a deep/reasoning route, and the model supports it.
@@ -297,10 +305,10 @@ function buildBody(provider: Provider, model: string, req: GatewayRequest, strea
   return body;
 }
 
-function withCacheBreakpoint(system: any[]): any[] {
-  // Place exactly one ephemeral breakpoint on the last block; leave any caller-set
-  // breakpoints intact on earlier blocks.
-  const out = system.map((b) => ({ ...b }));
+// Place exactly one ephemeral breakpoint on the last entry of a cacheable block list
+// (system blocks or tool definitions); leaves any caller-set breakpoints intact earlier.
+function withCacheBreakpoint(blocks: any[]): any[] {
+  const out = blocks.map((b) => ({ ...b }));
   const last = out[out.length - 1];
   if (last && typeof last === "object") last.cache_control = last.cache_control ?? { type: "ephemeral" };
   return out;

@@ -23,19 +23,26 @@ const basePlan = { examDate: "2026-08-10", sessions: [{ date: "2026-08-01", topi
 
 async function load() { vi.resetModules(); return (await import("../api/_reggie/loop.ts")).runReggie; }
 
+// The loop asks the gateway to prompt-cache, so `system` goes on the wire as an array of
+// cache_control-bearing text blocks rather than a bare string. Read either shape.
+function systemText(body: any): string {
+  const s = body?.system;
+  return Array.isArray(s) ? s.map((b: any) => b?.text ?? "").join("") : String(s ?? "");
+}
+
 describe("reggie tool-use loop", () => {
   it("voiceMode:true appends the voice-tag protocol to the system prompt; absent by default", async () => {
     const fn = scripted([() => anthropic([{ type: "text", text: "hi" }], "end_turn")]);
     const runReggie = await load();
     await runReggie({ specialist, userMessage: "hello", ctx: { userId: "u1" }, voiceMode: true });
     const body1 = JSON.parse(fn.mock.calls[0][1].body);
-    expect(body1.system).toContain("VOICE mode");
+    expect(systemText(body1)).toContain("VOICE mode");
     for (const tag of ["[SYNC]", "[GENERATE_FLASHCARDS:", "[VOICE:", "[SPEED:", "[TONE:"]) {
-      expect(body1.system).toContain(tag);   // pin every tag the client parser handles
+      expect(systemText(body1)).toContain(tag);   // pin every tag the client parser handles
     }
     await runReggie({ specialist, userMessage: "hello again", ctx: { userId: "u1" } });
     const body2 = JSON.parse(fn.mock.calls[1][1].body);
-    expect(body2.system).not.toContain("VOICE mode");
+    expect(systemText(body2)).not.toContain("VOICE mode");
   });
 
 
@@ -117,6 +124,47 @@ describe("reggie tool-use loop", () => {
       ctx: { userId: "u1" },
     });
     expect(sent.messages[0].role).toBe("user"); // never opens on assistant / blank
+  });
+
+  // ── Latency contract ────────────────────────────────────────────────────────
+  it("prompt-caches the tool block and the system prefix (the stable per-step prefix)", async () => {
+    const fn = scripted([() => anthropic([{ type: "text", text: "hi" }], "end_turn")]);
+    const runReggie = await load();
+    await runReggie({ specialist, userMessage: "hello", ctx: { userId: "u1" } });
+    const body = JSON.parse(fn.mock.calls[0][1].body);
+    // tools come FIRST in Anthropic's cache hierarchy, so the breakpoint on the last tool
+    // caches the whole (cross-user, byte-identical) catalog.
+    expect(body.tools.at(-1).cache_control).toEqual({ type: "ephemeral" });
+    expect(body.system.at(-1).cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("announces every tool_call in a step before any result — the calls run concurrently", async () => {
+    scripted([
+      () => anthropic([
+        { type: "tool_use", id: "tu1", name: "what_if_plan", input: { basePlan, changes: {} } },
+        { type: "tool_use", id: "tu2", name: "what_if_plan", input: { basePlan, changes: { dropTopics: ["Kinetics"] } } },
+      ], "tool_use"),
+      () => anthropic([{ type: "text", text: "done" }], "end_turn"),
+    ]);
+    const runReggie = await load();
+    const events: string[] = [];
+    const r = await runReggie({ specialist, userMessage: "x", ctx: { userId: "u1" }, emit: (e) => events.push(e.type) });
+    const calls = events.filter((t) => t === "tool_call" || t === "tool_result");
+    // Serial execution would interleave (call, result, call, result); concurrent execution
+    // fires both calls, then both results.
+    expect(calls).toEqual(["tool_call", "tool_call", "tool_result", "tool_result"]);
+    // trace/result order still follows the model's tool order, not completion order
+    expect(r.trace.map((t: any) => t.name)).toEqual(["what_if_plan", "what_if_plan"]);
+    expect(r.trace.every((t: any) => t.ok)).toBe(true);
+  });
+
+  it("tells the model not to preamble before tool calls and to batch them into one turn", async () => {
+    const fn = scripted([() => anthropic([{ type: "text", text: "hi" }], "end_turn")]);
+    const runReggie = await load();
+    await runReggie({ specialist, userMessage: "hello", ctx: { userId: "u1" } });
+    const sys = systemText(JSON.parse(fn.mock.calls[0][1].body));
+    expect(sys).toMatch(/do NOT write any text before them/i);
+    expect(sys).toMatch(/SAME turn/i);
   });
 
   it("emits route/tool_call/tool_result/final progress events", async () => {

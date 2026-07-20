@@ -43,14 +43,21 @@ export async function userUniversityId(userId: string): Promise<string | null> {
       { headers: { apikey: key, Authorization: `Bearer ${key}` } },
     );
     if (!r.ok) return null;
-    const row = ((await r.json()) as any[])[0];
-    // Sanitize to valid hostname chars only (strips stray chars like a trailing quote that would
-    // fragment a school) — must match the write-side derivation in extension-content.ts.
-    const clean = (h: string) => h.toLowerCase().replace(/[^a-z0-9.-]/g, "") || null;
-    if (row?.university_id) return clean(String(row.university_id));
-    if (row?.canvas_base_url) { try { return clean(new URL(row.canvas_base_url).hostname); } catch { /* fall through */ } }
-    return null;
+    return deriveUniversityId(((await r.json()) as any[])[0]);
   } catch { return null; }
+}
+
+/** The derivation half of userUniversityId, as a pure function over an already-fetched
+ *  users row. Callers that read the users row for other reasons (tutor-context needs
+ *  brain_person_id on the same row) reuse it instead of issuing a second identical
+ *  SELECT on the request's hot path — the rule itself stays defined in exactly one place. */
+export function deriveUniversityId(row: any): string | null {
+  // Sanitize to valid hostname chars only (strips stray chars like a trailing quote that would
+  // fragment a school) — must match the write-side derivation in extension-content.ts.
+  const clean = (h: string) => h.toLowerCase().replace(/[^a-z0-9.-]/g, "") || null;
+  if (row?.university_id) return clean(String(row.university_id));
+  if (row?.canvas_base_url) { try { return clean(new URL(row.canvas_base_url).hostname); } catch { /* fall through */ } }
+  return null;
 }
 
 /** GET a Canvas REST path (relative to /api/v1) with the student's token. */
