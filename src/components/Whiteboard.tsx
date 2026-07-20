@@ -1166,8 +1166,9 @@ export default function Whiteboard({
   return (
     <div style={{
       border: "1px solid rgba(var(--gold-rgb), 0.2)", borderRadius: "14px",
-      background: "rgba(var(--gold-rgb), 0.03)", marginBottom: "20px", overflow: "hidden",
+      background: "rgba(var(--gold-rgb), 0.03)", overflow: "hidden",
       touchAction: "none", overscrollBehavior: "none",
+      height: "100%", display: "flex", flexDirection: "column", minHeight: 0,
     }}>
       <style>{`@keyframes laserFade{to{opacity:0;transform:translate(-50%,-50%) scale(2.5)}}`}</style>
       {/* Header */}
@@ -1434,8 +1435,8 @@ export default function Whiteboard({
       )}
 
       {/* Canvas + overlay */}
-      <div style={{ padding: "12px 16px", display: "flex", justifyContent: "center" }}>
-        <div style={{ position: "relative", width: "100%", maxWidth: `${BOARD_W}px`, transformOrigin: "center center", transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
+      <div style={{ padding: "12px 16px", display: "flex", justifyContent: "center", alignItems: "center", flex: 1, minHeight: 0, overflow: "hidden" }}>
+        <div style={{ position: "relative", height: "100%", aspectRatio: `${BOARD_W} / ${BOARD_H}`, maxWidth: "100%", transformOrigin: "center center", transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
           <canvas
             ref={canvasRef}
             data-whiteboard-canvas="true"
@@ -1449,7 +1450,7 @@ export default function Whiteboard({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             style={{
-              width: "100%", aspectRatio: `${BOARD_W} / ${BOARD_H}`,
+              width: "100%", height: "100%",
               background: bg, borderRadius: "10px", border: "1px solid rgba(255,255,255,0.08)",
               touchAction: "none", cursor, display: "block",
             }}
