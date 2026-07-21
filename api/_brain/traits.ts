@@ -7,12 +7,16 @@
 // stable traits stay alive while stale ones decay. No user delivery.
 import { recall, remember, reinforce, type Store, type Memory } from "./kernel.js";
 
-export type Trait = { key: string; dimension: string; text: string; confidence: number };
+export type Trait = { key: string; dimension: string; text: string; confidence: number; format?: string };
 
 const MIN_SIGNALS = 4; // need enough behavior to characterize anything
 
 const TIME_LABEL: Record<string, string> = {
   late_night: "late at night", morning: "in the morning", afternoon: "in the afternoon", evening: "in the evening",
+};
+// Empirical format preference vocabulary (mirrors users.learning_style CHECK: diagram/talk/read/problem/mix).
+const FORMAT_LABEL: Record<string, string> = {
+  diagram: "visual / diagram", talk: "spoken / dialogue", read: "written", problem: "worked-problem", mix: "mixed",
 };
 
 /** Derive grounded study-profile traits from recent behavioral signals. Pure — no I/O. */
@@ -38,6 +42,23 @@ export function deriveTraits(signals: Memory[]): Trait[] {
     else if (avg <= 40) out.push({ key: "engagement", dimension: "style", text: "Prefers short, quick exchanges.", confidence: 0.6 });
   }
 
+  // Learning preference — EMPIRICAL, not a VARK label: which response format the student actually
+  // engages with, from signals carrying { format, helpful:boolean } (the tutor logs what it tried +
+  // whether it landed). Asserts a preference only with enough evidence AND a clear leader — else it
+  // stays silent and callers fall back to the static onboarding users.learning_style.
+  const fmt: Record<string, { n: number; good: number }> = {};
+  for (const b of bodies) {
+    if (typeof b.format === "string" && typeof b.helpful === "boolean") {
+      const f = (fmt[b.format] ||= { n: 0, good: 0 }); f.n++; if (b.helpful) f.good++;
+    }
+  }
+  const ranked = Object.entries(fmt).filter(([, v]) => v.n >= 3)
+    .map(([f, v]) => ({ f, rate: v.good / v.n })).sort((a, b) => b.rate - a.rate);
+  if (ranked.length && ranked[0].rate >= 0.6 && (ranked.length === 1 || ranked[0].rate - ranked[1].rate >= 0.15)) {
+    out.push({ key: "learning_pref", dimension: "style", format: ranked[0].f, confidence: Math.min(1, ranked[0].rate),
+      text: `Responds best to ${FORMAT_LABEL[ranked[0].f] ?? ranked[0].f} explanations.` });
+  }
+
   return out;
 }
 
@@ -54,7 +75,18 @@ export async function runTraitPass(store: Store, subject: string, now = Date.now
   for (const t of traits) {
     const prior = existing.find((m) => m.body?.key === t.key);
     if (prior) await reinforce(store, prior.id, now, 0.1);
-    else await remember(store, { subject, kind: "trait", salience: Math.max(0.5, t.confidence), source: "trait-engine", body: { key: t.key, dimension: t.dimension, text: t.text } }, now);
+    else await remember(store, { subject, kind: "trait", salience: Math.max(0.5, t.confidence), source: "trait-engine", body: { key: t.key, dimension: t.dimension, text: t.text, ...(t.format ? { format: t.format } : {}) } }, now);
   }
   return traits;
+}
+
+/**
+ * The learning/format preference for a subject: the brain-LEARNED value (empirical `learning_pref`
+ * trait) if one exists, else the caller's static fallback (e.g. users.learning_style from onboarding).
+ * A derived layer over recall — the evidence-based value supersedes the static string as it accrues.
+ */
+export async function resolveLearningStyle(store: Store, subject: string, fallback?: string | null, now = Date.now()): Promise<string | null> {
+  const traits = await recall(store, [subject], { kind: "trait", limit: 50, reinforce: false, now });
+  const pref = traits.find((m) => m.body?.key === "learning_pref");
+  return (pref?.body?.format as string) ?? fallback ?? null;
 }
