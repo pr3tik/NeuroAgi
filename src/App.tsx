@@ -164,6 +164,15 @@ const SHELL_STYLES = `
      header, no nav rail, edge-to-edge like the reference mockup. Leave/Close in
      the room's own bar are the exit paths. */
   .nav-tabs.page-immersive .app-header { display: none; }
+  /* The mockup ground: royal periwinkle with a centre lift + deep corner pool.
+     White-alpha panels on top read as liquid glass automatically. */
+  .nav-tabs.page-immersive .app-main {
+    background: #4657CE;
+    background-image:
+      radial-gradient(65% 55% at 50% 22%, rgba(165, 180, 255, 0.45) 0%, rgba(165, 180, 255, 0) 62%),
+      radial-gradient(85% 75% at 92% 100%, rgba(23, 29, 104, 0.6) 0%, rgba(23, 29, 104, 0) 58%);
+    background-attachment: fixed;
+  }
   .nav-tabs.page-immersive aside,
   .nav-tabs.page-immersive > nav { display: none !important; }
   @media (min-width: 768px) {
