@@ -32,7 +32,6 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BackgroundFetch from 'react-native-background-fetch';
-import DeviceInfo from 'react-native-device-info';
 import { AppState, AppStateStatus } from 'react-native';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -295,7 +294,7 @@ class MobileSignalService {
         startOnBoot: true,
         enableHeadless: true,
       },
-      async (taskId) => {
+      async (taskId: string) => {
         console.log('[BrainSignalService] Background task running:', taskId);
         
         // Collect passive signals
@@ -307,7 +306,7 @@ class MobileSignalService {
         
         BackgroundFetch.finish(taskId);
       },
-      (taskId) => {
+      (taskId: string) => {
         console.log('[BrainSignalService] Background task timeout:', taskId);
         BackgroundFetch.finish(taskId);
       }

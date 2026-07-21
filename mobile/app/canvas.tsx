@@ -4,18 +4,24 @@
 // Courses collapsibles. Skipped: token-entry connect form, manual-upload sheet,
 // past-course "+ Add" write flows (web-extension / web-context specific).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
+import Glass from "../components/Glass";
 import {
   RefreshCw, ChevronUp, ChevronDown, ChevronRight,
   BookOpen, Calendar, Plus, LayoutGrid, List,
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
+import { Skeleton, ErrorState, useRefresh, ThemedRefreshControl } from "../components/States";
 import { supabase } from "../services/supabase";
 import { useUserId } from "../context/AuthContext";
+import { usePageTheme, ThemeColors } from "../constants/appTheme";
+
+const PAGE = "canvas";
 
 // Web CARD_BG is a radial wash (35→74→117→25 greys at 0.6 alpha) under a 20%
 // black overlay. Approximated with a diagonal linear gradient + overlay View.
@@ -49,11 +55,13 @@ function parseScore(g: any): number | null {
 // ── SyncBadge ────────────────────────────────────────────────────────────────
 
 function SyncBadge({ status }: { status: SyncStatus }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const map: Record<string, { label: string; bg: string; color: string }> = {
     syncing: { label: "Syncing…",   bg: "rgba(255,204,0,0.12)",   color: "rgba(255,204,0,0.8)" },
     synced:  { label: "Synced",     bg: "rgba(52,199,89,0.1)",    color: "rgba(100,220,130,0.85)" },
     error:   { label: "Sync error", bg: "rgba(255,59,48,0.1)",    color: "rgba(255,100,90,0.85)" },
-    idle:    { label: "Pending",    bg: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.35)" },
+    idle:    { label: "Pending",    bg: C.surfaceTranslucent, color: C.textDim },
   };
   const { label, bg, color } = map[status] ?? map.idle;
   return (
@@ -66,6 +74,8 @@ function SyncBadge({ status }: { status: SyncStatus }) {
 // ── RefreshButton ────────────────────────────────────────────────────────────
 
 function RefreshButton({ syncStatus, onPress }: { syncStatus: SyncStatus; onPress: () => void }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const busy = syncStatus === "syncing";
   return (
     <TouchableOpacity
@@ -75,10 +85,10 @@ function RefreshButton({ syncStatus, onPress }: { syncStatus: SyncStatus; onPres
       activeOpacity={0.7}
     >
       {busy ? (
-        <Text style={[styles.refreshText, { color: "rgba(255,255,255,0.3)" }]}>Syncing…</Text>
+        <Text style={[styles.refreshText, { color: C.textDim }]}>Syncing…</Text>
       ) : (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-          <RefreshCw size={13} color="rgba(255,255,255,0.6)" strokeWidth={2} />
+          <RefreshCw size={13} color={C.textSecondary} strokeWidth={2} />
           <Text style={styles.refreshText}>Refresh</Text>
         </View>
       )}
@@ -91,26 +101,19 @@ function RefreshButton({ syncStatus, onPress }: { syncStatus: SyncStatus; onPres
 function ConnectCanvas({
   connected, syncStatus, onRefresh,
 }: { connected: boolean; syncStatus: SyncStatus; onRefresh: () => void }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   return (
-    <View style={styles.heroWrap}>
-      <LinearGradient
-        colors={CARD_COLORS}
-        locations={CARD_LOCATIONS}
-        start={CARD_START}
-        end={CARD_END}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.cardOverlay} />
-
+    <Glass colors={C} radius={45} style={styles.heroWrap}>
       {/* Eyebrow badge */}
       <View style={styles.eyebrow}>
         <View style={styles.eyebrowDot} />
-        <Text style={styles.eyebrowText}>ECOSYSTEM SYNC</Text>
+        <Text style={styles.eyebrowText}>Ecosystem sync</Text>
       </View>
 
       {connected ? (
         <>
-          <Text style={styles.heroTitle}>Canvas LMS Connected</Text>
+          <Text style={styles.heroTitle}>LMS Connected</Text>
           <Text style={styles.heroBody}>
             Your academic infrastructure is synced and updating automatically in the background.
           </Text>
@@ -121,9 +124,9 @@ function ConnectCanvas({
         </>
       ) : (
         <>
-          <Text style={styles.heroTitle}>Connect Your Canvas LMS</Text>
+          <Text style={styles.heroTitle}>Connect Your LMS</Text>
           <Text style={styles.heroBody}>
-            Seamlessly integrate your academic infrastructure. Connect Canvas from the
+            Seamlessly integrate your academic infrastructure. Connect your LMS from the
             FschoolAI web app to initiate an automated curriculum handshake — your courses
             will appear here once synced.
           </Text>
@@ -133,13 +136,15 @@ function ConnectCanvas({
           </View>
         </>
       )}
-    </View>
+    </Glass>
   );
 }
 
 // ── CourseGridCard ───────────────────────────────────────────────────────────
 
 function CourseGridCard({ course, assignments }: { course: any; assignments: any[] }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const courseAssignments = (assignments ?? []).filter(
     (a: any) => String(a.courseId) === String(course.id)
   );
@@ -152,20 +157,11 @@ function CourseGridCard({ course, assignments }: { course: any; assignments: any
   const progressPct = score != null ? Math.min(Number(score), 100) : 0;
 
   return (
-    <View style={styles.courseCard}>
-      <LinearGradient
-        colors={CARD_COLORS}
-        locations={CARD_LOCATIONS}
-        start={CARD_START}
-        end={CARD_END}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.cardOverlay} />
-
+    <Glass colors={C} radius={30} style={styles.courseCard}>
       {/* Top row: icon + tag */}
       <View style={styles.courseTopRow}>
         <View style={styles.courseIcon}>
-          <BookOpen size={20} color="#C8C5CB" strokeWidth={1.5} />
+          <BookOpen size={20} color={C.textSecondary} strokeWidth={1.5} />
         </View>
         <View style={styles.courseTag}>
           <Text style={styles.courseTagText}>{(code || "COURSE").toUpperCase()}</Text>
@@ -199,16 +195,16 @@ function CourseGridCard({ course, assignments }: { course: any; assignments: any
       {/* Footer */}
       <View style={styles.courseFooter}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Calendar size={11} color="#C8C5CB" strokeWidth={2} />
+          <Calendar size={11} color={C.textSecondary} strokeWidth={2} />
           <Text style={styles.courseFooterText}>
             {upcoming.length > 0
               ? `${upcoming.length} assignment${upcoming.length !== 1 ? "s" : ""} due`
               : "All caught up"}
           </Text>
         </View>
-        <ChevronRight size={15} color="rgba(200,197,203,0.3)" strokeWidth={2} />
+        <ChevronRight size={15} color={C.textTertiary} strokeWidth={2} />
       </View>
-    </View>
+    </Glass>
   );
 }
 
@@ -217,13 +213,15 @@ function CourseGridCard({ course, assignments }: { course: any; assignments: any
 // Visual parity with the web's dashed "Add New Course" card. The manual-upload
 // sheet is web-only, so this is display-only on mobile for now.
 function AddNewCard() {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   return (
     <View style={styles.addCard}>
       <View style={styles.addCircle}>
-        <Plus size={24} color="rgba(200,197,203,0.75)" strokeWidth={1.5} />
+        <Plus size={24} color={C.textSecondary} strokeWidth={1.5} />
       </View>
       <Text style={styles.addTitle}>Add New Course</Text>
-      <Text style={styles.addSub}>Import from Canvas or add manually</Text>
+      <Text style={styles.addSub}>Import from your LMS or add manually</Text>
       <View style={styles.addPill}>
         <Text style={styles.addPillText}>Add manually</Text>
       </View>
@@ -234,20 +232,22 @@ function AddNewCard() {
 // ── AnnouncementsSection ─────────────────────────────────────────────────────
 
 function AnnouncementsSection({ announcements }: { announcements: any[] }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const [open, setOpen] = useState(true);
   if (!announcements?.length) return null;
 
   const shown = announcements.slice(0, 5);
 
   return (
-    <View style={styles.collapse}>
+    <Glass radius={16} style={styles.collapse} colors={C}>
       <TouchableOpacity style={styles.collapseHeader} onPress={() => setOpen(o => !o)} activeOpacity={0.7}>
-        <Text style={styles.collapseTitle}>ANNOUNCEMENTS</Text>
+        <Text style={styles.collapseTitle}>Announcements</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <Text style={styles.collapseCount}>{announcements.length} ·</Text>
           {open
-            ? <ChevronUp size={12} color="rgba(200,197,203,0.4)" strokeWidth={2} />
-            : <ChevronDown size={12} color="rgba(200,197,203,0.4)" strokeWidth={2} />}
+            ? <ChevronUp size={12} color={C.textTertiary} strokeWidth={2} />
+            : <ChevronDown size={12} color={C.textTertiary} strokeWidth={2} />}
         </View>
       </TouchableOpacity>
 
@@ -269,7 +269,7 @@ function AnnouncementsSection({ announcements }: { announcements: any[] }) {
           ))}
         </View>
       )}
-    </View>
+    </Glass>
   );
 }
 
@@ -278,6 +278,8 @@ function AnnouncementsSection({ announcements }: { announcements: any[] }) {
 // Read-only on mobile: the web's "+ Add" / "+ Add manually" write flows depend
 // on the web AppContext (Canvas API fetches + localStorage bookkeeping).
 function PastCoursesSection({ pastCourses }: { pastCourses: any[] }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const [open, setOpen] = useState(false);
 
   const grouped: Record<string, any[]> = {};
@@ -288,14 +290,14 @@ function PastCoursesSection({ pastCourses }: { pastCourses: any[] }) {
   });
 
   return (
-    <View style={styles.collapse}>
+    <Glass radius={16} style={styles.collapse} colors={C}>
       <TouchableOpacity style={styles.collapseHeader} onPress={() => setOpen(o => !o)} activeOpacity={0.7}>
-        <Text style={styles.collapseTitle}>PAST COURSES</Text>
+        <Text style={styles.collapseTitle}>Past courses</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <Text style={styles.collapseCount}>{pastCourses.length}</Text>
           {open
-            ? <ChevronUp size={12} color="rgba(200,197,203,0.4)" strokeWidth={2} />
-            : <ChevronDown size={12} color="rgba(200,197,203,0.4)" strokeWidth={2} />}
+            ? <ChevronUp size={12} color={C.textTertiary} strokeWidth={2} />
+            : <ChevronDown size={12} color={C.textTertiary} strokeWidth={2} />}
         </View>
       </TouchableOpacity>
 
@@ -328,13 +330,15 @@ function PastCoursesSection({ pastCourses }: { pastCourses: any[] }) {
           </Text>
         </View>
       )}
-    </View>
+    </Glass>
   );
 }
 
 // ── Main screen ──────────────────────────────────────────────────────────────
 
 export default function CanvasScreen() {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const userId = useUserId();
   const [courses, setCourses]             = useState<any[]>([]);
   const [assignments, setAssignments]     = useState<any[]>([]);
@@ -431,9 +435,15 @@ export default function CanvasScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  const { refreshing, onRefresh } = useRefresh(load);
+
   return (
     <ScreenWrapper page="canvas">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 8 }}
+        refreshControl={<ThemedRefreshControl colors={C} refreshing={refreshing} onRefresh={onRefresh} />}
+      >
 
         {/* ── Page header ── */}
         <View style={styles.pageHeader}>
@@ -444,21 +454,11 @@ export default function CanvasScreen() {
           </Text>
         </View>
 
-        {/* ── Connect Canvas hero card ── */}
-        {/* connected is purely Boolean(canvas_token) — matches web's Canvas.tsx
-            exactly (`{canvasToken ? ... : ...}`). Courses can exist from the
-            browser extension's LMS sync without ever setting canvas_token, and
-            web correctly still shows "not connected" in that case — mobile
-            was incorrectly OR'ing in courses.length > 0 as a fallback, which
-            showed "connected" for extension-synced users when web doesn't. */}
-        <ConnectCanvas
-          connected={connected}
-          syncStatus={syncStatus}
-          onRefresh={load}
-        />
+        {/* LMS connection status/refresh lives on the Profile → Connections
+            settings card now (app/identity.tsx), not on this Courses screen. */}
 
         {/* ── Course Library ── */}
-        <View style={{ marginTop: 80 }}>
+        <View style={{ marginTop: 24 }}>
           <View style={styles.sectionHeader}>
             <View>
               <Text style={styles.sectionTitle}>Course Library</Text>
@@ -473,31 +473,39 @@ export default function CanvasScreen() {
                 onPress={() => setGridView(true)}
                 style={[styles.viewToggle, gridView && styles.viewToggleActive]}
               >
-                <LayoutGrid size={14} color="#C8C5CB" strokeWidth={2} />
+                <LayoutGrid size={14} color={C.textSecondary} strokeWidth={2} />
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setGridView(false)}
                 style={[styles.viewToggle, !gridView && styles.viewToggleActive]}
               >
-                <List size={14} color="#C8C5CB" strokeWidth={2} />
+                <List size={14} color={C.textSecondary} strokeWidth={2} />
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Course grid — single column on phone (web's isMobile branch) */}
           <View style={{ gap: 20 }}>
-            {courses.map((c: any, i: number) => (
-              <CourseGridCard
-                key={c.id ?? c.courseCode ?? i}
-                course={c}
-                assignments={assignments}
-              />
-            ))}
+            {syncStatus === "syncing" && courses.length === 0
+              ? [0, 1, 2].map(i => <Skeleton key={i} colors={C} height={148} radius={16} />)
+              : courses.map((c: any, i: number) => (
+                  <CourseGridCard
+                    key={c.id ?? c.courseCode ?? i}
+                    course={c}
+                    assignments={assignments}
+                  />
+                ))}
             <AddNewCard />
           </View>
 
-          {syncStatus === "syncing" && courses.length === 0 && (
-            <Text style={styles.syncingText}>Syncing your courses…</Text>
+          {syncStatus === "error" && courses.length === 0 && (
+            <ErrorState
+              compact
+              colors={C}
+              title="Couldn't sync your courses"
+              message="Check your connection and try again. Your saved courses will still be here."
+              onRetry={load}
+            />
           )}
         </View>
 
@@ -522,80 +530,80 @@ export default function CanvasScreen() {
 
 // ── styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
+const makeStyles = (C: ThemeColors) => StyleSheet.create({
   // Page header
   pageHeader:    { alignItems: "center", marginBottom: 64 },
-  pageTitle:     { fontFamily: "FunnelDisplay_300Light", fontSize: 48, lineHeight: 56, letterSpacing: -1.2, color: "#E3E2E2", textAlign: "center", marginBottom: 16 },
-  pageSubtitle:  { fontFamily: "Inter_400Regular", fontSize: 16, lineHeight: 24, color: "#C8C5CB", textAlign: "center", maxWidth: 628 },
+  pageTitle:     { fontWeight: "600", fontSize: 48, lineHeight: 56, letterSpacing: -1.2, color: C.textPrimary, textAlign: "center", marginBottom: 16 },
+  pageSubtitle:  { fontWeight: "400", fontSize: 16, lineHeight: 24, color: C.textSecondary, textAlign: "center", maxWidth: 628 },
 
   // Shared card gradient overlay (web CARD_BG's 20% black layer)
   cardOverlay:   { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.2)" },
 
   // Hero card
-  heroWrap:      { borderRadius: 45, borderWidth: 1, borderColor: "rgba(200,197,203,0.1)", padding: 40, overflow: "hidden", alignItems: "center" },
-  eyebrow:       { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 4, borderRadius: 9999, borderWidth: 1, borderColor: "rgba(200,197,203,0.2)", marginBottom: 24 },
-  eyebrowDot:    { width: 9, height: 9, borderRadius: 9999, backgroundColor: "#121414" },
-  eyebrowText:   { fontFamily: "Inter_400Regular", fontSize: 10, letterSpacing: 1, color: "#FEF6E6", textTransform: "uppercase" },
-  heroTitle:     { fontFamily: "FunnelDisplay_300Light", fontSize: 32, lineHeight: 40, letterSpacing: -0.32, color: "#E3E2E2", textAlign: "center", marginBottom: 16 },
-  heroBody:      { fontFamily: "Inter_400Regular", fontSize: 16, lineHeight: 26, color: "#C8C5CB", textAlign: "center", maxWidth: 500, marginBottom: 32 },
+  heroWrap:      { padding: 40, alignItems: "center" },
+  eyebrow:       { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 4, borderRadius: 9999, borderWidth: 1, borderColor: C.border, marginBottom: 24 },
+  eyebrowDot:    { width: 9, height: 9, borderRadius: 9999, backgroundColor: C.accent },
+  eyebrowText:   { fontWeight: "400", fontSize: 10, letterSpacing: 1, color: C.textSecondary, },
+  heroTitle:     { fontWeight: "600", fontSize: 32, lineHeight: 40, letterSpacing: -0.32, color: C.textPrimary, textAlign: "center", marginBottom: 16 },
+  heroBody:      { fontWeight: "400", fontSize: 16, lineHeight: 26, color: C.textSecondary, textAlign: "center", maxWidth: 500, marginBottom: 32 },
   heroRow:       { flexDirection: "row", alignItems: "center", gap: 12, justifyContent: "center", marginBottom: 16 },
 
   syncBadge:     { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  syncBadgeText: { fontFamily: "Inter_500Medium", fontSize: 11 },
+  syncBadgeText: { fontWeight: "500", fontSize: 11 },
 
-  refreshBtn:    { borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
-  refreshText:   { fontFamily: "Inter_500Medium", fontSize: 11, color: "rgba(255,255,255,0.6)" },
+  refreshBtn:    { borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
+  refreshText:   { fontWeight: "500", fontSize: 11, color: C.textSecondary },
 
   // Course Library section header
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 32 },
-  sectionTitle:  { fontFamily: "Inter_600SemiBold", fontSize: 18, letterSpacing: -0.18, color: "#E3E2E2", marginBottom: 4 },
-  sectionSub:    { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(200,197,203,0.5)" },
-  viewToggle:    { width: 32, height: 36, backgroundColor: "rgba(26,26,30,0.6)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  viewToggleActive: { backgroundColor: "rgba(200,197,203,0.1)", borderColor: "rgba(200,197,203,0.2)" },
+  sectionTitle:  { fontWeight: "600", fontSize: 18, letterSpacing: -0.18, color: C.textPrimary, marginBottom: 4 },
+  sectionSub:    { fontWeight: "400", fontSize: 14, color: C.textTertiary },
+  viewToggle:    { width: 32, height: 36, backgroundColor: C.surfaceTranslucent, borderWidth: 1, borderColor: C.border, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  viewToggleActive: { backgroundColor: C.accentSoft, borderColor: C.accentLine },
 
-  // Course card
-  courseCard:    { padding: 29, borderRadius: 30, minHeight: 314, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", overflow: "hidden" },
+  // Course card (Glass supplies the frost + border + radius; this is layout only)
+  courseCard:    { padding: 29, minHeight: 314 },
   courseTopRow:  { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 },
-  courseIcon:    { width: 44, height: 44, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  courseTag:     { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.05)", borderRadius: 4 },
-  courseTagText: { fontFamily: "Inter_400Regular", fontSize: 10, letterSpacing: 1, color: "rgba(200,197,203,0.6)" },
-  courseTitle:   { fontFamily: "Inter_600SemiBold", fontSize: 18, letterSpacing: -0.18, color: "#E3E2E2", marginBottom: 8 },
-  courseDesc:    { fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 20, color: "rgba(200,197,203,0.7)", marginBottom: 24, flexGrow: 1 },
+  courseIcon:    { width: 44, height: 44, backgroundColor: C.surfaceTranslucent, borderWidth: 1, borderColor: C.border, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  courseTag:     { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.surfaceTranslucent, borderWidth: 1, borderColor: C.border, borderRadius: 4 },
+  courseTagText: { fontWeight: "400", fontSize: 10, letterSpacing: 1, color: C.textSecondary },
+  courseTitle:   { fontWeight: "600", fontSize: 18, letterSpacing: -0.18, color: C.textPrimary, marginBottom: 8 },
+  courseDesc:    { fontWeight: "400", fontSize: 14, lineHeight: 20, color: C.textSecondary, marginBottom: 24, flexGrow: 1 },
 
   progressLabelRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  progressLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(200,197,203,0.8)" },
-  progressValue: { fontFamily: "Inter_700Bold", fontSize: 11, color: "#C8C5CB" },
-  progressTrack: { height: 4, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 9999, overflow: "hidden" },
-  progressFill:  { height: "100%", backgroundColor: "#C8C5CB", borderRadius: 9999 },
+  progressLabel: { fontWeight: "400", fontSize: 11, color: C.textSecondary },
+  progressValue: { fontWeight: "700", fontSize: 11, color: C.textSecondary },
+  progressTrack: { height: 4, backgroundColor: C.surfaceTranslucent, borderRadius: 9999, overflow: "hidden" },
+  progressFill:  { height: "100%", backgroundColor: C.accent, borderRadius: 9999 },
 
-  courseFooter:  { borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)", paddingTop: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  courseFooterText: { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(227,226,226,0.9)" },
+  courseFooter:  { borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  courseFooterText: { fontWeight: "400", fontSize: 14, color: C.textSecondary },
 
   // Add-new card
-  addCard:       { padding: 29, borderRadius: 30, minHeight: 314, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center", gap: 16 },
-  addCircle:     { width: 64, height: 64, borderRadius: 9999, backgroundColor: "rgba(255,255,255,0.03)", alignItems: "center", justifyContent: "center" },
-  addTitle:      { fontFamily: "Inter_400Regular", fontSize: 18, color: "#E3E2E2", textAlign: "center" },
-  addSub:        { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(200,197,203,0.6)", textAlign: "center" },
-  addPill:       { borderWidth: 1, borderColor: "rgba(255,255,255,0.05)", borderRadius: 9999, paddingHorizontal: 20, paddingVertical: 8 },
-  addPillText:   { fontFamily: "Inter_400Regular", fontSize: 14, color: "#FFFEFF" },
+  addCard:       { padding: 29, borderRadius: 30, minHeight: 314, borderWidth: 1, borderStyle: "dashed", borderColor: C.border, alignItems: "center", justifyContent: "center", gap: 16 },
+  addCircle:     { width: 64, height: 64, borderRadius: 9999, backgroundColor: C.surface, alignItems: "center", justifyContent: "center" },
+  addTitle:      { fontWeight: "400", fontSize: 18, color: C.textPrimary, textAlign: "center" },
+  addSub:        { fontWeight: "400", fontSize: 14, color: C.textSecondary, textAlign: "center" },
+  addPill:       { borderWidth: 1, borderColor: C.surfaceTranslucent, borderRadius: 9999, paddingHorizontal: 20, paddingVertical: 8 },
+  addPillText:   { fontWeight: "400", fontSize: 14, color: C.textSecondary },
 
-  syncingText:   { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(200,197,203,0.5)", textAlign: "center", marginTop: 40 },
+  syncingText:   { fontWeight: "400", fontSize: 14, color: C.textTertiary, textAlign: "center", marginTop: 40 },
 
   // Collapsible sections (announcements / past courses)
-  collapse:      { backgroundColor: "rgba(26,26,30,0.6)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", borderRadius: 16, overflow: "hidden" },
+  collapse:      { borderRadius: 16, overflow: "hidden" },
   collapseHeader:{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 18, paddingVertical: 14 },
-  collapseTitle: { fontFamily: "Inter_600SemiBold", fontSize: 13, letterSpacing: 0.52, color: "#E3E2E2" },
-  collapseCount: { fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(200,197,203,0.4)" },
-  collapseBody:  { borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
-  rowDivider:    { borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.04)" },
+  collapseTitle: { fontWeight: "600", fontSize: 13, letterSpacing: 0.52, color: C.textPrimary },
+  collapseCount: { fontWeight: "400", fontSize: 12, color: C.textTertiary },
+  collapseBody:  { borderTopWidth: 1, borderTopColor: C.border },
+  rowDivider:    { borderBottomWidth: 1, borderBottomColor: C.border },
 
   annRow:        { paddingHorizontal: 18, paddingVertical: 12 },
-  annTitle:      { fontFamily: "Inter_500Medium", fontSize: 13, color: "#E3E2E2", marginBottom: 3 },
-  annMeta:       { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(200,197,203,0.4)" },
+  annTitle:      { fontWeight: "500", fontSize: 13, color: C.textPrimary, marginBottom: 3 },
+  annMeta:       { fontWeight: "400", fontSize: 11, color: C.textTertiary },
 
-  pastSemester:  { fontFamily: "Inter_400Regular", fontSize: 10, letterSpacing: 1.5, color: "rgba(200,197,203,0.4)", paddingHorizontal: 18, paddingTop: 10, paddingBottom: 6 },
+  pastSemester:  { fontWeight: "400", fontSize: 10, letterSpacing: 0.2, color: C.textTertiary, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 6 },
   pastRow:       { paddingHorizontal: 18, paddingVertical: 11, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  pastName:      { fontFamily: "Inter_500Medium", fontSize: 13, color: "#E3E2E2" },
-  pastMeta:      { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(200,197,203,0.4)", marginTop: 2 },
-  pastFootnote:  { fontFamily: "Inter_400Regular", fontSize: 11, lineHeight: 16, color: "rgba(200,197,203,0.4)", paddingHorizontal: 18, paddingTop: 10, paddingBottom: 12 },
+  pastName:      { fontWeight: "500", fontSize: 13, color: C.textPrimary },
+  pastMeta:      { fontWeight: "400", fontSize: 11, color: C.textTertiary, marginTop: 2 },
+  pastFootnote:  { fontWeight: "400", fontSize: 11, lineHeight: 16, color: C.textTertiary, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 12 },
 });

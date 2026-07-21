@@ -6,27 +6,29 @@
 // Skipped (need native file pickers): note-file upload, lecture-recording upload —
 // both degrade to an honest "upload on the web app" note.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useLocalSearchParams } from "expo-router";
 import Svg, { Line, Circle, G, Text as SvgText } from "react-native-svg";
 import {
   Sparkles, Check, ArrowUp, Hourglass, ChevronUp, ChevronDown, Circle as CircleIcon,
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
+import Glass from "../components/Glass";
+import { EmptyState, useRefresh, ThemedRefreshControl } from "../components/States";
+import { usePageTheme, ThemeColors } from "../constants/appTheme";
+import { FilesLibrary } from "./files";
 import { supabase } from "../services/supabase";
 import { apiFetch } from "../services/api";
 import { useUserId } from "../context/AuthContext";
 
+const PAGE = "toolkit";
+
 // tokens.css values
 const T = {
-  textPrimary:   "#F5F5F5",
-  textSecondary: "rgba(255,255,255,0.45)",
-  textDim:       "rgba(255,255,255,0.35)",
-  surface:       "rgba(255,255,255,0.05)",
-  border:        "rgba(255,255,255,0.08)",
   radiusCard:    16,
   radiusBtn:     12,
 };
@@ -102,6 +104,8 @@ Rules: 6-10 nodes, 4-8 edges, course field must match a course code listed above
 }
 
 function KnowledgeGraph({ courses, assignments }: { courses: Course[]; assignments: Assignment[] }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const [graphData, setGraphData] = useState<any>(null);
   const [loading,   setLoading]   = useState(false);
   const [hovered,   setHovered]   = useState<string | null>(null);
@@ -134,12 +138,12 @@ function KnowledgeGraph({ courses, assignments }: { courses: Course[]; assignmen
   if (!loading && (!graphData || !graphData.nodes?.length)) {
     return (
       <View style={[styles.kgCard, { alignItems: "center", paddingVertical: 24 }]}>
-        <Text style={styles.kgLabel}>KNOWLEDGE GRAPH</Text>
+        <Text style={styles.kgLabel}>Knowledge graph</Text>
         <Text style={styles.kgEmptyTitle}>
-          {courses.length === 0 ? "Connect Canvas to build your knowledge map" : "Your knowledge map builds as you study"}
+          {courses.length === 0 ? "Connect your LMS to build your knowledge map" : "Your knowledge map builds as you study"}
         </Text>
         <Text style={styles.kgEmptySub}>
-          {courses.length === 0 ? "Sync Canvas and the graph populates automatically." : "Keep studying — concepts will appear here as you go."}
+          {courses.length === 0 ? "Sync your LMS and the graph populates automatically." : "Keep studying — concepts will appear here as you go."}
         </Text>
       </View>
     );
@@ -150,12 +154,12 @@ function KnowledgeGraph({ courses, assignments }: { courses: Course[]; assignmen
   return (
     <View style={styles.kgCard}>
       <View style={styles.kgHeader}>
-        <Text style={styles.kgLabel}>KNOWLEDGE GRAPH</Text>
+        <Text style={styles.kgLabel}>Knowledge graph</Text>
         <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
           {Object.entries(courseColors).map(([course, color]) => (
             <View key={course} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color as string }} />
-              <Text style={{ fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
+              <Text style={{ fontWeight: "400", fontSize: 10, color: C.textTertiary }}>
                 {course.split(" ")[0]}
               </Text>
             </View>
@@ -165,7 +169,7 @@ function KnowledgeGraph({ courses, assignments }: { courses: Course[]; assignmen
 
       {loading ? (
         <View style={{ height: 200, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(255,255,255,0.2)", letterSpacing: 1 }}>
+          <Text style={{ fontWeight: "400", fontSize: 11, color: C.textTertiary, letterSpacing: 1 }}>
             Generating graph…
           </Text>
         </View>
@@ -212,19 +216,19 @@ function KnowledgeGraph({ courses, assignments }: { courses: Course[]; assignmen
         {hoveredNode ? (
           <View>
             <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
-              <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 11, color: courseColors[hoveredNode.course] ?? "#fff" }}>
+              <Text style={{ fontWeight: "600", fontSize: 11, color: courseColors[hoveredNode.course] ?? "#fff" }}>
                 {hoveredNode.label}
               </Text>
-              <Text style={{ fontFamily: "Inter_400Regular", fontSize: 10, color: T.textDim, letterSpacing: 0.5 }}>
+              <Text style={{ fontWeight: "400", fontSize: 10, color: C.textDim, letterSpacing: 0.5 }}>
                 {hoveredNode.course}
               </Text>
             </View>
-            <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, lineHeight: 17, color: "rgba(255,255,255,0.45)" }}>
+            <Text style={{ fontWeight: "400", fontSize: 11, lineHeight: 17, color: C.textSecondary }}>
               {hoveredNode.desc}
             </Text>
           </View>
         ) : (
-          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: 14 }}>
+          <Text style={{ fontWeight: "400", fontSize: 11, color: C.textTertiary, textAlign: "center", marginTop: 14 }}>
             Tap a concept to trace connections
           </Text>
         )}
@@ -236,6 +240,8 @@ function KnowledgeGraph({ courses, assignments }: { courses: Course[]; assignmen
 // ── Notes tab ─────────────────────────────────────────────────────────────────
 
 function ClassNotesTab({ courses, assignments }: { courses: Course[]; assignments: Assignment[] }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const [expanded,      setExpanded]      = useState<string | null>(null);
   const [rubrics,       setRubrics]       = useState<Record<string, any>>({});
   const [rubricLoading, setRubricLoading] = useState<Record<string, boolean>>({});
@@ -294,7 +300,7 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
     saveDates({ ...lectureDates, [cid]: lectureDates[cid].filter((_, i) => i !== idx) });
   }
 
-  if (!courses.length) return <EmptyCard title="No courses yet" sub="Connect Canvas to see your courses here" />;
+  if (!courses.length) return <EmptyCard title="No courses yet" sub="Connect your LMS to see your courses here" />;
 
   return (
     <View style={{ gap: 10 }}>
@@ -310,11 +316,11 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
             <TouchableOpacity style={styles.courseHeader} onPress={() => setExpanded(open ? null : cid)} activeOpacity={0.7}>
               <View style={{ minWidth: 0, flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                  <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 10, color, letterSpacing: 0.5 }}>
+                  <Text style={{ fontWeight: "600", fontSize: 10, color, letterSpacing: 0.5 }}>
                     {course.courseCode ?? course.name}
                   </Text>
                   {dates.length > 0 && (
-                    <Text style={{ fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(255,200,100,0.6)" }}>
+                    <Text style={{ fontWeight: "400", fontSize: 10, color: "rgba(255,200,100,0.6)" }}>
                       {dates.length} date{dates.length !== 1 ? "s" : ""}
                     </Text>
                   )}
@@ -322,22 +328,22 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
                 <Text numberOfLines={1} style={styles.courseName}>{course.name}</Text>
               </View>
               <View style={{ marginLeft: 12 }}>
-                {open ? <ChevronUp size={16} color={T.textDim} /> : <ChevronDown size={16} color={T.textDim} />}
+                {open ? <ChevronUp size={16} color={C.textDim} /> : <ChevronDown size={16} color={C.textDim} />}
               </View>
             </TouchableOpacity>
 
             {open && (
               <View style={styles.courseBody}>
                 {/* Notes & files — upload needs a native picker; degrade honestly */}
-                <Text style={styles.subLabel}>NOTES & FILES</Text>
+                <Text style={styles.subLabel}>Notes & files</Text>
                 <Text style={styles.dimNote}>Upload notes from the web app — mobile upload coming with file-picker support</Text>
 
                 {/* Lecture dates */}
-                <Text style={styles.subLabel}>LECTURE DATES</Text>
+                <Text style={styles.subLabel}>Lecture dates</Text>
                 <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
                   <TextInput
                     placeholder="YYYY-MM-DD"
-                    placeholderTextColor={T.textDim}
+                    placeholderTextColor={C.textDim}
                     value={dateInput[cid] || ""}
                     onChangeText={v => setDateInput(prev => ({ ...prev, [cid]: v }))}
                     style={styles.dateInput}
@@ -350,7 +356,7 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
                   <View style={{ gap: 5, marginBottom: 16 }}>
                     {dates.map((d, i) => (
                       <View key={i} style={styles.dateRow}>
-                        <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(255,200,100,0.8)" }}>
+                        <Text style={{ fontWeight: "400", fontSize: 12, color: "rgba(255,200,100,0.8)" }}>
                           {new Date(d.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                         </Text>
                         <TouchableOpacity onPress={() => removeLectureDate(cid, i)} hitSlop={8}>
@@ -364,10 +370,10 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
                 )}
 
                 {/* AI Rubric */}
-                <View style={{ borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)", paddingTop: 14 }}>
+                <View style={{ borderTopWidth: 1, borderTopColor: C.surfaceTranslucent, paddingTop: 14 }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <Text style={styles.subLabelInline}>
-                      AI RUBRIC{rubric ? <Text style={{ color: "rgba(255,255,255,0.2)", letterSpacing: 0 }}>  · generated {rubric.generatedAt}</Text> : null}
+                      AI RUBRIC{rubric ? <Text style={{ color: C.textTertiary, letterSpacing: 0 }}>  · generated {rubric.generatedAt}</Text> : null}
                     </Text>
                     <TouchableOpacity
                       style={styles.purpleBtn}
@@ -392,21 +398,21 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
                       {(rubric.criteria || []).map((c: any, i: number) => (
                         <View key={i} style={styles.rubricCard}>
                           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                            <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 12, color: "rgba(190,130,255,0.9)" }}>{c.name}</Text>
-                            <Text style={{ fontFamily: "Inter_400Regular", fontSize: 10, color: T.textDim }}>{c.weight}%</Text>
+                            <Text style={{ fontWeight: "600", fontSize: 12, color: "rgba(190,130,255,0.9)" }}>{c.name}</Text>
+                            <Text style={{ fontWeight: "400", fontSize: 10, color: C.textDim }}>{c.weight}%</Text>
                           </View>
                           <View style={{ flexDirection: "row", gap: 4, marginBottom: 3 }}>
                             <Check size={11} color="rgba(100,220,155,0.7)" style={{ marginTop: 2 }} />
-                            <Text style={{ flex: 1, fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(100,220,155,0.7)" }}>{c.excellent}</Text>
+                            <Text style={{ flex: 1, fontWeight: "400", fontSize: 11, color: "rgba(100,220,155,0.7)" }}>{c.excellent}</Text>
                           </View>
                           <View style={{ flexDirection: "row", gap: 4 }}>
                             <ArrowUp size={11} color="rgba(255,130,100,0.6)" style={{ marginTop: 2 }} />
-                            <Text style={{ flex: 1, fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(255,130,100,0.6)" }}>{c.needs_work}</Text>
+                            <Text style={{ flex: 1, fontWeight: "400", fontSize: 11, color: "rgba(255,130,100,0.6)" }}>{c.needs_work}</Text>
                           </View>
                         </View>
                       ))}
                       {rubric.summary ? (
-                        <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, fontStyle: "italic", color: T.textSecondary, marginTop: 4 }}>
+                        <Text style={{ fontWeight: "400", fontSize: 12, fontStyle: "italic", color: C.textSecondary, marginTop: 4 }}>
                           {rubric.summary}
                         </Text>
                       ) : null}
@@ -429,6 +435,8 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
 // ── Recordings tab ────────────────────────────────────────────────────────────
 
 function RecordingsTab({ courses }: { courses: Course[] }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const [transcripts, setTranscripts] = useState<Record<string, any[]>>({});
   const [expanded,    setExpanded]    = useState<string | null>(null);
   const [textInput,   setTextInput]   = useState<Record<string, string>>({});
@@ -446,16 +454,16 @@ function RecordingsTab({ courses }: { courses: Course[] }) {
     save({ ...transcripts, [cid]: transcripts[cid].filter((_, i) => i !== idx) });
   }
 
-  if (!courses.length) return <EmptyCard title="No courses yet" sub="Connect Canvas to see your courses here" />;
+  if (!courses.length) return <EmptyCard title="No courses yet" sub="Connect your LMS to see your courses here" />;
 
   return (
     <View style={{ gap: 10 }}>
       <View style={styles.wisprCard}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: "Inter_500Medium", fontSize: 12, color: "rgba(100,180,255,0.85)", marginBottom: 2 }}>
+          <Text style={{ fontWeight: "500", fontSize: 12, color: "rgba(100,180,255,0.85)", marginBottom: 2 }}>
             Wisprflow not connected
           </Text>
-          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: T.textDim }}>
+          <Text style={{ fontWeight: "400", fontSize: 11, color: C.textDim }}>
             Audio recording + auto-transcription pending Vincent's API access
           </Text>
         </View>
@@ -472,16 +480,16 @@ function RecordingsTab({ courses }: { courses: Course[] }) {
           <View key={cid} style={styles.courseCard}>
             <TouchableOpacity style={styles.courseHeader} onPress={() => setExpanded(open ? null : cid)} activeOpacity={0.7}>
               <View style={{ minWidth: 0, flex: 1 }}>
-                <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 10, color, letterSpacing: 0.5, marginBottom: 3 }}>
+                <Text style={{ fontWeight: "600", fontSize: 10, color, letterSpacing: 0.5, marginBottom: 3 }}>
                   {course.courseCode ?? course.name}
                 </Text>
                 <Text numberOfLines={1} style={styles.courseName}>{course.name}</Text>
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 10, color: T.textDim }}>
+                <Text style={{ fontWeight: "400", fontSize: 10, color: C.textDim }}>
                   {items.length} transcript{items.length !== 1 ? "s" : ""}
                 </Text>
-                {open ? <ChevronUp size={16} color={T.textDim} /> : <ChevronDown size={16} color={T.textDim} />}
+                {open ? <ChevronUp size={16} color={C.textDim} /> : <ChevronDown size={16} color={C.textDim} />}
               </View>
             </TouchableOpacity>
 
@@ -489,15 +497,15 @@ function RecordingsTab({ courses }: { courses: Course[] }) {
               <View style={styles.courseBody}>
                 <View style={styles.recordBtn}>
                   <CircleIcon size={12} color="rgba(255,100,90,0.6)" fill="rgba(255,100,90,0.6)" />
-                  <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, color: "rgba(255,100,90,0.6)" }}>
+                  <Text style={{ fontWeight: "400", fontSize: 13, color: "rgba(255,100,90,0.6)" }}>
                     Record Lecture — requires Wisprflow
                   </Text>
                 </View>
 
-                <Text style={styles.subLabel}>TRANSCRIPTS</Text>
+                <Text style={styles.subLabel}>Transcripts</Text>
                 <TextInput
                   placeholder="Paste transcript text here…"
-                  placeholderTextColor={T.textDim}
+                  placeholderTextColor={C.textDim}
                   value={textInput[cid] || ""}
                   onChangeText={v => setTextInput(prev => ({ ...prev, [cid]: v }))}
                   multiline
@@ -512,12 +520,12 @@ function RecordingsTab({ courses }: { courses: Course[] }) {
                     {items.map((t, i) => (
                       <View key={i} style={styles.transcriptCard}>
                         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 10, color: T.textDim }}>Transcript · {t.addedAt}</Text>
+                          <Text style={{ fontWeight: "400", fontSize: 10, color: C.textDim }}>Transcript · {t.addedAt}</Text>
                           <TouchableOpacity onPress={() => removeTranscript(cid, i)} hitSlop={8}>
                             <Text style={{ fontSize: 14, color: "rgba(255,100,90,0.5)" }}>×</Text>
                           </TouchableOpacity>
                         </View>
-                        <Text numberOfLines={4} style={{ fontFamily: "Inter_400Regular", fontSize: 12, lineHeight: 19, color: T.textSecondary }}>
+                        <Text numberOfLines={4} style={{ fontWeight: "400", fontSize: 12, lineHeight: 19, color: C.textSecondary }}>
                           {t.text}
                         </Text>
                       </View>
@@ -536,6 +544,8 @@ function RecordingsTab({ courses }: { courses: Course[] }) {
 // ── Lecture Digest tab ────────────────────────────────────────────────────────
 
 function LectureDigestTab() {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const userId = useUserId();
   const [digests,  setDigests]  = useState<any[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -555,7 +565,7 @@ function LectureDigestTab() {
     <View style={{ gap: 14 }}>
       <Text style={styles.dimNote}>Upload lecture recordings from the web app — digests appear here once processed</Text>
 
-      {loading && <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: T.textDim }}>Loading past digests…</Text>}
+      {loading && <Text style={{ fontWeight: "400", fontSize: 12, color: C.textDim }}>Loading past digests…</Text>}
 
       {!loading && digests.length === 0 && (
         <EmptyCard title="No lecture digests yet" sub="Upload a lecture recording on the web to get a summary, flashcards, and a quiz" />
@@ -567,20 +577,20 @@ function LectureDigestTab() {
           <View key={d.id} style={styles.courseCard}>
             <TouchableOpacity style={styles.courseHeader} onPress={() => setExpanded(open ? null : d.id)} activeOpacity={0.7}>
               <Text numberOfLines={1} style={[styles.courseName, { flex: 1, fontSize: 13 }]}>{d.title ?? "Lecture"}</Text>
-              {open ? <ChevronUp size={16} color={T.textDim} /> : <ChevronDown size={16} color={T.textDim} />}
+              {open ? <ChevronUp size={16} color={C.textDim} /> : <ChevronDown size={16} color={C.textDim} />}
             </TouchableOpacity>
             {open && (
               <View style={styles.courseBody}>
                 {d.summary ? (
-                  <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 21, color: T.textSecondary, marginBottom: 10 }}>
+                  <Text style={{ fontWeight: "400", fontSize: 13, lineHeight: 21, color: C.textSecondary, marginBottom: 10 }}>
                     {d.summary}
                   </Text>
                 ) : null}
                 {Array.isArray(d.key_points) && d.key_points.length > 0 && (
                   <View style={{ gap: 6 }}>
-                    <Text style={styles.subLabel}>KEY POINTS</Text>
+                    <Text style={styles.subLabel}>Key points</Text>
                     {d.key_points.map((p: any, i: number) => (
-                      <Text key={i} style={{ fontFamily: "Inter_400Regular", fontSize: 12, lineHeight: 19, color: T.textSecondary }}>
+                      <Text key={i} style={{ fontWeight: "400", fontSize: 12, lineHeight: 19, color: C.textSecondary }}>
                         • {typeof p === "string" ? p : p?.point ?? ""}
                       </Text>
                     ))}
@@ -598,6 +608,8 @@ function LectureDigestTab() {
 // ── Reminders (Twilio) tab ────────────────────────────────────────────────────
 
 function TwilioTab({ assignments, userName }: { assignments: Assignment[]; userName: string }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const [phone,    setPhone]    = useState("");
   const [saved,    setSaved]    = useState(false);
   const [sending,  setSending]  = useState(false);
@@ -644,11 +656,11 @@ function TwilioTab({ assignments, userName }: { assignments: Assignment[]; userN
   return (
     <View style={{ gap: 12 }}>
       <View style={styles.sectionCard}>
-        <Text style={styles.subLabel}>SMS REMINDERS</Text>
+        <Text style={styles.subLabel}>SMS reminders</Text>
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
           <TextInput
             placeholder="+1 555 000 0000"
-            placeholderTextColor={T.textDim}
+            placeholderTextColor={C.textDim}
             keyboardType="phone-pad"
             value={phone}
             onChangeText={v => { setPhone(v); setSaved(false); }}
@@ -668,7 +680,7 @@ function TwilioTab({ assignments, userName }: { assignments: Assignment[]; userN
             )}
           </TouchableOpacity>
         </View>
-        <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: T.textDim }}>Include country code.</Text>
+        <Text style={{ fontWeight: "400", fontSize: 11, color: C.textDim }}>Include country code.</Text>
       </View>
 
       <View style={styles.sectionCard}>
@@ -679,8 +691,8 @@ function TwilioTab({ assignments, userName }: { assignments: Assignment[]; userN
           <View style={{ gap: 6 }}>
             {urgent.map((a, i) => (
               <View key={i} style={styles.urgentRow}>
-                <Text numberOfLines={1} style={{ flex: 1, fontFamily: "Inter_400Regular", fontSize: 13, color: T.textPrimary }}>{a.name}</Text>
-                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(255,100,90,0.7)", marginLeft: 8 }}>
+                <Text numberOfLines={1} style={{ flex: 1, fontWeight: "400", fontSize: 13, color: C.textPrimary }}>{a.name}</Text>
+                <Text style={{ fontWeight: "400", fontSize: 11, color: "rgba(255,100,90,0.7)", marginLeft: 8 }}>
                   {new Date(a.dueAt!).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                 </Text>
               </View>
@@ -690,11 +702,11 @@ function TwilioTab({ assignments, userName }: { assignments: Assignment[]; userN
       </View>
 
       <TouchableOpacity
-        style={[styles.sendBtn, !saved && { backgroundColor: "rgba(255,255,255,0.04)", borderColor: T.border }]}
+        style={[styles.sendBtn, !saved && { backgroundColor: C.surface, borderColor: C.border }]}
         disabled={!saved || sending}
         onPress={sendReminders}
       >
-        <Text style={[styles.sendBtnText, !saved && { color: T.textDim }]}>
+        <Text style={[styles.sendBtnText, !saved && { color: C.textDim }]}>
           {sending ? "Sending…" : "Send Assignment Reminder via SMS"}
         </Text>
       </TouchableOpacity>
@@ -702,11 +714,11 @@ function TwilioTab({ assignments, userName }: { assignments: Assignment[]; userN
       {lastSent && (
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
           <Check size={12} color="rgba(100,220,155,0.7)" />
-          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(100,220,155,0.7)" }}>Sent at {lastSent}</Text>
+          <Text style={{ fontWeight: "400", fontSize: 12, color: "rgba(100,220,155,0.7)" }}>Sent at {lastSent}</Text>
         </View>
       )}
       {error && (
-        <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(255,100,90,0.7)", textAlign: "center" }}>
+        <Text style={{ fontWeight: "400", fontSize: 12, color: "rgba(255,100,90,0.7)", textAlign: "center" }}>
           Error: {error}
         </Text>
       )}
@@ -717,26 +729,28 @@ function TwilioTab({ assignments, userName }: { assignments: Assignment[]; userN
 // ── Submitted tab ─────────────────────────────────────────────────────────────
 
 function PreviousWorkTab({ assignments }: { assignments: Assignment[] }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const submitted = assignments
     .filter(a => a.submission?.submittedAt)
     .sort((a, b) => +new Date(b.submission.submittedAt!) - +new Date(a.submission.submittedAt!));
 
   if (!submitted.length) {
-    return <EmptyCard title="No previous work yet" sub="Submitted assignments will appear here once Canvas is synced" />;
+    return <EmptyCard title="No previous work yet" sub="Submitted assignments will appear here once your LMS is synced" />;
   }
   return (
     <View style={{ gap: 8 }}>
       {submitted.map((a, i) => (
         <View key={i} style={styles.sectionCard}>
-          <Text style={{ fontFamily: "Inter_500Medium", fontSize: 14, color: T.textPrimary, marginBottom: 3 }}>{a.name}</Text>
+          <Text style={{ fontWeight: "500", fontSize: 14, color: C.textPrimary, marginBottom: 3 }}>{a.name}</Text>
           <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-            <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: T.textDim }}>{a.courseCode || a.courseName}</Text>
+            <Text style={{ fontWeight: "400", fontSize: 11, color: C.textDim }}>{a.courseCode || a.courseName}</Text>
             {a.submission?.score != null && a.pointsPossible ? (
-              <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(100,220,155,0.7)" }}>
+              <Text style={{ fontWeight: "400", fontSize: 11, color: "rgba(100,220,155,0.7)" }}>
                 {a.submission.score}/{a.pointsPossible}
               </Text>
             ) : null}
-            <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: T.textDim }}>
+            <Text style={{ fontWeight: "400", fontSize: 11, color: C.textDim }}>
               {new Date(a.submission.submittedAt!).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
             </Text>
           </View>
@@ -749,17 +763,14 @@ function PreviousWorkTab({ assignments }: { assignments: Assignment[] }) {
 // ── shared bits ───────────────────────────────────────────────────────────────
 
 function EmptyCard({ title, sub }: { title: string; sub: string }) {
-  return (
-    <View style={[styles.sectionCard, { alignItems: "center", paddingVertical: 32 }]}>
-      <Text style={{ fontFamily: "Inter_500Medium", fontSize: 14, color: T.textSecondary, marginBottom: 6 }}>{title}</Text>
-      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: T.textDim, textAlign: "center" }}>{sub}</Text>
-    </View>
-  );
+  const C = usePageTheme(PAGE);
+  return <EmptyState compact colors={C} title={title} message={sub} />;
 }
 
 // ── main screen ───────────────────────────────────────────────────────────────
 
 const TABS = [
+  { id: "files",      label: "Files"          },
   { id: "notes",      label: "Notes"          },
   { id: "recordings", label: "Recordings"     },
   { id: "digest",     label: "Lecture Digest" },
@@ -769,45 +780,63 @@ const TABS = [
 ];
 
 export default function ToolkitScreen() {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const userId = useUserId();
-  const [activeTab,   setActiveTab]   = useState("notes");
+  const params = useLocalSearchParams<{ tab?: string }>();
+  // Land on the tab the chip / deep-link asked for (Files by default) and keep
+  // in sync when another chip re-navigates while the page is already mounted.
+  const initialTab = TABS.some(t => t.id === params.tab) ? (params.tab as string) : "files";
+  const [activeTab,   setActiveTab]   = useState(initialTab);
   const [courses,     setCourses]     = useState<Course[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [userName,    setUserName]    = useState("");
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [{ data: courseRows }, { data: aRows }, { data: user }] = await Promise.all([
-        supabase.from("courses").select("id, name, course_code").eq("user_id", userId),
-        supabase.from("assignments")
-          .select("id, title, course_id, due_at, points_possible, score, submitted_at, courses(name, course_code)")
-          .eq("user_id", userId),
-        supabase.from("users").select("name").eq("id", userId).maybeSingle(),
-      ]);
-      if (cancelled) return;
-      setCourses((courseRows ?? []).map((c: any) => ({ id: c.id, name: c.name, courseCode: c.course_code })));
-      setAssignments((aRows ?? []).map((a: any) => ({
-        id: a.id, name: a.title, courseId: a.course_id,
-        courseCode: a.courses?.course_code, courseName: a.courses?.name,
-        dueAt: a.due_at, pointsPossible: a.points_possible,
-        submission: { score: a.score, submittedAt: a.submitted_at },
-      })));
-      setUserName(user?.name ?? "");
-    })();
-    return () => { cancelled = true; };
+    if (params.tab && TABS.some(t => t.id === params.tab)) setActiveTab(params.tab as string);
+  }, [params.tab]);
+
+  // Hoisted so pull-to-refresh re-runs the same reads.
+  const reload = useCallback(async () => {
+    const [{ data: courseRows }, { data: aRows }, { data: user }] = await Promise.all([
+      supabase.from("courses").select("id, name, course_code").eq("user_id", userId),
+      supabase.from("assignments")
+        .select("id, title, course_id, due_at, points_possible, score, submitted_at, courses(name, course_code)")
+        .eq("user_id", userId),
+      supabase.from("users").select("name").eq("id", userId).maybeSingle(),
+    ]);
+    setCourses((courseRows ?? []).map((c: any) => ({ id: c.id, name: c.name, courseCode: c.course_code })));
+    setAssignments((aRows ?? []).map((a: any) => ({
+      id: a.id, name: a.title, courseId: a.course_id,
+      courseCode: a.courses?.course_code, courseName: a.courses?.name,
+      dueAt: a.due_at, pointsPossible: a.points_possible,
+      submission: { score: a.score, submittedAt: a.submitted_at },
+    })));
+    setUserName(user?.name ?? "");
   }, [userId]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const { refreshing, onRefresh } = useRefresh(reload);
+
+  const isFiles = activeTab === "files";
 
   return (
     <ScreenWrapper page="toolkit">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
-        <Text style={styles.h1}>Toolkit</Text>
-        <Text style={styles.pageSub}>Your AI's knowledge base</Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 8 }}
+        refreshControl={<ThemedRefreshControl colors={C} refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        <Text style={styles.h1}>{isFiles ? "Files" : "Toolkit"}</Text>
+        <Text style={styles.pageSub}>{isFiles ? "Your documents, notes & recordings" : "Your AI's knowledge base"}</Text>
 
-        <KnowledgeGraph courses={courses} assignments={assignments} />
+        {/* The knowledge graph is a notes-side hero — it'd be incongruous over the
+            file library, so it only shows on the AI-knowledge tabs. */}
+        {!isFiles && <KnowledgeGraph courses={courses} assignments={assignments} />}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 18 }}>
-          <View style={styles.tabsRow}>
+          <Glass colors={C} radius={T.radiusBtn} style={styles.tabsRow}>
             {TABS.map(tab => {
               const active = activeTab === tab.id;
               return (
@@ -820,9 +849,10 @@ export default function ToolkitScreen() {
                 </TouchableOpacity>
               );
             })}
-          </View>
+          </Glass>
         </ScrollView>
 
+        {activeTab === "files"      && <FilesLibrary />}
         {activeTab === "notes"      && <ClassNotesTab courses={courses} assignments={assignments} />}
         {activeTab === "recordings" && <RecordingsTab courses={courses} />}
         {activeTab === "digest"     && <LectureDigestTab />}
@@ -836,52 +866,52 @@ export default function ToolkitScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  h1:      { fontFamily: "Inter_600SemiBold", fontSize: 26, color: T.textPrimary, letterSpacing: -0.3, marginBottom: 4 },
-  pageSub: { fontFamily: "Inter_400Regular", fontSize: 14, color: T.textDim, marginBottom: 24 },
+const makeStyles = (C: ThemeColors) => StyleSheet.create({
+  h1:      { fontWeight: "600", fontSize: 26, color: C.textPrimary, letterSpacing: -0.3, marginBottom: 4 },
+  pageSub: { fontWeight: "400", fontSize: 14, color: C.textDim, marginBottom: 24 },
 
-  kgCard:       { backgroundColor: "rgba(255,255,255,0.02)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", borderRadius: T.radiusCard, padding: 16, marginBottom: 24, overflow: "hidden" },
+  kgCard:       { backgroundColor: C.surface, borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", borderRadius: T.radiusCard, padding: 16, marginBottom: 24, overflow: "hidden" },
   kgHeader:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  kgLabel:      { fontFamily: "Inter_400Regular", fontSize: 11, color: T.textDim, letterSpacing: 2, marginBottom: 4 },
-  kgEmptyTitle: { fontFamily: "Inter_500Medium", fontSize: 14, color: T.textSecondary, marginTop: 12, marginBottom: 6, textAlign: "center" },
-  kgEmptySub:   { fontFamily: "Inter_400Regular", fontSize: 12, color: T.textDim, textAlign: "center" },
+  kgLabel:      { fontWeight: "400", fontSize: 11, color: C.textDim, letterSpacing: 0.2, marginBottom: 4 },
+  kgEmptyTitle: { fontWeight: "500", fontSize: 14, color: C.textSecondary, marginTop: 12, marginBottom: 6, textAlign: "center" },
+  kgEmptySub:   { fontWeight: "400", fontSize: 12, color: C.textDim, textAlign: "center" },
 
-  tabsRow:       { flexDirection: "row", gap: 2, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: T.border, borderRadius: T.radiusBtn, padding: 3 },
+  tabsRow:       { flexDirection: "row", gap: 2, borderRadius: T.radiusBtn, padding: 3 },
   tab:           { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 9, borderWidth: 1, borderColor: "transparent" },
   tabActive:     { backgroundColor: "rgba(255,255,255,0.09)", borderColor: "rgba(255,255,255,0.12)" },
-  tabText:       { fontFamily: "Inter_400Regular", fontSize: 12, color: T.textSecondary },
-  tabTextActive: { fontFamily: "Inter_600SemiBold", color: T.textPrimary },
+  tabText:       { fontWeight: "400", fontSize: 12, color: C.textSecondary },
+  tabTextActive: { fontWeight: "600", color: C.textPrimary },
 
-  courseCard:   { backgroundColor: T.surface, borderWidth: 1, borderColor: T.border, borderRadius: T.radiusCard, overflow: "hidden" },
+  courseCard:   { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: T.radiusCard, overflow: "hidden" },
   courseHeader: { paddingVertical: 16, paddingHorizontal: 18, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  courseName:   { fontFamily: "Inter_500Medium", fontSize: 14, color: T.textPrimary },
-  courseBody:   { borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)", paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18 },
+  courseName:   { fontWeight: "500", fontSize: 14, color: C.textPrimary },
+  courseBody:   { borderTopWidth: 1, borderTopColor: C.surfaceTranslucent, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18 },
 
-  subLabel:       { fontFamily: "Inter_400Regular", fontSize: 10, color: T.textDim, letterSpacing: 1.5, marginBottom: 10 },
-  subLabelInline: { fontFamily: "Inter_400Regular", fontSize: 10, color: T.textDim, letterSpacing: 1.5 },
-  dimNote:        { fontFamily: "Inter_400Regular", fontSize: 12, color: T.textDim, marginBottom: 16 },
+  subLabel:       { fontWeight: "400", fontSize: 10, color: C.textDim, letterSpacing: 0.2, marginBottom: 10 },
+  subLabelInline: { fontWeight: "400", fontSize: 10, color: C.textDim, letterSpacing: 1.5 },
+  dimNote:        { fontWeight: "400", fontSize: 12, color: C.textDim, marginBottom: 16 },
 
-  dateInput: { flex: 1, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 8, paddingVertical: 7, paddingHorizontal: 10, fontFamily: "Inter_400Regular", fontSize: 12, color: T.textPrimary },
+  dateInput: { flex: 1, backgroundColor: C.surfaceTranslucent, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 8, paddingVertical: 7, paddingHorizontal: 10, fontWeight: "400", fontSize: 12, color: C.textPrimary },
   dateRow:   { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: "rgba(255,200,100,0.05)", borderRadius: 7, paddingVertical: 8, paddingHorizontal: 12 },
 
   amberBtn:      { backgroundColor: "rgba(255,200,100,0.12)", borderWidth: 1, borderColor: "rgba(255,200,100,0.25)", borderRadius: 8, paddingVertical: 7, paddingHorizontal: 12, justifyContent: "center" },
-  amberBtnText:  { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(255,200,100,0.8)" },
+  amberBtnText:  { fontWeight: "400", fontSize: 11, color: "rgba(255,200,100,0.8)" },
   purpleBtn:     { backgroundColor: "rgba(190,130,255,0.1)", borderWidth: 1, borderColor: "rgba(190,130,255,0.25)", borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
-  purpleBtnText: { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(190,130,255,0.8)" },
-  tealBtn:       { backgroundColor: "rgba(0,210,190,0.1)", borderWidth: 1, borderColor: "rgba(0,210,190,0.2)", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 14, alignSelf: "flex-start", justifyContent: "center" },
-  tealBtnText:   { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(0,210,190,0.8)" },
+  purpleBtnText: { fontWeight: "400", fontSize: 11, color: "rgba(190,130,255,0.8)" },
+  tealBtn:       { backgroundColor: "rgba(90,165,116,0.1)", borderWidth: 1, borderColor: "rgba(90,165,116,0.2)", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 14, alignSelf: "flex-start", justifyContent: "center" },
+  tealBtnText:   { fontWeight: "400", fontSize: 11, color: "rgba(90,165,116,0.8)" },
 
   rubricCard: { backgroundColor: "rgba(190,130,255,0.05)", borderWidth: 1, borderColor: "rgba(190,130,255,0.12)", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12 },
 
   wisprCard: { backgroundColor: "rgba(100,180,255,0.06)", borderWidth: 1, borderColor: "rgba(100,180,255,0.15)", borderRadius: T.radiusCard, paddingVertical: 12, paddingHorizontal: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   recordBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "rgba(255,100,90,0.08)", borderWidth: 1, borderColor: "rgba(255,100,90,0.2)", borderRadius: 10, padding: 12, marginBottom: 14 },
 
-  transcriptInput: { minHeight: 80, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: T.border, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, fontFamily: "Inter_400Regular", fontSize: 12, color: T.textPrimary, textAlignVertical: "top", marginBottom: 8 },
-  transcriptCard:  { backgroundColor: "rgba(255,255,255,0.03)", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12 },
+  transcriptInput: { minHeight: 80, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, fontWeight: "400", fontSize: 12, color: C.textPrimary, textAlignVertical: "top", marginBottom: 8 },
+  transcriptCard:  { backgroundColor: C.surface, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12 },
 
-  sectionCard: { backgroundColor: T.surface, borderWidth: 1, borderColor: T.border, borderRadius: T.radiusCard, padding: 18 },
+  sectionCard: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: T.radiusCard, padding: 18 },
   urgentRow:   { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: "rgba(255,100,90,0.05)", borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12 },
 
   sendBtn:     { backgroundColor: "rgba(190,130,255,0.12)", borderWidth: 1, borderColor: "rgba(190,130,255,0.25)", borderRadius: T.radiusCard, padding: 14, alignItems: "center" },
-  sendBtnText: { fontFamily: "Inter_500Medium", fontSize: 13, color: "rgba(190,130,255,0.85)" },
+  sendBtnText: { fontWeight: "500", fontSize: 13, color: "rgba(190,130,255,0.85)" },
 });

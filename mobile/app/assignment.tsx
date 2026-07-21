@@ -5,7 +5,7 @@
 // Skipped (not portable to RN): text-selection floating toolbar, OfficeHoursPanel,
 // monitor-agent nudge.
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -17,11 +17,16 @@ import {
   // shipped in 0.81 — used here to avoid adding a dependency for one Copy button.
   Clipboard,
 } from "react-native";
-import { Check, ChevronUp, ChevronDown } from "lucide-react-native";
+import { Check, ChevronUp, ChevronDown, ClipboardList } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
+import Glass from "../components/Glass";
+import { Skeleton, EmptyState, ErrorState, useRefresh, ThemedRefreshControl } from "../components/States";
+import { usePageTheme, ThemeColors } from "../constants/appTheme";
 import { supabase } from "../services/supabase";
 import { apiFetch } from "../services/api";
 import { useUserId } from "../context/AuthContext";
+
+const PAGE = "assignment";
 
 // Same system prompt as src/pages/Assignment.tsx. The web page also appends
 // buildStudentContext() (mock class notes / previous work from src/data/mockData.ts)
@@ -80,11 +85,13 @@ function isLateAssignment(a: Assignment) {
 }
 
 function AssignmentRow({ a, onPress }: { a: Assignment; onPress: () => void }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const due = formatDue(a.dueAt);
   const isLate = isLateAssignment(a);
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
+    <Glass colors={C} radius={16} onPress={onPress} style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle} numberOfLines={1}>{a.name}</Text>
         {due && (
@@ -97,14 +104,17 @@ function AssignmentRow({ a, onPress }: { a: Assignment; onPress: () => void }) {
         <Text style={styles.cardCourse}>{a.courseCode ?? a.courseName ?? ""}</Text>
         {a.pointsPossible ? <Text style={styles.cardPoints}>{a.pointsPossible} pts</Text> : null}
       </View>
-    </TouchableOpacity>
+    </Glass>
   );
 }
 
 export default function AssignmentScreen() {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const userId = useUserId();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<Assignment | null>(null);
 
   // Detail-view state (mirrors the web page)
@@ -114,15 +124,15 @@ export default function AssignmentScreen() {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [markedDone, setMarkedDone] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      const { data: rows } = await supabase
+  // Hoisted so pull-to-refresh re-runs the same fetch.
+  const reload = useCallback(async () => {
+    setLoadError(false);
+    try {
+      const { data: rows, error } = await supabase
         .from("assignments")
         .select("id, title, description, due_at, points_possible, score, submitted_at, late, missing, courses(name, course_code)")
         .eq("user_id", userId);
-      if (cancelled) return;
+      if (error) throw error;
 
       setAssignments((rows ?? []).map((a: any) => ({
         id:             a.id,
@@ -134,12 +144,16 @@ export default function AssignmentScreen() {
         pointsPossible: a.points_possible,
         submission:     { score: a.score, submittedAt: a.submitted_at, late: a.late, missing: a.missing },
       })));
+    } catch {
+      setLoadError(true);
+    } finally {
       setLoading(false);
     }
-
-    load();
-    return () => { cancelled = true; };
   }, [userId]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const { refreshing, onRefresh } = useRefresh(reload);
 
   // Real assignments only — unsubmitted, sorted by due date, capped at 20 (web parity).
   const pending = assignments
@@ -213,11 +227,11 @@ export default function AssignmentScreen() {
             ) : null}
           </View>
 
-          <View style={styles.descBox}>
+          <Glass colors={C} radius={12} style={styles.descBox}>
             <Text style={styles.descText}>
               {stripHtml(selected.description) || "No description provided."}
             </Text>
-          </View>
+          </Glass>
 
           {!draft && (
             generating ? (
@@ -246,7 +260,7 @@ export default function AssignmentScreen() {
               />
 
               {/* Sources & Reasoning collapsible */}
-              <View style={styles.sourcesBox}>
+              <Glass colors={C} radius={12} style={styles.sourcesBox}>
                 <TouchableOpacity
                   style={styles.sourcesHeader}
                   onPress={() => setSourcesOpen(o => !o)}
@@ -255,8 +269,8 @@ export default function AssignmentScreen() {
                   <Text style={styles.sourcesHeaderText}>Sources &amp; Reasoning</Text>
                   <View style={{ opacity: 0.5 }}>
                     {sourcesOpen
-                      ? <ChevronUp size={14} color={TOKENS.textSecondary} />
-                      : <ChevronDown size={14} color={TOKENS.textSecondary} />}
+                      ? <ChevronUp size={14} color={C.textSecondary} />
+                      : <ChevronDown size={14} color={C.textSecondary} />}
                   </View>
                 </TouchableOpacity>
                 {sourcesOpen && (
@@ -266,7 +280,7 @@ export default function AssignmentScreen() {
                     </Text>
                   </View>
                 )}
-              </View>
+              </Glass>
 
               {/* Copy / Regenerate row */}
               <View style={{ flexDirection: "row", gap: 10 }}>
@@ -324,14 +338,25 @@ export default function AssignmentScreen() {
         </Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 8 }}>
-        {pending.length > 0 ? (
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ gap: 10, paddingBottom: 8, flexGrow: 1 }}
+        refreshControl={<ThemedRefreshControl colors={C} refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {loading ? (
+          [0, 1, 2, 3].map(i => <Skeleton key={i} colors={C} height={92} radius={16} />)
+        ) : loadError && pending.length === 0 ? (
+          <ErrorState colors={C} title="Couldn't load assignments" onRetry={reload} />
+        ) : pending.length > 0 ? (
           pending.map(a => <AssignmentRow key={a.id} a={a} onPress={() => openAssignment(a)} />)
-        ) : !loading ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>No pending assignments</Text>
-          </View>
-        ) : null}
+        ) : (
+          <EmptyState
+            colors={C}
+            Icon={ClipboardList}
+            title="Nothing due right now"
+            message="You've cleared your pending assignments. Pull down to check for new ones."
+          />
+        )}
       </ScrollView>
     </ScreenWrapper>
   );
@@ -340,11 +365,11 @@ export default function AssignmentScreen() {
 // tokens.css — the design system Assignment.tsx actually uses on web (not
 // Work.tsx's bespoke mobile-redesign palette; that one's page-specific).
 const TOKENS = {
-  surface:      "rgba(255,255,255,0.05)",
+  surface:      "#1d1b20",
   surfaceHover: "rgba(255,255,255,0.08)",
   border:       "rgba(255,255,255,0.08)",
   accent:       "rgba(255,255,255,0.85)",
-  textPrimary:  "#F5F5F5",
+  textPrimary:  "#ECE8E1",
   textSecondary:"rgba(255,255,255,0.45)",
   textDim:      "rgba(255,255,255,0.35)",
   urgentBg:     "rgba(255,59,48,0.1)",
@@ -355,56 +380,56 @@ const TOKENS = {
   depthLine:    { boxShadow: "0 1px 0 rgba(255,255,255,0.06)" },
 };
 
-const styles = StyleSheet.create({
-  title:          { fontSize: 26, fontWeight: "600", color: TOKENS.textPrimary, letterSpacing: -0.3 },
-  subtitle:       { fontSize: 14, color: TOKENS.textDim, marginTop: 4 },
+const makeStyles = (C: ThemeColors) => StyleSheet.create({
+  title:          { fontSize: 26, fontWeight: "600", color: C.textPrimary, letterSpacing: -0.3 },
+  subtitle:       { fontSize: 14, color: C.textDim, marginTop: 4 },
 
-  card:           { ...TOKENS.depthLine, backgroundColor: TOKENS.surface, borderWidth: 1, borderColor: TOKENS.border, borderRadius: 16, padding: 18 },
+  card:           { ...TOKENS.depthLine, borderRadius: 16, padding: 18 },
   cardHeader:     { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
-  cardTitle:      { fontSize: 15, color: TOKENS.textPrimary, fontWeight: "500", flex: 1, minWidth: 0 },
+  cardTitle:      { fontSize: 15, color: C.textPrimary, fontWeight: "500", flex: 1, minWidth: 0 },
   cardCourseRow:  { flexDirection: "row", alignItems: "center", marginTop: 4 },
-  cardCourse:     { fontSize: 12, color: TOKENS.textSecondary },
-  cardPoints:     { fontSize: 12, color: TOKENS.textDim, marginLeft: 8 },
+  cardCourse:     { fontSize: 12, color: C.textSecondary },
+  cardPoints:     { fontSize: 12, color: C.textDim, marginLeft: 8 },
 
-  badge:          { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.06)" },
-  badgeText:      { fontSize: 11, color: TOKENS.textDim },
+  badge:          { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: C.surfaceTranslucent },
+  badgeText:      { fontSize: 11, color: C.textDim },
   badgeLate:      { backgroundColor: TOKENS.urgentBg },
   badgeTextLate:  { color: TOKENS.urgentText },
   badgeRow:       { flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 16 },
 
-  emptyCard:      { ...TOKENS.depthLine, backgroundColor: TOKENS.surface, borderWidth: 1, borderColor: TOKENS.border, borderRadius: 16, padding: 24, alignItems: "center" },
-  emptyTitle:     { fontSize: 14, color: TOKENS.textSecondary },
+  emptyCard:      { ...TOKENS.depthLine, borderRadius: 16, padding: 24, alignItems: "center" },
+  emptyTitle:     { fontSize: 14, color: C.textSecondary },
 
-  back:           { fontSize: 14, color: TOKENS.textSecondary },
-  detailTitle:    { fontSize: 20, fontWeight: "600", color: TOKENS.textPrimary, letterSpacing: -0.2, marginBottom: 6 },
-  detailCourse:   { fontSize: 13, color: TOKENS.textSecondary, marginBottom: 12 },
-  descBox:        { backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", borderRadius: 12, padding: 14, marginBottom: 20 },
-  descText:       { fontSize: 13, lineHeight: 21, color: TOKENS.textSecondary },
+  back:           { fontSize: 14, color: C.textSecondary },
+  detailTitle:    { fontSize: 20, fontWeight: "600", color: C.textPrimary, letterSpacing: -0.2, marginBottom: 6 },
+  detailCourse:   { fontSize: 13, color: C.textSecondary, marginBottom: 12 },
+  descBox:        { borderRadius: 12, padding: 14, marginBottom: 20 },
+  descText:       { fontSize: 13, lineHeight: 21, color: C.textSecondary },
 
   // Generate Draft — web: accent bg, #111 text, radius-btn 12, padding 12/24
-  generateBtn:    { alignSelf: "flex-start", backgroundColor: TOKENS.accent, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24 },
-  generateBtnText:{ fontSize: 14, fontWeight: "600", color: "#111111" },
-  generatingText: { fontSize: 13, color: TOKENS.textDim, letterSpacing: 0.3 },
+  generateBtn:    { alignSelf: "flex-start", backgroundColor: C.scheme === "light" ? C.accent : TOKENS.accent, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24 },
+  generateBtnText:{ fontSize: 14, fontWeight: "600", color: C.scheme === "light" ? "#FFFFFF" : C.bg },
+  generatingText: { fontSize: 13, color: C.textDim, letterSpacing: 0.3 },
   draftErrorText: { fontSize: 13, color: TOKENS.urgentText, marginBottom: 12 },
 
   // Draft editor — web textarea: surface bg, border, radius-card 16, padding 20,
   // fontSize 14, lineHeight 1.85 (≈26)
-  draftInput:     { backgroundColor: TOKENS.surface, borderWidth: 1, borderColor: TOKENS.border, borderRadius: 16, padding: 20, color: TOKENS.textPrimary, fontSize: 14, lineHeight: 26, minHeight: 320, marginBottom: 14 },
+  draftInput:     { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 20, color: C.textPrimary, fontSize: 14, lineHeight: 26, minHeight: 320, marginBottom: 14 },
 
   // Sources & Reasoning collapsible
-  sourcesBox:     { backgroundColor: "rgba(255,255,255,0.02)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", borderRadius: 12, marginBottom: 16, overflow: "hidden" },
+  sourcesBox:     { borderRadius: 12, marginBottom: 16, overflow: "hidden" },
   sourcesHeader:  { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 13, paddingHorizontal: 16 },
-  sourcesHeaderText:{ fontSize: 13, color: TOKENS.textSecondary },
-  sourcesBody:    { paddingHorizontal: 16, paddingBottom: 14, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
-  sourcesBodyText:{ fontSize: 13, lineHeight: 21, color: TOKENS.textSecondary, marginTop: 12 },
+  sourcesHeaderText:{ fontSize: 13, color: C.textSecondary },
+  sourcesBody:    { paddingHorizontal: 16, paddingBottom: 14, borderTopWidth: 1, borderTopColor: C.border },
+  sourcesBodyText:{ fontSize: 13, lineHeight: 21, color: C.textSecondary, marginTop: 12 },
 
   // Copy / Regenerate row buttons — web: surface-hover bg, border, radius 12, padding 12
-  rowBtn:         { flex: 1, backgroundColor: TOKENS.surfaceHover, borderWidth: 1, borderColor: TOKENS.border, borderRadius: 12, padding: 12, alignItems: "center" },
-  rowBtnText:     { fontSize: 14, color: TOKENS.textPrimary },
+  rowBtn:         { flex: 1, backgroundColor: C.border, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 12, alignItems: "center" },
+  rowBtnText:     { fontSize: 14, color: C.textPrimary },
 
   // Mark as done — transparent → green success state
-  doneBtn:        { marginTop: 10, backgroundColor: "transparent", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 12, padding: 11, alignItems: "center" },
+  doneBtn:        { marginTop: 10, backgroundColor: "transparent", borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 11, alignItems: "center" },
   doneBtnDone:    { backgroundColor: TOKENS.successBg, borderColor: TOKENS.successBorder },
-  doneBtnText:    { fontSize: 13, color: "rgba(255,255,255,0.35)" },
+  doneBtnText:    { fontSize: 13, color: C.textDim },
   doneBtnTextDone:{ color: TOKENS.successText },
 });

@@ -2,11 +2,13 @@
 // editable name + school, 2×2 stat grid, course performance bars, token wallet
 // with tier progress + recent events, Discord community, navigation preference.
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Linking,
 } from "react-native";
+import { useTheme } from "../constants/appTheme";
+import Glass from "../components/Glass";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
@@ -24,14 +26,14 @@ const DISCORD_INVITE_URL = "https://discord.gg/SpFXzPZxBX";
 
 // ── tokens.css palette ────────────────────────────────────────────────────────
 const C = {
-  textPrimary:   "#F5F5F5",
+  textPrimary:   "#ECE8E1",
   textSecondary: "rgba(255,255,255,0.45)",
   textTertiary:  "rgba(255,255,255,0.25)",
   textDim:       "rgba(255,255,255,0.35)",
-  surface:       "rgba(255,255,255,0.05)",
+  surface:       "#1d1b20",
   border:        "rgba(255,255,255,0.08)",
   gold:          "#C49A3C",
-  teal:          "rgba(0,210,190,0.95)",
+  teal:          "rgba(90,165,116,0.95)",
 };
 
 // Keep in sync with src/components/GradeGraph.tsx
@@ -48,7 +50,7 @@ const COURSE_COLORS = [
 
 const TOKEN_LABELS: Record<string, string> = {
   daily_login:          "Daily login",
-  canvas_sync:          "Canvas synced",
+  canvas_sync:          "LMS synced",
   flashcards_generated: "Flashcards generated",
   quiz_completed:       "Quiz completed",
   quiz_perfect:         "Perfect score",
@@ -135,20 +137,20 @@ type TokenEvent = { action: string; tokens: number; created_at: string };
 
 // ── sub-components ────────────────────────────────────────────────────────────
 
-function SectionLabel({ children }: { children: string }) {
-  return <Text style={styles.sectionLabel}>{children}</Text>;
+function SectionLabel({ children, st }: { children: string; st: any }) {
+  return <Text style={st.sectionLabel}>{children}</Text>;
 }
 
-function TokenEventRow({ e, last }: { e: TokenEvent; last: boolean }) {
+function TokenEventRow({ e, last, st }: { e: TokenEvent; last: boolean; st: any }) {
   const Ic = TOKEN_ICONS[e.action];
   return (
-    <View style={[styles.eventRow, !last && styles.eventRowBorder]}>
-      <View style={styles.eventIcon}>
+    <View style={[st.eventRow, !last && st.eventRowBorder]}>
+      <View style={st.eventIcon}>
         {Ic ? <Ic size={13} color="rgba(196,154,60,0.6)" /> : <Text style={{ color: "rgba(196,154,60,0.6)" }}>·</Text>}
       </View>
-      <Text style={styles.eventLabel}>{TOKEN_LABELS[e.action] ?? e.action}</Text>
-      <Text style={styles.eventTokens}>+{e.tokens}</Text>
-      <Text style={styles.eventTime}>{fmtAgo(e.created_at)}</Text>
+      <Text style={st.eventLabel}>{TOKEN_LABELS[e.action] ?? e.action}</Text>
+      <Text style={st.eventTokens}>+{e.tokens}</Text>
+      <Text style={st.eventTime}>{fmtAgo(e.created_at)}</Text>
     </View>
   );
 }
@@ -158,6 +160,17 @@ function TokenEventRow({ e, last }: { e: TokenEvent; last: boolean }) {
 export default function IdentityScreen() {
   const { userId, signOut } = useAuth();
   const router = useRouter();
+
+  // Dynamic palette → this screen renders in whichever mode the toggle is set to.
+  const { colors: tc, mode, setMode } = useTheme();
+  const C = useMemo(() => ({
+    textPrimary:  tc.textPrimary, textSecondary: tc.textSecondary,
+    textTertiary: tc.textTertiary, textDim: tc.textDim,
+    surface: tc.surface, border: tc.border, gold: tc.gold,
+    accent: tc.accent, teal: tc.accent,
+  }), [tc]);
+  const styles = useMemo(() => makeStyles(C), [C]);
+
   const [loading, setLoading]   = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [user, setUser]         = useState<any>(null);
@@ -196,7 +209,7 @@ export default function IdentityScreen() {
           // missing, so those are fetched separately below and degrade
           // gracefully instead of blocking the whole profile screen.
           supabase.from("users")
-            .select("name, school, gpa, streak, study_time")
+            .select("name, school, gpa, streak, study_time, canvas_token")
             .eq("id", userId).maybeSingle(),
           supabase.from("courses")
             .select("id, name, course_code, current_score, final_score")
@@ -299,6 +312,7 @@ export default function IdentityScreen() {
     { label: "Study Time",  value: studyTime },
   ];
 
+  const lmsConnected = Boolean(user?.canvas_token);
   const school = [user?.school, user?.school_city, user?.school_country].filter(Boolean).join(" · ");
   const nextTier = tokenSummary ? getNextTier(tokenSummary.points) : null;
   const events = tokenSummary?.recentEvents ?? [];
@@ -308,7 +322,7 @@ export default function IdentityScreen() {
     return (
       <ScreenWrapper page="identity">
         <View style={styles.center}>
-          <ActivityIndicator color="rgba(255,255,255,0.4)" />
+          <ActivityIndicator color={C.textSecondary} />
         </View>
       </ScreenWrapper>
     );
@@ -332,7 +346,7 @@ export default function IdentityScreen() {
         {/* ── Header: name + sign out ── */}
         <View style={styles.header}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <SectionLabel>Identity</SectionLabel>
+            <SectionLabel st={styles}>Identity</SectionLabel>
             {editingName ? (
               <TextInput
                 autoFocus
@@ -351,8 +365,27 @@ export default function IdentityScreen() {
             {school ? <Text style={styles.schoolText}>{school}</Text> : null}
           </View>
           <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut} activeOpacity={0.7}>
-            <Text style={styles.signOutText}>SIGN OUT</Text>
+            <Text style={styles.signOutText}>Sign out</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* ── Appearance (light / dark) ── */}
+        <View style={styles.appearanceRow}>
+          <Text style={styles.appearanceLabel}>Appearance</Text>
+          <Glass colors={tc} radius={10} style={styles.segment}>
+            {(["dark", "light"] as const).map(m => (
+              <TouchableOpacity
+                key={m}
+                onPress={() => setMode(m)}
+                activeOpacity={0.8}
+                style={[styles.segBtn, mode === m && styles.segBtnOn]}
+              >
+                <Text style={[styles.segText, mode === m && styles.segTextOn]}>
+                  {m === "dark" ? "Dark" : "Light"}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </Glass>
         </View>
 
         {/* ── 2×2 stat grid ── */}
@@ -365,9 +398,27 @@ export default function IdentityScreen() {
           ))}
         </View>
 
+        {/* ── LMS connection (relocated from the Courses screen) ── */}
+        <View style={{ marginBottom: 32 }}>
+          <View style={{ marginBottom: 12 }}>
+            <SectionLabel st={styles}>Connections</SectionLabel>
+          </View>
+          <Glass colors={tc} radius={16} style={styles.lmsCard}>
+            <View style={[styles.lmsDot, { backgroundColor: lmsConnected ? "rgba(90,165,116,0.95)" : C.textTertiary }]} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.lmsTitle}>{lmsConnected ? "LMS Connected" : "LMS Not Connected"}</Text>
+              <Text style={styles.lmsSub}>
+                {lmsConnected
+                  ? "Your courses and assignments sync automatically in the background."
+                  : "Connect your LMS on the FschoolAI web app to sync your courses here."}
+              </Text>
+            </View>
+          </Glass>
+        </View>
+
         {/* ── Grade trends chart ── */}
         <View style={{ marginBottom: 32 }}>
-          <GradeGraph courses={graphCourses} assignments={graphAssignments} connected={coursePerf.length > 0} />
+          <GradeGraph courses={graphCourses} assignments={graphAssignments} connected={coursePerf.length > 0} colors={tc} />
         </View>
 
         {/* ── Writing Evolution Tracker ── */}
@@ -379,7 +430,7 @@ export default function IdentityScreen() {
         {coursePerf.length > 0 && (
           <View style={{ marginBottom: 32 }}>
             <View style={{ marginBottom: 16 }}>
-              <SectionLabel>Course Performance</SectionLabel>
+              <SectionLabel st={styles}>Course Performance</SectionLabel>
             </View>
             <View style={{ gap: 16 }}>
               {coursePerf.map((c, i) => {
@@ -409,11 +460,11 @@ export default function IdentityScreen() {
         {tokenSummary && (
           <View style={{ marginBottom: 32 }}>
             <View style={{ marginBottom: 12 }}>
-              <SectionLabel>Tokens</SectionLabel>
+              <SectionLabel st={styles}>Tokens</SectionLabel>
             </View>
 
             {/* Summary card */}
-            <View style={styles.tokenCard}>
+            <Glass colors={tc} radius={16} style={styles.tokenCard}>
               <View style={styles.tokenCardTop}>
                 <View>
                   <Text style={styles.tokenPoints}>{tokenSummary.points}</Text>
@@ -440,14 +491,14 @@ export default function IdentityScreen() {
                   style={[styles.tierFill, { width: `${tierProgressPct(tokenSummary.points)}%` }]}
                 />
               </View>
-            </View>
+            </Glass>
 
             {/* Recent events — capped at 5, expandable */}
             {events.length > 0 && (
               <>
                 <View>
                   {shownEvents.map((e, i) => (
-                    <TokenEventRow key={i} e={e} last={i === shownEvents.length - 1} />
+                    <TokenEventRow key={i} e={e} last={i === shownEvents.length - 1} st={styles} />
                   ))}
                 </View>
                 {events.length > 5 && (
@@ -472,26 +523,26 @@ export default function IdentityScreen() {
         {/* ── Discord community ── */}
         <View style={{ marginBottom: 32 }}>
           <View style={{ marginBottom: 12 }}>
-            <SectionLabel>Community</SectionLabel>
+            <SectionLabel st={styles}>Community</SectionLabel>
           </View>
           {user.discord_user_id ? (
-            <View style={[styles.discordRow, { marginBottom: 8 }]}>
+            <Glass colors={tc} radius={16} style={[styles.discordRow, { marginBottom: 8 }]}>
               <Hexagon size={20} color="rgba(88,101,242,0.55)" />
               <Text style={styles.discordConnectedText}>Discord connected</Text>
               <View style={{ marginLeft: "auto" }}>
                 <Check size={15} color="rgba(52,199,89,0.8)" />
               </View>
-            </View>
+            </Glass>
           ) : (
-            <TouchableOpacity
+            <Glass
+              colors={tc} radius={16}
               style={[styles.discordRow, { marginBottom: 8 }]}
               onPress={handleConnectDiscord}
-              activeOpacity={0.7}
             >
               <Hexagon size={20} color="#5865F2" />
               <Text style={styles.discordConnectText}>Connect Discord</Text>
               <Text style={styles.discordBonus}>+5 tokens  →</Text>
-            </TouchableOpacity>
+            </Glass>
           )}
           {/* Direct invite — always visible */}
           <TouchableOpacity
@@ -519,59 +570,73 @@ export default function IdentityScreen() {
   );
 }
 
-// ── styles ────────────────────────────────────────────────────────────────────
+// ── styles (theme factory — rebuilt per mode so light/dark both work) ──────────
 
-const styles = StyleSheet.create({
+const makeStyles = (C: any) => StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4 },
 
-  sectionLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: C.textDim, letterSpacing: 2, textTransform: "uppercase" },
+  appearanceRow:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 28 },
+  appearanceLabel: { fontWeight: "500", fontSize: 14, color: C.textPrimary },
+  segment:         { flexDirection: "row", borderRadius: 10, padding: 3, gap: 2 },
+  segBtn:          { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 7 },
+  segBtnOn:        { backgroundColor: C.accent },
+  segText:         { fontWeight: "500", fontSize: 13, color: C.textSecondary },
+  segTextOn:       { color: "#ffffff", fontWeight: "600" },
+
+  sectionLabel: { fontWeight: "400", fontSize: 11, color: C.textDim, letterSpacing: 0.2, },
 
   header:      { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24, gap: 12 },
-  nameText:    { fontFamily: "Inter_600SemiBold", fontSize: 26, color: C.textPrimary, letterSpacing: -0.3, marginTop: 6 },
-  nameInput:   { backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, color: C.textPrimary, fontFamily: "Inter_600SemiBold", fontSize: 22, letterSpacing: -0.3, width: 180, marginTop: 6 },
-  schoolText:  { fontFamily: "Inter_400Regular", fontSize: 13, color: C.textSecondary, marginTop: 4 },
-  signOutBtn:  { borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  signOutText: { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(255,255,255,0.35)", letterSpacing: 1.5 },
+  nameText:    { fontWeight: "600", fontSize: 26, color: C.textPrimary, letterSpacing: -0.3, marginTop: 6 },
+  nameInput:   { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, color: C.textPrimary, fontWeight: "600", fontSize: 22, letterSpacing: -0.3, width: 180, marginTop: 6 },
+  schoolText:  { fontWeight: "400", fontSize: 13, color: C.textSecondary, marginTop: 4 },
+  signOutBtn:  { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  signOutText: { fontWeight: "400", fontSize: 11, color: C.textDim, letterSpacing: 1.5 },
 
-  statGrid:  { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 32 },
-  statCard:  { flexBasis: "47%", flexGrow: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingVertical: 20, paddingHorizontal: 16 },
-  statValue: { fontFamily: "Inter_600SemiBold", fontSize: 28, color: C.textPrimary, letterSpacing: -0.5, marginBottom: 4 },
-  statLabel: { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textSecondary },
+  // Compact inline stat row (was a boxed 2×2 hero-metric grid)
+  statGrid:  { flexDirection: "row", gap: 4, marginBottom: 32, paddingVertical: 2 },
+  statCard:  { flex: 1 },
+  statValue: { fontWeight: "700", fontSize: 21, color: C.textPrimary, letterSpacing: -0.4 },
+  statLabel: { fontWeight: "400", fontSize: 11, color: C.textSecondary, marginTop: 3 },
+
+  lmsCard:  { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 16, padding: 18 },
+  lmsDot:   { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
+  lmsTitle: { fontWeight: "600", fontSize: 15, color: C.textPrimary, marginBottom: 3 },
+  lmsSub:   { fontWeight: "400", fontSize: 12, lineHeight: 17, color: C.textSecondary },
 
   courseRow:  { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7, gap: 8 },
-  courseName: { fontFamily: "Inter_500Medium", fontSize: 14, color: C.textPrimary, flexShrink: 1 },
-  courseCode: { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textTertiary, marginLeft: 8 },
-  coursePct:  { fontFamily: "Inter_600SemiBold", fontSize: 13, flexShrink: 0 },
-  barTrack:   { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 4, height: 4, overflow: "hidden" },
+  courseName: { fontWeight: "500", fontSize: 14, color: C.textPrimary, flexShrink: 1 },
+  courseCode: { fontWeight: "400", fontSize: 12, color: C.textTertiary, marginLeft: 8 },
+  coursePct:  { fontWeight: "600", fontSize: 13, flexShrink: 0 },
+  barTrack:   { backgroundColor: C.border, borderRadius: 4, height: 4, overflow: "hidden" },
   barFill:    { height: "100%", borderRadius: 4 },
 
-  tokenCard:    { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 18, marginBottom: 10 },
+  tokenCard:    { borderRadius: 16, paddingVertical: 16, paddingHorizontal: 18, marginBottom: 10 },
   tokenCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 },
-  tokenPoints:  { fontFamily: "Inter_600SemiBold", fontSize: 28, color: C.gold, letterSpacing: -0.5, lineHeight: 30 },
-  tokenTier:    { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textSecondary, marginTop: 3 },
+  tokenPoints:  { fontWeight: "600", fontSize: 28, color: C.gold, letterSpacing: -0.5, lineHeight: 30 },
+  tokenTier:    { fontWeight: "400", fontSize: 12, color: C.textSecondary, marginTop: 3 },
   tokenToday:   { color: "rgba(196,154,60,0.65)" },
-  tokenNext:    { fontFamily: "Inter_400Regular", fontSize: 11, color: C.textDim, textAlign: "right", lineHeight: 15 },
-  tierTrack:    { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 3, height: 3, overflow: "hidden" },
+  tokenNext:    { fontWeight: "400", fontSize: 11, color: C.textDim, textAlign: "right", lineHeight: 15 },
+  tierTrack:    { backgroundColor: C.border, borderRadius: 3, height: 3, overflow: "hidden" },
   tierFill:     { height: "100%", borderRadius: 3 },
 
   eventRow:       { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 4 },
-  eventRowBorder: { borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" },
+  eventRowBorder: { borderBottomWidth: 1, borderBottomColor: C.border },
   eventIcon:      { width: 16, alignItems: "center", flexShrink: 0 },
-  eventLabel:     { fontFamily: "Inter_400Regular", fontSize: 13, color: C.textSecondary, flex: 1 },
-  eventTokens:    { fontFamily: "Inter_700Bold", fontSize: 12, color: C.gold, flexShrink: 0 },
-  eventTime:      { fontFamily: "Inter_400Regular", fontSize: 11, color: C.textDim, minWidth: 44, textAlign: "right", flexShrink: 0 },
+  eventLabel:     { fontWeight: "400", fontSize: 13, color: C.textSecondary, flex: 1 },
+  eventTokens:    { fontWeight: "700", fontSize: 12, color: C.gold, flexShrink: 0 },
+  eventTime:      { fontWeight: "400", fontSize: 11, color: C.textDim, minWidth: 44, textAlign: "right", flexShrink: 0 },
 
   expandBtn:  { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8, paddingVertical: 4 },
-  expandText: { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim, letterSpacing: 0.3 },
+  expandText: { fontWeight: "400", fontSize: 12, color: C.textDim, letterSpacing: 0.3 },
 
-  discordRow:           { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16 },
-  discordConnectedText: { fontFamily: "Inter_400Regular", fontSize: 13, color: C.textSecondary },
-  discordConnectText:   { fontFamily: "Inter_500Medium", fontSize: 13, color: C.textPrimary },
-  discordBonus:         { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim, marginLeft: "auto" },
+  discordRow:           { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 16 },
+  discordConnectedText: { fontWeight: "400", fontSize: 13, color: C.textSecondary },
+  discordConnectText:   { fontWeight: "500", fontSize: 13, color: C.textPrimary },
+  discordBonus:         { fontWeight: "400", fontSize: 12, color: C.textDim, marginLeft: "auto" },
   discordInvite:        { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: "rgba(88,101,242,0.18)", borderRadius: 16 },
-  discordInviteText:    { fontFamily: "Inter_400Regular", fontSize: 13, color: "rgba(166,176,255,0.75)" },
+  discordInviteText:    { fontWeight: "400", fontSize: 13, color: "rgba(166,176,255,0.75)" },
 
 
-  emptyTitle:    { fontFamily: "Inter_600SemiBold", fontSize: 18, color: "#E3E2E2" },
-  emptySubtitle: { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(200,197,203,0.6)" },
+  emptyTitle:    { fontWeight: "600", fontSize: 18, color: C.textPrimary },
+  emptySubtitle: { fontWeight: "400", fontSize: 14, color: C.textSecondary },
 });

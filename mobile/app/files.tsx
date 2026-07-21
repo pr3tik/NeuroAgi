@@ -4,29 +4,28 @@
 // LMS file rows, and a lightweight in-app reader (summary + highlights +
 // transcript) standing in for the web DocReader.
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity,
-  StyleSheet, Modal, Linking, ActivityIndicator,
+  StyleSheet, Modal, Linking,
 } from "react-native";
+import { Redirect } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   FileText, Presentation, Music, Film, Play, Image as ImageIcon,
   StickyNote, Paperclip, BookOpen, Check, ChevronDown,
 } from "lucide-react-native";
-import ScreenWrapper from "../components/ScreenWrapper";
+import Glass from "../components/Glass";
+import { Skeleton, EmptyState, ErrorState } from "../components/States";
+import { usePageTheme, ThemeColors } from "../constants/appTheme";
 import { supabase } from "../services/supabase";
 import { useUserId } from "../context/AuthContext";
+
+const PAGE = "toolkit";
 
 // ── Design tokens (tokens.css) ───────────────────────────────────────────────
 
 const TOKENS = {
-  surface:       "rgba(255,255,255,0.05)",
-  border:        "rgba(255,255,255,0.08)",
-  textPrimary:   "#F5F5F5",
-  textSecondary: "rgba(255,255,255,0.45)",
-  textDim:       "rgba(255,255,255,0.35)",
-  gold:          "#C49A3C",
   depthLine:     { boxShadow: "0 1px 0 rgba(255,255,255,0.06)" },
 };
 
@@ -106,6 +105,8 @@ function openExternalFile(file: FileItem) {
 // ── AddMaterialCard — visual parity with web; processing degrades gracefully ─
 
 function AddMaterialCard() {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const [ytUrl, setYtUrl] = useState("");
   const [note, setNote]   = useState(false);
   const showNote = () => setNote(true);
@@ -116,15 +117,15 @@ function AddMaterialCard() {
       <Text style={styles.addSub}>PDF, Word, slides, audio, video — or a YouTube link</Text>
 
       {/* Course picker (web: <select>) — inert until uploads land on mobile */}
-      <View style={[styles.coursePicker, { opacity: 0.5 }]}>
+      <Glass colors={C} radius={12} style={[styles.coursePicker, { opacity: 0.5 }]}>
         <Text style={styles.coursePickerText}>General library (no course)</Text>
-        <ChevronDown size={14} color="rgba(255,255,255,0.35)" />
-      </View>
+        <ChevronDown size={14} color={C.textDim} />
+      </Glass>
 
       {/* Drop zone → tap target on mobile */}
       <TouchableOpacity style={styles.dropZone} activeOpacity={0.7} onPress={showNote}>
         <View style={{ marginBottom: 6, opacity: 0.5 }}>
-          <Paperclip size={22} color={TOKENS.textPrimary} />
+          <Paperclip size={22} color={C.textPrimary} />
         </View>
         <Text style={styles.dropText}>Tap to choose a file</Text>
         <Text style={styles.dropHint}>PDF · Word · PPTX · images · audio · video</Text>
@@ -143,7 +144,7 @@ function AddMaterialCard() {
           value={ytUrl}
           onChangeText={setYtUrl}
           placeholder="Paste a YouTube link…"
-          placeholderTextColor="rgba(255,255,255,0.35)"
+          placeholderTextColor={C.textDim}
           style={styles.ytInput}
           autoCapitalize="none"
           autoCorrect={false}
@@ -153,8 +154,8 @@ function AddMaterialCard() {
           disabled={!ytUrl.trim()}
           style={[styles.ytButton, ytUrl.trim() ? styles.ytButtonActive : null]}
         >
-          <Play size={13} color={ytUrl.trim() ? TOKENS.gold : TOKENS.textDim} />
-          <Text style={[styles.ytButtonText, ytUrl.trim() && { color: TOKENS.gold }]}>Process</Text>
+          <Play size={13} color={ytUrl.trim() ? C.gold : C.textDim} />
+          <Text style={[styles.ytButtonText, ytUrl.trim() && { color: C.gold }]}>Process</Text>
         </TouchableOpacity>
       </View>
 
@@ -170,6 +171,8 @@ function AddMaterialCard() {
 // ── AddToSpaceModal — direct Supabase, same as web ───────────────────────────
 
 function AddToSpaceModal({ file, onClose }: { file: FileItem; onClose: () => void }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const userId = useUserId();
   const [spaces, setSpaces]   = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -220,7 +223,7 @@ function AddToSpaceModal({ file, onClose }: { file: FileItem; onClose: () => voi
                   disabled={isAdded || !!adding}
                   style={[styles.spaceRow, isAdded && styles.spaceRowAdded]}
                 >
-                  <View style={[styles.spaceDot, { backgroundColor: s.color ?? TOKENS.gold }]} />
+                  <View style={[styles.spaceDot, { backgroundColor: s.color ?? C.gold }]} />
                   <Text style={styles.spaceName} numberOfLines={1}>{s.name}</Text>
                   {isAdding ? (
                     <Text style={styles.spaceAction}>Adding…</Text>
@@ -248,6 +251,8 @@ function DocCard({ file, color, onOpen, onAddToSpace }: {
   file: FileItem; color: string;
   onOpen: (f: FileItem) => void; onAddToSpace: (f: FileItem) => void;
 }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const isYoutube = file.fileType === "youtube";
   const TypeIcon  = typeIconFor(file.fileType);
   const ago       = timeAgo(file.processedAt);
@@ -269,7 +274,7 @@ function DocCard({ file, color, onOpen, onAddToSpace }: {
       />
       <View style={styles.docCardBody}>
         <View style={styles.docCardHead}>
-          <TypeIcon size={20} color={TOKENS.textSecondary} />
+          <TypeIcon size={20} color={C.textSecondary} />
           {file.fileType ? (
             <View style={styles.typeBadge}>
               <Text style={styles.typeBadgeText}>{file.fileType.toUpperCase()}</Text>
@@ -305,15 +310,18 @@ function DocCard({ file, color, onOpen, onAddToSpace }: {
 function FileRow({ file, color, onOpen }: {
   file: FileItem; color: string; onOpen: (f: FileItem) => void;
 }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const size  = formatSize(file.sizeBytes);
   const isPdf = ["pdf","docx","doc","pptx","ppt","txt","md"].includes((file.fileType ?? "").toLowerCase());
   const hasReader = !!file.summary && isPdf;
   const openable  = hasReader || !!file.sourceUrl;
 
   return (
-    <TouchableOpacity
-      style={styles.fileRow}
-      activeOpacity={openable ? 0.7 : 1}
+    <Glass
+      colors={C}
+      radius={16}
+      style={[styles.fileRow, { backgroundColor: "transparent" }]}
       onPress={() => { if (hasReader) onOpen(file); else openExternalFile(file); }}
       disabled={!openable}
     >
@@ -333,20 +341,22 @@ function FileRow({ file, color, onOpen }: {
       {file.fileType ? (
         <Text style={[styles.fileRowType, { color }]}>{file.fileType.toUpperCase()}</Text>
       ) : null}
-    </TouchableOpacity>
+    </Glass>
   );
 }
 
 // ── Reader — lightweight stand-in for the web DocReader ─────────────────────
 
 function ReaderView({ file, onBack }: { file: FileItem; onBack: () => void }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const ago = timeAgo(file.processedAt);
   const content = file.contentText
     ? file.contentText.slice(0, 6000) + (file.contentText.length > 6000 ? "…" : "")
     : null;
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 8 }}>
+    <View style={{ gap: 16, paddingBottom: 8 }}>
       <TouchableOpacity onPress={onBack}>
         <Text style={styles.back}>←  Files</Text>
       </TouchableOpacity>
@@ -364,14 +374,14 @@ function ReaderView({ file, onBack }: { file: FileItem; onBack: () => void }) {
       </View>
 
       {file.summary ? (
-        <View style={styles.readerBox}>
+        <Glass colors={C} radius={12} style={styles.readerBox}>
           <Text style={styles.readerSectionTitle}>Summary</Text>
           <Text style={styles.readerText}>{file.summary}</Text>
-        </View>
+        </Glass>
       ) : null}
 
       {file.highlights && file.highlights.length > 0 ? (
-        <View style={styles.readerBox}>
+        <Glass colors={C} radius={12} style={styles.readerBox}>
           <Text style={styles.readerSectionTitle}>Highlights</Text>
           {file.highlights.map((h, i) => (
             <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 6 }}>
@@ -379,11 +389,11 @@ function ReaderView({ file, onBack }: { file: FileItem; onBack: () => void }) {
               <Text style={[styles.readerText, { flex: 1 }]}>{String(h)}</Text>
             </View>
           ))}
-        </View>
+        </Glass>
       ) : null}
 
       {content ? (
-        <View style={styles.readerBox}>
+        <Glass colors={C} radius={12} style={styles.readerBox}>
           <Text style={styles.readerSectionTitle}>
             {file.fileType === "youtube" ? "Transcript" : "Content"}
           </Text>
@@ -391,7 +401,7 @@ function ReaderView({ file, onBack }: { file: FileItem; onBack: () => void }) {
           {file.contentText && file.contentText.length > 6000 ? (
             <Text style={styles.readerTrunc}>Full reader available in the web app.</Text>
           ) : null}
-        </View>
+        </Glass>
       ) : null}
 
       {file.sourceUrl ? (
@@ -399,13 +409,24 @@ function ReaderView({ file, onBack }: { file: FileItem; onBack: () => void }) {
           <Text style={styles.openOriginalText}>Open original</Text>
         </TouchableOpacity>
       ) : null}
-    </ScrollView>
+    </View>
   );
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
+// Files now lives inside the merged /toolkit page (Files tab) — this route just
+// forwards there so old links / the back stack keep working.
 export default function FilesScreen() {
+  return <Redirect href="/toolkit?tab=files" />;
+}
+
+// FilesLibrary — the Files screen body, without the page shell or an outer
+// ScrollView, so it can be dropped into the Toolkit page's Files tab (which owns
+// the scrolling). Self-contained: loads its own data and runs the in-app reader.
+export function FilesLibrary() {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const userId = useUserId();
   const [files, setFiles]     = useState<FileItem[]>([]);
   const [courses, setCourses] = useState<any[]>([]);
@@ -414,10 +435,10 @@ export default function FilesScreen() {
   const [viewingFile, setViewingFile] = useState<FileItem | null>(null);
   const [spaceFile, setSpaceFile]     = useState<FileItem | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
+  // Hoisted so the error state's Try-again can re-run the same reads.
+  const reload = useCallback(async () => {
+    setError(null);
+    try {
       const [filesRes, coursesRes] = await Promise.all([
         // Matches AppContext.tsx's files query: order by updated_at first —
         // without it, an unordered LIMIT over 700+ rows returns an arbitrary
@@ -431,7 +452,6 @@ export default function FilesScreen() {
           .select("id, name, course_code")
           .eq("user_id", userId),
       ]);
-      if (cancelled) return;
 
       if (filesRes.error) {
         setError(filesRes.error.message);
@@ -447,12 +467,14 @@ export default function FilesScreen() {
         setFiles(mapped);
       }
       setCourses(coursesRes.data ?? []);
+    } catch (e: any) {
+      setError(e?.message ?? "network");
+    } finally {
       setLoading(false);
     }
-
-    load();
-    return () => { cancelled = true; };
   }, [userId]);
+
+  useEffect(() => { reload(); }, [reload]);
 
   // Group by course — files without a course land in "My Documents" (web parity).
   const { myDocs, courseGroups } = useMemo(() => {
@@ -470,48 +492,27 @@ export default function FilesScreen() {
   }, [files, courses]);
 
   if (viewingFile) {
-    return (
-      <ScreenWrapper page="files">
-        <ReaderView file={viewingFile} onBack={() => setViewingFile(null)} />
-      </ScreenWrapper>
-    );
+    return <ReaderView file={viewingFile} onBack={() => setViewingFile(null)} />;
   }
 
   return (
-    <ScreenWrapper page="files">
-      <View style={{ marginBottom: 24 }}>
-        <Text style={styles.title}>Files</Text>
-        <Text style={styles.subtitle}>
-          {loading
-            ? "Loading your library…"
-            : files.length > 0
-            ? `${files.length} file${files.length !== 1 ? "s" : ""}`
-            : "Add a document or YouTube video to study"}
-        </Text>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 28, paddingBottom: 8 }}>
+    <>
+      <View style={{ gap: 28 }}>
         <AddMaterialCard />
 
         {loading ? (
-          <View style={styles.emptyCard}>
-            <ActivityIndicator color={TOKENS.textDim} />
+          <View style={{ gap: 12 }}>
+            {[0, 1, 2].map(i => <Skeleton key={i} colors={C} height={72} radius={14} />)}
           </View>
         ) : error ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Couldn't load your files</Text>
-            <Text style={styles.emptyBody}>{error}</Text>
-          </View>
+          <ErrorState colors={C} title="Couldn't load your files" onRetry={reload} />
         ) : files.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <View style={{ marginBottom: 12, opacity: 0.35 }}>
-              <BookOpen size={32} color={TOKENS.textPrimary} />
-            </View>
-            <Text style={styles.emptyTitle}>Your library is empty</Text>
-            <Text style={styles.emptyBody}>
-              Upload a PDF, Word doc, audio file, or paste a YouTube link to start studying with AI.
-            </Text>
-          </View>
+          <EmptyState
+            colors={C}
+            Icon={BookOpen}
+            title="Your library is empty"
+            message="Upload a PDF, Word doc, audio file, or paste a YouTube link to start studying with AI."
+          />
         ) : (
           <>
             {/* My Documents — premium card grid */}
@@ -555,55 +556,56 @@ export default function FilesScreen() {
             ))}
           </>
         )}
-      </ScrollView>
+      </View>
 
       {spaceFile && <AddToSpaceModal file={spaceFile} onClose={() => setSpaceFile(null)} />}
-    </ScreenWrapper>
+    </>
   );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const SURFACE = {
-  ...TOKENS.depthLine,
-  backgroundColor: TOKENS.surface,
-  borderWidth: 1,
-  borderColor: TOKENS.border,
-  borderRadius: 16,
-} as const;
+const makeStyles = (C: ThemeColors) => {
+  const SURFACE = {
+    ...TOKENS.depthLine,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 16,
+  } as const;
 
-const styles = StyleSheet.create({
-  title:        { fontFamily: "Fraunces_300Light_Italic", fontSize: 26, color: TOKENS.textPrimary, letterSpacing: -0.3 },
-  subtitle:     { fontFamily: "Inter_400Regular", fontSize: 14, color: TOKENS.textDim, marginTop: 4 },
+  return StyleSheet.create({
+  title:        { fontWeight: "600", fontSize: 26, color: C.textPrimary, letterSpacing: -0.3 },
+  subtitle:     { fontWeight: "400", fontSize: 14, color: C.textDim, marginTop: 4 },
 
   // Add material card
   addCard:          { ...SURFACE, padding: 20 },
-  addTitle:         { fontFamily: "Inter_600SemiBold", fontSize: 14, color: TOKENS.textPrimary, marginBottom: 3 },
-  addSub:           { fontFamily: "Inter_400Regular", fontSize: 12, color: TOKENS.textDim, marginBottom: 12 },
-  coursePicker:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 14 },
-  coursePickerText: { fontFamily: "Inter_400Regular", fontSize: 13, color: TOKENS.textPrimary },
-  dropZone:         { borderWidth: 1.5, borderStyle: "dashed", borderColor: "rgba(255,255,255,0.13)", borderRadius: 12, paddingVertical: 22, paddingHorizontal: 16, alignItems: "center", backgroundColor: "rgba(255,255,255,0.02)", marginBottom: 12 },
-  dropText:         { fontFamily: "Inter_400Regular", fontSize: 13, color: TOKENS.textSecondary },
-  dropHint:         { fontFamily: "Inter_400Regular", fontSize: 11, color: TOKENS.textDim, marginTop: 4 },
+  addTitle:         { fontWeight: "600", fontSize: 14, color: C.textPrimary, marginBottom: 3 },
+  addSub:           { fontWeight: "400", fontSize: 12, color: C.textDim, marginBottom: 12 },
+  coursePicker:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 14 },
+  coursePickerText: { fontWeight: "400", fontSize: 13, color: C.textPrimary },
+  dropZone:         { borderWidth: 1.5, borderStyle: "dashed", borderColor: "rgba(255,255,255,0.13)", borderRadius: 12, paddingVertical: 22, paddingHorizontal: 16, alignItems: "center", backgroundColor: C.surface, marginBottom: 12 },
+  dropText:         { fontWeight: "400", fontSize: 13, color: C.textSecondary },
+  dropHint:         { fontWeight: "400", fontSize: 11, color: C.textDim, marginTop: 4 },
   orRow:            { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
   orLine:           { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
-  orText:           { fontFamily: "Inter_400Regular", fontSize: 11, color: TOKENS.textDim, letterSpacing: 1 },
-  ytInput:          { flex: 1, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontFamily: "Inter_400Regular", fontSize: 13, color: TOKENS.textPrimary },
-  ytButton:         { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" },
+  orText:           { fontWeight: "400", fontSize: 11, color: C.textDim, letterSpacing: 1 },
+  ytInput:          { flex: 1, backgroundColor: C.surfaceTranslucent, borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontWeight: "400", fontSize: 13, color: C.textPrimary },
+  ytButton:         { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: C.border },
   ytButtonActive:   { backgroundColor: "rgba(196,154,60,0.14)", borderColor: "rgba(196,154,60,0.3)" },
-  ytButtonText:     { fontFamily: "Inter_600SemiBold", fontSize: 13, color: TOKENS.textDim },
-  uploadNote:       { fontFamily: "Inter_400Regular", fontSize: 12, color: TOKENS.textDim, marginTop: 12, fontStyle: "italic" },
+  ytButtonText:     { fontWeight: "600", fontSize: 13, color: C.textDim },
+  uploadNote:       { fontWeight: "400", fontSize: 12, color: C.textDim, marginTop: 12, fontStyle: "italic" },
 
   // Empty / error
   emptyCard:  { ...SURFACE, padding: 32, alignItems: "center" },
-  emptyTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: TOKENS.textSecondary, marginBottom: 6 },
-  emptyBody:  { fontFamily: "Inter_400Regular", fontSize: 13, color: TOKENS.textDim, lineHeight: 21, textAlign: "center", maxWidth: 260 },
+  emptyTitle: { fontWeight: "600", fontSize: 15, color: C.textSecondary, marginBottom: 6 },
+  emptyBody:  { fontWeight: "400", fontSize: 13, color: C.textDim, lineHeight: 21, textAlign: "center", maxWidth: 260 },
 
   // Group headers
   groupHeader: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 },
-  groupTitle:  { fontFamily: "Inter_600SemiBold", fontSize: 13, color: TOKENS.textSecondary, letterSpacing: 0.3 },
-  groupCount:  { fontFamily: "Inter_400Regular", fontSize: 11, color: TOKENS.textDim },
-  courseTitle: { fontFamily: "Inter_700Bold", fontSize: 12, letterSpacing: 0.5 },
+  groupTitle:  { fontWeight: "600", fontSize: 13, color: C.textSecondary, letterSpacing: 0.3 },
+  groupCount:  { fontWeight: "400", fontSize: 11, color: C.textDim },
+  courseTitle: { fontWeight: "700", fontSize: 12, letterSpacing: 0.5 },
 
   // DocCard grid
   docGrid:        { flexDirection: "row", flexWrap: "wrap", gap: 12 },
@@ -611,43 +613,44 @@ const styles = StyleSheet.create({
   docCardBody:    { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 12, flex: 1 },
   docCardHead:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   typeBadge:      { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.06)" },
-  typeBadgeText:  { fontFamily: "Inter_700Bold", fontSize: 9, letterSpacing: 0.5, color: TOKENS.textDim },
-  docTitle:       { fontFamily: "Inter_600SemiBold", fontSize: 13, color: TOKENS.textPrimary, lineHeight: 18, marginBottom: 6 },
-  docSummary:     { fontFamily: "Inter_400Regular", fontSize: 11, color: TOKENS.textDim, lineHeight: 17, marginBottom: 8 },
+  typeBadgeText:  { fontWeight: "700", fontSize: 9, letterSpacing: 0.5, color: C.textDim },
+  docTitle:       { fontWeight: "600", fontSize: 13, color: C.textPrimary, lineHeight: 18, marginBottom: 6 },
+  docSummary:     { fontWeight: "400", fontSize: 11, color: C.textDim, lineHeight: 17, marginBottom: 8 },
   docFooter:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: "auto" },
-  docAgo:         { fontFamily: "Inter_400Regular", fontSize: 10, color: TOKENS.textDim },
+  docAgo:         { fontWeight: "400", fontSize: 10, color: C.textDim },
   spaceButton:    { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: "rgba(196,154,60,0.08)", borderWidth: 1, borderColor: "rgba(196,154,60,0.2)" },
-  spaceButtonText:{ fontFamily: "Inter_600SemiBold", fontSize: 10, color: "rgba(196,154,60,0.8)" },
+  spaceButtonText:{ fontWeight: "600", fontSize: 10, color: "rgba(196,154,60,0.8)" },
 
   // FileRow
   fileRow:       { ...SURFACE, paddingHorizontal: 16, paddingVertical: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  fileRowName:   { fontFamily: "Inter_500Medium", fontSize: 14, color: TOKENS.textPrimary, flexShrink: 1 },
-  fileRowMeta:   { fontFamily: "Inter_400Regular", fontSize: 12, color: TOKENS.textDim, marginTop: 2 },
-  fileRowType:   { fontFamily: "Inter_700Bold", fontSize: 10, letterSpacing: 0.5, flexShrink: 0 },
+  fileRowName:   { fontWeight: "500", fontSize: 14, color: C.textPrimary, flexShrink: 1 },
+  fileRowMeta:   { fontWeight: "400", fontSize: 12, color: C.textDim, marginTop: 2 },
+  fileRowType:   { fontWeight: "700", fontSize: 10, letterSpacing: 0.5, flexShrink: 0 },
   readBadge:     { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(196,154,60,0.1)", borderWidth: 1, borderColor: "rgba(196,154,60,0.22)", flexShrink: 0 },
-  readBadgeText: { fontFamily: "Inter_700Bold", fontSize: 9, letterSpacing: 0.5, color: TOKENS.gold },
+  readBadgeText: { fontWeight: "700", fontSize: 9, letterSpacing: 0.5, color: C.gold },
 
   // Reader
-  back:               { fontFamily: "Inter_400Regular", fontSize: 14, color: TOKENS.textSecondary },
-  readerTitle:        { fontFamily: "Inter_600SemiBold", fontSize: 20, color: TOKENS.textPrimary, letterSpacing: -0.2 },
-  readerBox:          { backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", borderRadius: 12, padding: 14 },
-  readerSectionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: TOKENS.textSecondary, letterSpacing: 0.3, marginBottom: 8, textTransform: "uppercase" },
-  readerText:         { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 21, color: TOKENS.textSecondary },
-  readerTrunc:        { fontFamily: "Inter_400Regular", fontSize: 11, color: TOKENS.textDim, marginTop: 10, fontStyle: "italic" },
-  highlightDot:       { width: 5, height: 5, borderRadius: 3, backgroundColor: TOKENS.gold, marginTop: 8, flexShrink: 0 },
+  back:               { fontWeight: "400", fontSize: 14, color: C.textSecondary },
+  readerTitle:        { fontWeight: "600", fontSize: 20, color: C.textPrimary, letterSpacing: -0.2 },
+  readerBox:          { borderRadius: 12, padding: 14 },
+  readerSectionTitle: { fontWeight: "600", fontSize: 12, color: C.textSecondary, letterSpacing: 0.3, marginBottom: 8, },
+  readerText:         { fontWeight: "400", fontSize: 13, lineHeight: 21, color: C.textSecondary },
+  readerTrunc:        { fontWeight: "400", fontSize: 11, color: C.textDim, marginTop: 10, fontStyle: "italic" },
+  highlightDot:       { width: 5, height: 5, borderRadius: 3, backgroundColor: C.gold, marginTop: 8, flexShrink: 0 },
   openOriginal:       { ...SURFACE, paddingVertical: 12, alignItems: "center" },
-  openOriginalText:   { fontFamily: "Inter_600SemiBold", fontSize: 13, color: TOKENS.textPrimary },
+  openOriginalText:   { fontWeight: "600", fontSize: 13, color: C.textPrimary },
 
   // Add-to-Space modal
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
   modalSheet:    { borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: "#1c1c1e", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingTop: 10, paddingHorizontal: 22, paddingBottom: 40, maxHeight: "72%" },
   modalHandle:   { width: 38, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.18)", alignSelf: "center", marginTop: 8, marginBottom: 20 },
-  modalTitle:    { fontFamily: "Inter_700Bold", fontSize: 17, color: TOKENS.textPrimary, marginBottom: 16 },
-  modalFileName: { fontFamily: "Inter_400Regular", fontSize: 13, color: TOKENS.textDim, marginBottom: 16 },
-  modalEmpty:    { fontFamily: "Inter_400Regular", fontSize: 13, color: TOKENS.textDim, textAlign: "center", paddingVertical: 16 },
-  spaceRow:      { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, marginBottom: 8, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" },
+  modalTitle:    { fontWeight: "700", fontSize: 17, color: C.textPrimary, marginBottom: 16 },
+  modalFileName: { fontWeight: "400", fontSize: 13, color: C.textDim, marginBottom: 16 },
+  modalEmpty:    { fontWeight: "400", fontSize: 13, color: C.textDim, textAlign: "center", paddingVertical: 16 },
+  spaceRow:      { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, marginBottom: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" },
   spaceRowAdded: { backgroundColor: "rgba(74,222,128,0.08)", borderColor: "rgba(74,222,128,0.25)" },
   spaceDot:      { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  spaceName:     { flex: 1, fontFamily: "Inter_500Medium", fontSize: 14, color: TOKENS.textPrimary },
-  spaceAction:   { fontFamily: "Inter_400Regular", fontSize: 13, color: TOKENS.textDim },
-});
+  spaceName:     { flex: 1, fontWeight: "500", fontSize: 14, color: C.textPrimary },
+  spaceAction:   { fontWeight: "400", fontSize: 13, color: C.textDim },
+  });
+};

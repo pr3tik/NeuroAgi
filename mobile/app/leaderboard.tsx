@@ -5,29 +5,30 @@
 // pure ranking logic (scopeFilter / rankRows / findUserRank from src/lib/leaderboard.ts)
 // client-side, so every tab/sort combination yields the same board as the web.
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, ActivityIndicator,
+  StyleSheet,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle } from "react-native-svg";
+import { Trophy } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
+import Glass from "../components/Glass";
+import { Skeleton, EmptyState, ErrorState, useRefresh, ThemedRefreshControl } from "../components/States";
 import { supabase } from "../services/supabase";
 import { useUserId } from "../context/AuthContext";
+import { usePageTheme, ThemeColors } from "../constants/appTheme";
+
+const PAGE = "leaderboard";
 
 const MAX_POPULATION = 2000; // same cap as api/leaderboard.ts
 const TOP_N = 50;            // same visible top-N as the web page
 
-// ── tokens.css equivalents ────────────────────────────────────────────────────
-const C = {
-  textPrimary: "#F5F5F5",                 // --text-primary
-  textDim:     "rgba(255,255,255,0.35)",  // --text-dim
-  surface:     "rgba(255,255,255,0.05)",  // --color-surface
-  border:      "rgba(255,255,255,0.08)",  // --color-border
-  radiusCard:  16,                        // --radius-card
-  gold:        "#C49A3C",
-  teal:        "rgba(0,210,190,0.9)",
+// ── bespoke local tokens (not part of the shared theme palette) ───────────────
+const LOCAL = {
+  radiusCard: 16,                    // --radius-card
+  teal:       "rgba(90,165,116,0.9)",
 };
 
 // ── constants mirrored from the web page ─────────────────────────────────────
@@ -114,13 +115,13 @@ function rankRows(rows: Row[], metric: string): Ranked[] {
 
 // ── medal + avatar palettes (verbatim from the web page) ─────────────────────
 const MEDAL = [
-  { ring: "rgba(0,210,190,0.65)",   bg: "rgba(0,210,190,0.12)",   text: "rgba(0,210,190,0.95)",  rowBg: "rgba(0,210,190,0.06)",   rowBorder: "rgba(0,210,190,0.22)" },
+  { ring: "rgba(90,165,116,0.65)",   bg: "rgba(90,165,116,0.12)",   text: "rgba(90,165,116,0.95)",  rowBg: "rgba(90,165,116,0.06)",   rowBorder: "rgba(90,165,116,0.22)" },
   { ring: "rgba(185,200,215,0.55)", bg: "rgba(185,200,215,0.08)", text: "rgba(195,210,225,0.9)", rowBg: "rgba(255,255,255,0.03)", rowBorder: "rgba(185,200,215,0.14)" },
   { ring: "rgba(205,165,75,0.55)",  bg: "rgba(205,165,75,0.1)",   text: "rgba(215,175,85,0.9)",  rowBg: "rgba(205,165,75,0.04)",  rowBorder: "rgba(205,165,75,0.16)" },
 ];
 
 const AVATAR_HUE = [
-  "rgba(0,210,190,0.65)",
+  "rgba(90,165,116,0.65)",
   "rgba(100,150,255,0.65)",
   "rgba(255,130,100,0.65)",
   "rgba(175,130,255,0.65)",
@@ -135,6 +136,8 @@ function avatarHue(name = "") {
 // ── sub-components ────────────────────────────────────────────────────────────
 
 function TierBadge({ tier }: { tier?: string | null }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const c = tier ? TIER_COLORS[tier] : null;
   if (!c) return null;
   return (
@@ -146,6 +149,7 @@ function TierBadge({ tier }: { tier?: string | null }) {
 
 // SVG progress ring around the avatar (Tokens sort only)
 function TierRing({ points, tier, size }: { points: number | null; tier: string | null; size: number }) {
+  const C = usePageTheme(PAGE);
   const { pct } = tierProgress(points ?? 0, tier ?? "Basic");
   const r    = (size - 5) / 2;
   const circ = 2 * Math.PI * r;
@@ -167,6 +171,8 @@ function BoardRow({ row, rank, isMe, sort, sublabel, maxVal, myTier }: {
   row: Ranked; rank: number; isMe: boolean; sort: Sort;
   sublabel: string | null; maxVal: number; myTier: string | null;
 }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const isTop3  = rank <= 3;
   const medal   = isTop3 ? MEDAL[rank - 1] : null;
   const hue     = avatarHue(row.name ?? "");
@@ -175,8 +181,8 @@ function BoardRow({ row, rank, isMe, sort, sublabel, maxVal, myTier }: {
   const barPct  = maxVal > 0 && val != null ? Math.max(8, (val / maxVal) * 100) : 0;
   const avSize  = isTop3 ? 36 : 30;
 
-  const rowBg     = isMe ? "rgba(0,210,190,0.07)" : medal ? medal.rowBg : C.surface;
-  const rowBorder = isMe ? "rgba(0,210,190,0.3)"  : medal ? medal.rowBorder : C.border;
+  const rowBg     = isMe ? "rgba(90,165,116,0.07)" : medal ? medal.rowBg : C.surface;
+  const rowBorder = isMe ? "rgba(90,165,116,0.3)"  : medal ? medal.rowBorder : C.border;
 
   return (
     <View style={[
@@ -227,7 +233,7 @@ function BoardRow({ row, rank, isMe, sort, sublabel, maxVal, myTier }: {
             style={[
               styles.rowName,
               {
-                color: isMe ? "rgba(0,210,190,0.95)" : C.textPrimary,
+                color: isMe ? "rgba(90,165,116,0.95)" : C.textPrimary,
                 fontSize: isTop3 ? 15 : 13,
                 fontFamily: isTop3 ? "Inter_600SemiBold" : "Inter_500Medium",
                 flexShrink: 1,
@@ -250,7 +256,7 @@ function BoardRow({ row, rank, isMe, sort, sublabel, maxVal, myTier }: {
           styles.rowValue,
           {
             fontSize: isTop3 ? 16 : 14,
-            color: isMe ? (sort === "Tokens" ? C.gold : C.teal) : C.textPrimary,
+            color: isMe ? (sort === "Tokens" ? C.gold : LOCAL.teal) : C.textPrimary,
           },
         ]}>
           {FMT[sort](row.value)}
@@ -262,10 +268,10 @@ function BoardRow({ row, rank, isMe, sort, sublabel, maxVal, myTier }: {
               {
                 width: `${barPct}%`,
                 backgroundColor: isMe
-                  ? "rgba(0,210,190,0.8)"
+                  ? "rgba(90,165,116,0.8)"
                   : rank === 1
-                  ? "rgba(0,210,190,0.5)"
-                  : "rgba(255,255,255,0.28)",
+                  ? "rgba(90,165,116,0.5)"
+                  : C.scheme === "light" ? C.accent : "rgba(255,255,255,0.28)",
               },
             ]} />
           </View>
@@ -278,6 +284,8 @@ function BoardRow({ row, rank, isMe, sort, sublabel, maxVal, myTier }: {
 // ── main screen ───────────────────────────────────────────────────────────────
 
 export default function LeaderboardScreen() {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const userId = useUserId();
   const [tab,  setTab]  = useState<Tab>("University");
   const [sort, setSort] = useState<Sort>("Tokens");
@@ -286,10 +294,9 @@ export default function LeaderboardScreen() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
+  // Hoisted so pull-to-refresh re-runs the exact same reads.
+  const reload = useCallback(async () => {
+    try {
       // Same reads as api/leaderboard.ts: full population + tokens table, merged by user_id.
       const [usersRes, lbRes] = await Promise.all([
         supabase
@@ -301,11 +308,9 @@ export default function LeaderboardScreen() {
           .select("user_id, points, tier")
           .limit(MAX_POPULATION),
       ]);
-      if (cancelled) return;
 
       if (usersRes.error) {
         setError(usersRes.error.message);
-        setLoading(false);
         return;
       }
 
@@ -330,12 +335,16 @@ export default function LeaderboardScreen() {
         gpa:        u.gpa ?? null,
       })));
       setError(null);
+    } catch (e: any) {
+      setError(e?.message ?? "network");
+    } finally {
       setLoading(false);
     }
-
-    load();
-    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const { refreshing, onRefresh } = useRefresh(reload);
 
   // My row (for scope derivation, "You" pinned card, and tier badge on non-token sorts)
   const meRow = useMemo(() => rows.find(r => r.userId === userId) ?? null, [rows, userId]);
@@ -363,7 +372,11 @@ export default function LeaderboardScreen() {
 
   return (
     <ScreenWrapper page="leaderboard">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 8 }}
+        refreshControl={<ThemedRefreshControl colors={C} refreshing={refreshing} onRefresh={onRefresh} />}
+      >
 
         {/* ── Header ── */}
         <View style={{ marginBottom: 24 }}>
@@ -374,7 +387,7 @@ export default function LeaderboardScreen() {
         </View>
 
         {/* ── Scope tabs ── */}
-        <View style={styles.tabsWrap}>
+        <Glass colors={C} radius={12} style={styles.tabsWrap}>
           {TABS.map(t => (
             <TouchableOpacity
               key={t}
@@ -385,7 +398,7 @@ export default function LeaderboardScreen() {
               <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{t}</Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </Glass>
 
         {/* ── Sort pills ── */}
         <View style={styles.sortRow}>
@@ -419,36 +432,37 @@ export default function LeaderboardScreen() {
                 <Text style={styles.youBarLabel}>{progress.label}</Text>
               </>
             ) : (
-              <Text style={styles.youMaxTier}>MAX TIER</Text>
+              <Text style={styles.youMaxTier}>Max tier</Text>
             )}
           </View>
         )}
 
-        {/* ── Loading ── */}
+        {/* ── Loading (skeleton rows) ── */}
         {loading && (
-          <View style={{ paddingVertical: 48, alignItems: "center" }}>
-            <ActivityIndicator color="rgba(0,210,190,0.7)" />
+          <View style={{ gap: 8, marginTop: 4 }}>
+            {[0, 1, 2, 3, 4, 5].map(i => (
+              <Skeleton key={i} colors={C} height={56} radius={12} />
+            ))}
           </View>
         )}
 
         {/* ── Error state ── */}
         {!loading && error && (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Couldn't load the leaderboard</Text>
-            <Text style={styles.emptySub}>{error}</Text>
-          </View>
+          <ErrorState
+            colors={C}
+            title="Couldn't load the leaderboard"
+            onRetry={reload}
+          />
         )}
 
         {/* ── Empty state — not enough real data for this tab ── */}
         {!loading && !error && visible.length < 3 && (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>
-              {sort === "GPA" ? "Not enough GPA data yet" : sort === "Tokens" ? "The leaderboard is warming up" : "Not enough data yet"}
-            </Text>
-            <Text style={styles.emptySub}>
-              {sort === "GPA" ? "Sync Canvas to join this board" : "Earn tokens to claim an early spot."}
-            </Text>
-          </View>
+          <EmptyState
+            colors={C}
+            Icon={Trophy}
+            title={sort === "GPA" ? "Not enough GPA data yet" : sort === "Tokens" ? "The leaderboard is warming up" : "Not enough data yet"}
+            message={sort === "GPA" ? "Sync your LMS to join this board." : "Earn tokens to claim an early spot."}
+          />
         )}
 
         {/* ── Rows ── */}
@@ -497,14 +511,12 @@ export default function LeaderboardScreen() {
 
 // ── styles ────────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  title:    { fontFamily: "Inter_600SemiBold", fontSize: 26, color: C.textPrimary, letterSpacing: -0.3, marginBottom: 4 },
-  subtitle: { fontFamily: "Inter_400Regular", fontSize: 13, color: C.textDim },
+const makeStyles = (C: ThemeColors) => StyleSheet.create({
+  title:    { fontWeight: "600", fontSize: 26, color: C.textPrimary, letterSpacing: -0.3, marginBottom: 4 },
+  subtitle: { fontWeight: "400", fontSize: 13, color: C.textDim },
 
   tabsWrap: {
     flexDirection: "row", gap: 2,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 1, borderColor: C.border,
     borderRadius: 12, padding: 3, marginBottom: 10,
   },
   tabBtn: {
@@ -513,89 +525,87 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "transparent",
     alignItems: "center",
   },
-  tabBtnActive:  { backgroundColor: "rgba(255,255,255,0.09)", borderColor: "rgba(255,255,255,0.12)" },
-  tabText:       { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim },
-  tabTextActive: { fontFamily: "Inter_600SemiBold", color: C.textPrimary },
+  tabBtnActive:  { backgroundColor: C.accentSoft, borderColor: C.accentLine },
+  tabText:       { fontWeight: "400", fontSize: 12, color: C.textDim },
+  tabTextActive: { fontWeight: "600", color: C.textPrimary },
 
   sortRow: { flexDirection: "row", gap: 6, marginBottom: 20 },
   sortPill: {
     borderRadius: 20, paddingVertical: 5, paddingHorizontal: 14,
     borderWidth: 1, borderColor: C.border, backgroundColor: "transparent",
   },
-  sortPillActive: { backgroundColor: "rgba(0,210,190,0.1)", borderColor: "rgba(0,210,190,0.3)" },
-  sortText:       { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim },
-  sortTextActive: { fontFamily: "Inter_600SemiBold", color: C.teal },
+  sortPillActive: { backgroundColor: "rgba(90,165,116,0.1)", borderColor: "rgba(90,165,116,0.3)" },
+  sortText:       { fontWeight: "400", fontSize: 12, color: C.textDim },
+  sortTextActive: { fontWeight: "600", color: LOCAL.teal },
 
   youCard: {
     backgroundColor: "rgba(196,154,60,0.06)",
     borderWidth: 1, borderColor: "rgba(196,154,60,0.25)",
-    borderRadius: C.radiusCard,
+    borderRadius: LOCAL.radiusCard,
     paddingVertical: 14, paddingHorizontal: 16, marginBottom: 14,
   },
   youCardTop:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
-  youName:     { fontFamily: "Inter_700Bold", fontSize: 13, color: C.gold, flexShrink: 1 },
-  youPoints:   { fontFamily: "Inter_700Bold", fontSize: 18, color: C.gold, letterSpacing: -0.5 },
+  youName:     { fontWeight: "700", fontSize: 13, color: C.gold, flexShrink: 1 },
+  youPoints:   { fontWeight: "700", fontSize: 18, color: C.gold, letterSpacing: -0.5 },
   youBarTrack: { height: 3, backgroundColor: "rgba(196,154,60,0.12)", borderRadius: 2, marginBottom: 5, overflow: "hidden" },
   youBarFill:  { height: "100%", backgroundColor: C.gold, borderRadius: 2 },
-  youBarLabel: { fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(196,154,60,0.5)", letterSpacing: 0.3 },
-  youMaxTier:  { fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(196,154,60,0.6)", letterSpacing: 0.5 },
+  youBarLabel: { fontWeight: "400", fontSize: 10, color: "rgba(196,154,60,0.5)", letterSpacing: 0.3 },
+  youMaxTier:  { fontWeight: "400", fontSize: 10, color: "rgba(196,154,60,0.6)", letterSpacing: 0.5 },
 
   emptyCard: {
     alignItems: "center", paddingVertical: 48, paddingHorizontal: 24,
-    backgroundColor: "rgba(255,255,255,0.02)",
-    borderRadius: C.radiusCard,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.05)",
+    borderRadius: LOCAL.radiusCard,
     marginBottom: 16,
   },
-  emptyTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "rgba(196,154,60,0.6)", marginBottom: 6, textAlign: "center" },
-  emptySub:   { fontFamily: "Inter_400Regular", fontSize: 13, color: C.textDim, textAlign: "center" },
+  emptyTitle: { fontWeight: "600", fontSize: 14, color: "rgba(196,154,60,0.6)", marginBottom: 6, textAlign: "center" },
+  emptySub:   { fontWeight: "400", fontSize: 13, color: C.textDim, textAlign: "center" },
 
   row: {
     flexDirection: "row", alignItems: "center",
-    borderWidth: 1, borderRadius: C.radiusCard,
+    borderWidth: 1, borderRadius: LOCAL.radiusCard,
     position: "relative", overflow: "hidden",
   },
   rankOneGlow: {
     position: "absolute", top: -28, right: -28,
     width: 100, height: 100, borderRadius: 50,
-    backgroundColor: "rgba(0,210,190,0.05)",
+    backgroundColor: "rgba(90,165,116,0.05)",
   },
   medalCircle: {
     width: 28, height: 28, borderRadius: 14,
     borderWidth: 1.5, alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
-  medalText: { fontFamily: "Inter_700Bold", fontSize: 11 },
+  medalText: { fontWeight: "700", fontSize: 11 },
   rankText: {
-    fontFamily: "Inter_600SemiBold", fontSize: 12, color: C.textDim,
+    fontWeight: "600", fontSize: 12, color: C.textDim,
     minWidth: 22, textAlign: "right", flexShrink: 0,
   },
 
   avatar:        { alignItems: "center", justifyContent: "center" },
-  avatarInitial: { fontFamily: "Inter_700Bold", color: "#fff" },
+  avatarInitial: { fontWeight: "700", color: "#fff" },
 
   rowName:     { letterSpacing: -0.2 },
-  rowSublabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: C.textDim, marginTop: 2 },
-  rowValue:    { fontFamily: "Inter_700Bold", letterSpacing: -0.3 },
+  rowSublabel: { fontWeight: "400", fontSize: 11, color: C.textDim, marginTop: 2 },
+  rowValue:    { fontWeight: "700", letterSpacing: -0.3 },
 
-  barTrack: { height: 2, borderRadius: 1, backgroundColor: "rgba(255,255,255,0.07)", width: 38, overflow: "hidden" },
+  barTrack: { height: 2, borderRadius: 1, backgroundColor: C.surfaceTranslucent, width: 38, overflow: "hidden" },
   barFill:  { height: "100%", borderRadius: 1 },
 
   podiumDivider: { height: 1, backgroundColor: C.border, marginVertical: 2 },
 
   meCard: {
     marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    backgroundColor: "rgba(0,210,190,0.07)",
-    borderWidth: 1, borderColor: "rgba(0,210,190,0.3)",
-    borderRadius: C.radiusCard,
+    backgroundColor: "rgba(90,165,116,0.07)",
+    borderWidth: 1, borderColor: "rgba(90,165,116,0.3)",
+    borderRadius: LOCAL.radiusCard,
     paddingVertical: 13, paddingHorizontal: 14,
   },
-  meCardRank:  { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "rgba(0,210,190,0.95)" },
-  meCardValue: { fontFamily: "Inter_700Bold", fontSize: 14, color: C.teal },
+  meCardRank:  { fontWeight: "600", fontSize: 13, color: "rgba(90,165,116,0.95)" },
+  meCardValue: { fontWeight: "700", fontSize: 14, color: LOCAL.teal },
 
   tierBadge: {
     paddingHorizontal: 6, paddingVertical: 2,
     borderRadius: 8, borderWidth: 1,
     marginLeft: 5, flexShrink: 0,
   },
-  tierBadgeText: { fontFamily: "Inter_600SemiBold", fontSize: 9, letterSpacing: 0.5 },
+  tierBadgeText: { fontWeight: "600", fontSize: 9, letterSpacing: 0.5 },
 });

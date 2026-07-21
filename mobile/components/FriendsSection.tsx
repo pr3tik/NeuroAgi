@@ -28,10 +28,10 @@ import { supabase } from "../services/supabase";
 
 // ── tokens.css equivalents (mirrors identity.tsx / leaderboard.tsx) ──────────
 const C = {
-  textPrimary:   "#F5F5F5",
+  textPrimary:   "#ECE8E1",
   textSecondary: "rgba(255,255,255,0.45)",
   textDim:       "rgba(255,255,255,0.35)",
-  surface:       "rgba(255,255,255,0.05)",
+  surface:       "#1d1b20",
   border:        "rgba(255,255,255,0.08)",
   gold:          "#C49A3C",
   radiusCard:    16,
@@ -175,7 +175,7 @@ function Avatar({ name, size = 32 }: { name?: string | null; size?: number }) {
       styles.avatar,
       { width: size, height: size, borderRadius: size / 2, backgroundColor: avatarBg(name) },
     ]}>
-      <Text style={{ fontSize: size * 0.38, fontFamily: "Inter_600SemiBold", color: "rgba(255,255,255,0.75)", letterSpacing: 0.5 }}>
+      <Text style={{ fontSize: size * 0.38, fontWeight: "600", color: "rgba(255,255,255,0.75)", letterSpacing: 0.5 }}>
         {avatarInitials(name)}
       </Text>
     </View>
@@ -554,65 +554,65 @@ export default function FriendsSection({ userId, ownName }: { userId: string; ow
 
 const styles = StyleSheet.create({
   label: {
-    fontFamily: "Inter_400Regular", fontSize: 11, color: C.textDim,
-    letterSpacing: 2, textTransform: "uppercase", marginBottom: 12,
+    fontWeight: "400", fontSize: 11, color: C.textDim,
+    letterSpacing: 0.2, marginBottom: 12,
   },
   subLabel: {
-    fontFamily: "Inter_400Regular", fontSize: 11, color: C.textDim,
-    letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 2,
+    fontWeight: "400", fontSize: 11, color: C.textDim,
+    letterSpacing: 0.2, marginBottom: 2,
   },
   card: {
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     borderRadius: C.radiusCard, paddingVertical: 14, paddingHorizontal: 16,
   },
-  cardSubtitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textSecondary, marginBottom: 10 },
+  cardSubtitle: { fontWeight: "400", fontSize: 12, color: C.textSecondary, marginBottom: 10 },
 
   searchIcon: { position: "absolute", left: 14, zIndex: 1 },
   searchInput: {
     backgroundColor: "rgba(255,255,255,0.05)",
     borderWidth: 1.5, borderColor: "rgba(255,255,255,0.10)",
     borderRadius: 12, paddingVertical: 13, paddingLeft: 40, paddingRight: 44,
-    color: C.textPrimary, fontSize: 14, fontFamily: "Inter_400Regular",
+    color: C.textPrimary, fontSize: 14, fontWeight: "400",
   },
   searchInputFocused: { borderColor: "rgba(196,154,60,0.55)" },
   searchSpinner: { position: "absolute", right: 14 },
 
-  warnText:  { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 8, color: "rgba(255,180,90,0.85)" },
-  actionMsg: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 8, color: "rgba(255,255,255,0.6)" },
-  emptyResults: { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim, marginTop: 10 },
+  warnText:  { fontWeight: "400", fontSize: 11, marginTop: 8, color: "rgba(255,180,90,0.85)" },
+  actionMsg: { fontWeight: "400", fontSize: 12, marginTop: 8, color: "rgba(255,255,255,0.6)" },
+  emptyResults: { fontWeight: "400", fontSize: 12, color: C.textDim, marginTop: 10 },
 
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 },
   rowBorder: { borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" },
 
   avatar: { alignItems: "center", justifyContent: "center", flexShrink: 0 },
 
-  rowName:  { fontFamily: "Inter_500Medium", fontSize: 13, color: C.textPrimary },
-  rowEmail: { fontFamily: "Inter_400Regular", fontSize: 11, color: C.textSecondary, marginTop: 1 },
+  rowName:  { fontWeight: "500", fontSize: 13, color: C.textPrimary },
+  rowEmail: { fontWeight: "400", fontSize: 11, color: C.textSecondary, marginTop: 1 },
 
-  friendTag:  { fontFamily: "Inter_500Medium", fontSize: 12, color: "rgba(52,199,89,0.8)" },
-  pendingTag: { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim },
+  friendTag:  { fontWeight: "500", fontSize: 12, color: "rgba(52,199,89,0.8)" },
+  pendingTag: { fontWeight: "400", fontSize: 12, color: C.textDim },
 
   acceptBtn: {
     backgroundColor: "rgba(52,199,89,0.12)", borderWidth: 1, borderColor: "rgba(52,199,89,0.25)",
     borderRadius: 8, paddingVertical: 5, paddingHorizontal: 12,
   },
-  acceptBtnText: { fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(52,199,89,0.9)" },
+  acceptBtnText: { fontWeight: "400", fontSize: 12, color: "rgba(52,199,89,0.9)" },
 
   declineBtn: {
     backgroundColor: "transparent", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
     borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10,
   },
-  declineBtnText: { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim },
+  declineBtnText: { fontWeight: "400", fontSize: 12, color: C.textDim },
 
   addBtn: {
     backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
     borderRadius: 8, paddingVertical: 5, paddingHorizontal: 12,
   },
-  addBtnText: { fontFamily: "Inter_500Medium", fontSize: 12, color: C.textPrimary },
+  addBtnText: { fontWeight: "500", fontSize: 12, color: C.textPrimary },
 
   removeBtn: { paddingVertical: 4, paddingHorizontal: 8 },
   removeBtnText: { fontSize: 16, lineHeight: 16, color: "rgba(255,255,255,0.18)" },
 
-  errorText: { fontFamily: "Inter_400Regular", fontSize: 13, color: "rgba(255,100,90,0.7)", paddingVertical: 4 },
-  emptyText: { fontFamily: "Inter_400Regular", fontSize: 13, color: C.textDim, paddingVertical: 4 },
+  errorText: { fontWeight: "400", fontSize: 13, color: "rgba(255,100,90,0.7)", paddingVertical: 4 },
+  emptyText: { fontWeight: "400", fontSize: 13, color: C.textDim, paddingVertical: 4 },
 });

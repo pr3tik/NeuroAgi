@@ -4,16 +4,24 @@
 import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
-import { Bell } from "lucide-react-native";
+import { Bell, User } from "lucide-react-native";
 import { supabase } from "../services/supabase";
 import { apiGet } from "../services/api";
-import { useUserId } from "../context/AuthContext";
+import { useAuth } from "../context/AuthContext";
 import NotificationPanel from "./NotificationPanel";
-import { PageKey, LABEL } from "../navigation/navConfig";
+import Glass from "./Glass";
+import { PageKey, LABEL, TAB_OF, TABS } from "../navigation/navConfig";
+import { ThemeColors } from "../constants/appTheme";
 
-export default function Header({ page }: { page: PageKey }) {
+export default function Header({ page, colors }: { page: PageKey; colors: ThemeColors }) {
   const router = useRouter();
-  const userId = useUserId();
+  const { userId, profile } = useAuth();
+
+  // Tabbed screens show their tab's name ("LEARN"); non-tab screens (profile)
+  // fall back to their own label.
+  const tab = TAB_OF[page];
+  const title = (tab ? TABS.find(t => t.key === tab)?.label : null) ?? LABEL[page];
+  const initial = profile?.name?.trim()?.[0]?.toUpperCase() ?? "";
   const [tokenSummary, setTokenSummary] = useState<{ points: number; tier: string } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -38,9 +46,17 @@ export default function Header({ page }: { page: PageKey }) {
   return (
     <>
       <View style={styles.header}>
-        <Text style={styles.pageLabel}>{LABEL[page]}</Text>
+        <View style={styles.left}>
+          <Glass colors={colors} radius={16} onPress={() => router.replace("/identity")} style={styles.avatar}>
+            {initial
+              ? <Text style={[styles.avatarText, { color: colors.textPrimary }]}>{initial}</Text>
+              : <User size={15} color={colors.textSecondary} />}
+          </Glass>
+          {/* Page label removed — each screen carries its own title, and the tab
+              name already shows in the bottom bar. No uppercase eyebrow here. */}
+        </View>
 
-        <View style={styles.cluster}>
+        <Glass colors={colors} radius={16} style={styles.cluster}>
           {tokenSummary && (
             <>
               <TouchableOpacity
@@ -51,9 +67,9 @@ export default function Header({ page }: { page: PageKey }) {
                 <View style={styles.tokenDot} />
                 <Text style={styles.tokenPoints}>{tokenSummary.points}</Text>
                 <Text style={styles.tokenSep}>·</Text>
-                <Text style={styles.tokenTier}>{tokenSummary.tier}</Text>
+                <Text style={[styles.tokenTier, { color: colors.textTertiary }]}>{tokenSummary.tier}</Text>
               </TouchableOpacity>
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
             </>
           )}
           <TouchableOpacity
@@ -61,14 +77,14 @@ export default function Header({ page }: { page: PageKey }) {
             onPress={() => setPanelOpen(true)}
             activeOpacity={0.8}
           >
-            <Bell size={17} color={unreadCount > 0 ? "#C49A3C" : "rgba(255,255,255,0.38)"} />
+            <Bell size={17} color={unreadCount > 0 ? "#C49A3C" : colors.textDim} />
             {unreadCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
               </View>
             )}
           </TouchableOpacity>
-        </View>
+        </Glass>
       </View>
 
       <NotificationPanel
@@ -85,14 +101,19 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     marginBottom: 20,
   },
-  pageLabel: {
-    fontFamily: "Inter_500Medium", fontSize: 11, color: "rgba(255,255,255,0.35)",
-    letterSpacing: 2, textTransform: "uppercase",
+  left: { flexDirection: "row", alignItems: "center", gap: 11, flexShrink: 1 },
+  avatar: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: "center", justifyContent: "center",
   },
+  avatarText: {
+    fontWeight: "600", fontSize: 13, color: "rgba(255,255,255,0.82)",
+  },
+  pageLabel: {
+    fontWeight: "500", fontSize: 11, color: "rgba(255,255,255,0.35)",
+    letterSpacing: 0.2,   },
   cluster: {
     flexDirection: "row", alignItems: "center", height: 32,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.09)",
     borderRadius: 16,
   },
   tokenBtn: {
@@ -100,9 +121,9 @@ const styles = StyleSheet.create({
     height: "100%", paddingLeft: 11, paddingRight: 8,
   },
   tokenDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#C49A3C" },
-  tokenPoints: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#C49A3C", letterSpacing: -0.1 },
-  tokenSep: { fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(196,154,60,0.45)", marginHorizontal: 1 },
-  tokenTier: { fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: 0.3 },
+  tokenPoints: { fontWeight: "600", fontSize: 11, color: "#C49A3C", letterSpacing: -0.1 },
+  tokenSep: { fontWeight: "400", fontSize: 10, color: "rgba(196,154,60,0.45)", marginHorizontal: 1 },
+  tokenTier: { fontWeight: "400", fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: 0.3 },
   divider: { width: 1, height: 16, backgroundColor: "rgba(255,255,255,0.09)" },
   bellBtn: {
     width: 32, height: 32, alignItems: "center", justifyContent: "center",
@@ -114,5 +135,5 @@ const styles = StyleSheet.create({
     backgroundColor: "#C49A3C", borderRadius: 8,
     alignItems: "center", justifyContent: "center", paddingHorizontal: 3,
   },
-  badgeText: { fontFamily: "Inter_700Bold", fontSize: 9, color: "#111" },
+  badgeText: { fontWeight: "700", fontSize: 9, color: "#111" },
 });

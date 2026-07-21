@@ -12,6 +12,7 @@
 import { useMemo, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import Svg, { G, Line, Path, Rect, Text as SvgText } from "react-native-svg";
+import { ThemeColors } from "../constants/appTheme";
 
 // ── Palette — keep in sync with src/components/GradeGraph.tsx ────────────────
 export const COURSE_COLORS = [
@@ -24,12 +25,12 @@ export const COURSE_COLORS = [
   "rgba(255,145,180,0.85)", // rose
   "rgba(255,215,80,0.85)",  // gold
 ];
-const GPA_COLOR = "rgba(0,210,190,0.85)"; // teal highlight
+const GPA_COLOR = "rgba(90,165,116,0.85)"; // teal highlight
 
 const C = {
-  textPrimary: "#F5F5F5",
+  textPrimary: "#ECE8E1",
   textDim:     "rgba(255,255,255,0.35)",
-  surface:     "rgba(255,255,255,0.05)",
+  surface:     "#1d1b20",
   border:      "rgba(255,255,255,0.08)",
 };
 
@@ -346,23 +347,35 @@ export default function GradeGraph({
   courses = [],
   assignments = [],
   connected = false,
+  colors,
 }: {
   courses?: GradeGraphCourse[];
   assignments?: GradeGraphAssignment[];
   connected?: boolean;
+  colors?: ThemeColors;
 }) {
   const built = connected ? buildChartData(courses, assignments) : null;
   const data = built?.data ?? PLACEHOLDER_DATA;
   const courseKeys = built?.courseKeys ?? PLACEHOLDER_COURSES;
 
+  // The plot must stay dark enough for the vivid line colours (esp. the sky-blue
+  // course line) to read — a white panel would swallow them. So even in the white
+  // light mode the chart is an intentional SOLID dark card (like Apple Fitness /
+  // Robinhood charts on a light page), with a soft dark hairline so it lifts off
+  // the white ground. Only the header label above it flips to dark ink.
+  const light = colors?.scheme === "light";
+  const cardOverride = light
+    ? { backgroundColor: "#1B2036", borderColor: "rgba(0,0,0,0.08)" }
+    : null;
+
   return (
     <View>
       <View style={styles.header}>
-        <Text style={styles.headerLabel}>Grade Trends</Text>
-        {!connected && <Text style={styles.headerNote}>placeholder · connect Canvas</Text>}
+        <Text style={[styles.headerLabel, colors && { color: colors.textDim }]}>Grade Trends</Text>
+        {!connected && <Text style={[styles.headerNote, colors && { color: colors.textTertiary }]}>placeholder · connect LMS</Text>}
       </View>
 
-      <View style={styles.card}>
+      <View style={[styles.card, cardOverride]}>
         <GradeChart data={data} courseKeys={courseKeys} />
       </View>
     </View>
@@ -373,20 +386,20 @@ export default function GradeGraph({
 
 const styles = StyleSheet.create({
   header:      { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 },
-  headerLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: C.textDim, letterSpacing: 2, textTransform: "uppercase" },
-  headerNote:  { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(255,255,255,0.2)" },
+  headerLabel: { fontWeight: "400", fontSize: 11, color: C.textDim, letterSpacing: 0.2, },
+  headerNote:  { fontWeight: "400", fontSize: 11, color: "rgba(255,255,255,0.2)" },
 
   card: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingTop: 16, paddingRight: 8, paddingBottom: 8, paddingLeft: 0, overflow: "hidden" },
 
   tooltip:     { minHeight: 34, paddingHorizontal: 16, paddingTop: 6, justifyContent: "center" },
-  tooltipLabel:{ fontFamily: "Inter_600SemiBold", fontSize: 11, color: C.textPrimary, marginBottom: 4 },
+  tooltipLabel:{ fontWeight: "600", fontSize: 11, color: C.textPrimary, marginBottom: 4 },
   tooltipRows: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  tooltipRow:  { fontFamily: "Inter_400Regular", fontSize: 11 },
-  tooltipHint: { fontFamily: "Inter_400Regular", fontSize: 11, color: C.textDim },
+  tooltipRow:  { fontWeight: "400", fontSize: 11 },
+  tooltipHint: { fontWeight: "400", fontSize: 11, color: C.textDim },
 
   legend:       { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingTop: 8, paddingBottom: 4, paddingHorizontal: 16, marginTop: 4, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.04)" },
   legendItem:   { flexDirection: "row", alignItems: "center", gap: 5 },
   legendSwatch: { width: 16, height: 2, borderRadius: 1 },
-  legendText:   { fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(255,255,255,0.35)" },
-  legendTextGpa:{ fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(0,210,190,0.7)" },
+  legendText:   { fontWeight: "400", fontSize: 10, color: "rgba(255,255,255,0.35)" },
+  legendTextGpa:{ fontWeight: "400", fontSize: 10, color: "rgba(90,165,116,0.7)" },
 });

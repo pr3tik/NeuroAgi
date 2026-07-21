@@ -16,7 +16,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../context/AuthContext";
 
-// Pure black, not the app's usual #0f0f0f — matches web's DARK.bg token
+// Pure black, not the app's usual #141216 — matches web's DARK.bg token
 // (src/pages/Landing.tsx) AND the exact background the logo's transparency
 // was extracted against, so the glyph's anti-aliased edge blends without
 // even the faint tonal mismatch a lighter background would introduce.
@@ -131,21 +131,21 @@ const styles = StyleSheet.create({
   },
   // Matches web AuthModal's <h2>: 22px / 600 / -0.3 tracking.
   title: {
-    fontFamily: "Inter_600SemiBold", fontSize: 22, color: C.text,
+    fontWeight: "600", fontSize: 22, color: C.text,
     letterSpacing: -0.3, textAlign: "center", marginBottom: 6,
   },
   subtitle: {
-    fontFamily: "Inter_400Regular", fontSize: 14, color: C.textMuted,
+    fontWeight: "400", fontSize: 14, color: C.textMuted,
     textAlign: "center", lineHeight: 22, marginBottom: 26,
   },
   // Matches web AuthModal's inputs: cardInner bg, cardBorder, radius 10.
   input: {
-    fontFamily: "Inter_400Regular", fontSize: 14, color: C.text,
+    fontWeight: "400", fontSize: 14, color: C.text,
     backgroundColor: C.cardInner, borderWidth: 1, borderColor: C.cardBorder,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 13, marginBottom: 10,
   },
   error: {
-    fontFamily: "Inter_400Regular", fontSize: 12, color: C.danger,
+    fontWeight: "400", fontSize: 12, color: C.danger,
     marginBottom: 10, textAlign: "center",
   },
   // Matches web AuthModal's submit: white fill, dark text, radius 12.
@@ -153,10 +153,10 @@ const styles = StyleSheet.create({
     backgroundColor: C.text, borderRadius: 12, paddingVertical: 15,
     alignItems: "center", marginTop: 8,
   },
-  primaryBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#000" },
+  primaryBtnText: { fontWeight: "600", fontSize: 15, color: "#000" },
   btnDisabled: { opacity: 0.4 },
   footer: {
-    fontFamily: "Inter_400Regular", fontSize: 12, color: C.textFaint,
+    fontWeight: "400", fontSize: 12, color: C.textFaint,
     textAlign: "center", marginTop: 12,
   },
 });

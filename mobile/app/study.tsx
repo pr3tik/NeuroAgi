@@ -2,10 +2,10 @@
 // Course picker, Flashcards / Study Guide modes, saved-card list with flip
 // previews, and a fullscreen-style flashcard session (flip + got-it/missed)
 // that saves study time and writes SM-2 spaced-repetition reviews.
-// AI generation (groq via /api) isn't reachable from mobile yet — those
-// buttons degrade to a "coming soon" toast.
+// AI generation (grounded in the course's own files) runs through
+// services/generate.ts — the same pipeline Reggie chat triggers by intent.
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, ActivityIndicator,
@@ -14,24 +14,27 @@ import Animated, {
   useSharedValue, useAnimatedStyle, withTiming, Easing,
 } from "react-native-reanimated";
 import {
-  Check, X, AlertTriangle, Sparkles, ChevronDown, RotateCcw,
+  Check, X, AlertTriangle, Sparkles, ChevronDown, RotateCcw, BookOpen,
 } from "lucide-react-native";
+import { useLocalSearchParams } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import ScreenWrapper from "../components/ScreenWrapper";
+import Glass from "../components/Glass";
+import { Skeleton, EmptyState, ErrorState, useRefresh, ThemedRefreshControl } from "../components/States";
+import { usePageTheme, ThemeColors } from "../constants/appTheme";
 import { supabase } from "../services/supabase";
+import { generateFlashcards, generateStudyGuide } from "../services/generate";
 import { useUserId } from "../context/AuthContext";
 
-// ── Design tokens (mirrors tokens.css) ────────────────────────────────────────
-const C = {
-  bg:            "#111111",
-  surface:       "rgba(255,255,255,0.05)",
-  surfaceHover:  "rgba(255,255,255,0.08)",
-  border:        "rgba(255,255,255,0.08)",
-  borderStrong:  "rgba(255,255,255,0.14)",
-  accent:        "rgba(255,255,255,0.85)",
-  textPrimary:   "#F5F5F5",
-  textSecondary: "rgba(255,255,255,0.45)",
-  textDim:       "rgba(255,255,255,0.35)",
-};
+// Key for the last-studied context (course + mode), so Home's "Jump back in"
+// and this screen both resume exactly where the user left off.
+export const LAST_STUDY_KEY = "last_study_v1";
+
+// AI generation (flashcards / study guide) lives in services/generate.ts so Reggie
+// chat can trigger the same grounded pipeline — see generateFlashcards / generateStudyGuide.
+
+const PAGE = "study";
+
 const RADIUS_CARD = 16;
 const RADIUS_BTN  = 12;
 
@@ -112,6 +115,8 @@ function StudySession({ cards, courseId, srsMap, onSrsUpdate, onExit }: {
   onExit: () => void;
 }) {
   const userId = useUserId();
+  const C = usePageTheme(PAGE);
+  const s = useMemo(() => makeStyles(C), [C]);
   const [idx, setIdx]         = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [results, setResults] = useState<boolean[]>([]);
@@ -271,13 +276,13 @@ function StudySession({ cards, courseId, srsMap, onSrsUpdate, onExit }: {
             <View style={s.cardBox}>
               {/* Front — question */}
               <Animated.View style={[s.cardFace, s.cardFront, frontStyle]}>
-                <Text style={s.cardLabel}>QUESTION</Text>
+                <Text style={s.cardLabel}>Question</Text>
                 <Text style={s.cardQuestion}>{card.question}</Text>
                 <Text style={s.cardHint}>Tap to reveal</Text>
               </Animated.View>
               {/* Back — answer (pre-rotated 180°) */}
               <Animated.View style={[s.cardFace, s.cardBack, backStyle]}>
-                <Text style={[s.cardLabel, { color: "rgba(255,255,255,0.35)" }]}>ANSWER</Text>
+                <Text style={[s.cardLabel, { color: C.textDim }]}>Answer</Text>
                 <Text style={s.cardAnswer}>{card.answer}</Text>
               </Animated.View>
             </View>
@@ -302,17 +307,19 @@ function StudySession({ cards, courseId, srsMap, onSrsUpdate, onExit }: {
 
 // ── Compact flip card for the list view ───────────────────────────────────────
 function FlipCard({ card }: { card: Card }) {
+  const C = usePageTheme(PAGE);
+  const s = useMemo(() => makeStyles(C), [C]);
   const [flipped, setFlipped] = useState(false);
   return (
-    <TouchableOpacity style={s.flipCard} onPress={() => setFlipped(f => !f)} activeOpacity={0.7}>
-      <Text style={s.flipLabel}>{flipped ? "ANSWER" : "QUESTION — TAP TO FLIP"}</Text>
+    <Glass colors={C} radius={RADIUS_CARD} onPress={() => setFlipped(f => !f)} style={s.flipCard}>
+      <Text style={s.flipLabel}>{flipped ? "Answer" : "Question — tap to flip"}</Text>
       <Text style={s.flipText}>{flipped ? card.answer : card.question}</Text>
-    </TouchableOpacity>
+    </Glass>
   );
 }
 
 // ── Lightweight markdown renderer (headings, bold, bullets) ──────────────────
-function renderInline(str: string, baseStyle: any) {
+function renderInline(str: string, baseStyle: any, s: any) {
   const parts = str.split(/(\*\*[^*]+\*\*)/g);
   return (
     <Text style={baseStyle}>
@@ -326,6 +333,8 @@ function renderInline(str: string, baseStyle: any) {
 }
 
 function MarkdownGuide({ text }: { text: string }) {
+  const C = usePageTheme(PAGE);
+  const s = useMemo(() => makeStyles(C), [C]);
   const lines = text.split("\n");
   const elements: React.ReactNode[] = [];
 
@@ -343,11 +352,11 @@ function MarkdownGuide({ text }: { text: string }) {
       elements.push(
         <View key={i} style={s.mdBulletRow}>
           <Text style={s.mdBulletDot}>·</Text>
-          <View style={{ flex: 1 }}>{renderInline(trimmed.slice(2), s.mdBulletText)}</View>
+          <View style={{ flex: 1 }}>{renderInline(trimmed.slice(2), s.mdBulletText, s)}</View>
         </View>
       );
     } else {
-      elements.push(<View key={i}>{renderInline(trimmed, s.mdPara)}</View>);
+      elements.push(<View key={i}>{renderInline(trimmed, s.mdPara, s)}</View>);
     }
   });
 
@@ -357,11 +366,30 @@ function MarkdownGuide({ text }: { text: string }) {
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function StudyScreen() {
   const userId = useUserId();
+  const C = usePageTheme(PAGE);
+  const s = useMemo(() => makeStyles(C), [C]);
+  // Mode is driven by the Learn tab's Flashcards / Study Guide chips, which open
+  // this screen as /study?mode=flashcards|guide (see navigation/navConfig.ts).
+  const { mode: modeParam, courseId: courseIdParam } = useLocalSearchParams<{ mode?: string; courseId?: string }>();
   const [courses, setCourses]         = useState<Course[]>([]);
   const [coursesLoaded, setCoursesLoaded] = useState(false);
+  const [coursesError, setCoursesError] = useState(false);
   const [course, setCourse]           = useState<Course | null>(null);
   const [pickerOpen, setPickerOpen]   = useState(false);
-  const [mode, setMode]               = useState<"flashcards" | "guide">("flashcards");
+  const [mode, setMode]               = useState<"flashcards" | "guide">(
+    modeParam === "guide" ? "guide" : "flashcards",
+  );
+
+  // Keep mode in sync when the Learn chip changes the ?mode= param without
+  // remounting. Clear any loaded content on the switch, mirroring what the old
+  // in-screen toggle did.
+  useEffect(() => {
+    if (modeParam !== "guide" && modeParam !== "flashcards") return;
+    setMode(prev => {
+      if (prev !== modeParam) { setFlashcards([]); setGuide(""); }
+      return modeParam;
+    });
+  }, [modeParam]);
   const [loading, setLoading]         = useState(false);
   const [flashcards, setFlashcards]   = useState<Card[]>([]);
   const [guide, setGuide]             = useState("");
@@ -382,34 +410,65 @@ export default function StudyScreen() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Load live courses
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
+  // Load live courses. Hoisted so pull-to-refresh re-runs the same fetch.
+  const loadCourses = useCallback(async () => {
+    setCoursesError(false);
+    try {
+      const { data, error } = await supabase
+        .from("courses")
+        .select("id, name, course_code")
+        .eq("user_id", userId)
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      const list: Course[] = (data ?? []).map((c: any) => ({
+        dbId:       c.id,
+        name:       c.name ?? "",
+        courseCode: c.course_code ?? "",
+        label:      `${c.course_code ?? ""} — ${c.name ?? ""}`,
+      }));
+      setCourses(list);
+
+      // Resume where the user left off: reopen the last-studied course (and
+      // mode, unless the caller passed an explicit ?mode=). Falls back to the
+      // most-recently-updated course for a first-time visit.
+      let initial = list[0] ?? null;
       try {
-        const { data } = await supabase
-          .from("courses")
-          .select("id, name, course_code")
-          .eq("user_id", userId)
-          .order("updated_at", { ascending: false });
-        if (cancelled) return;
-        const list: Course[] = (data ?? []).map((c: any) => ({
-          dbId:       c.id,
-          name:       c.name ?? "",
-          courseCode: c.course_code ?? "",
-          label:      `${c.course_code ?? ""} — ${c.name ?? ""}`,
-        }));
-        setCourses(list);
-        setCourse(list[0] ?? null);
-      } catch { /* fall through to empty state */ }
-      if (!cancelled) setCoursesLoaded(true);
+        const raw = await AsyncStorage.getItem(LAST_STUDY_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          const match = list.find(c => String(c.dbId) === String(saved.courseId));
+          if (match) initial = match;
+          if (!modeParam && (saved.mode === "guide" || saved.mode === "flashcards")) setMode(saved.mode);
+        }
+      } catch { /* no saved context — first run */ }
+      // A deep-link from Reggie ("Review flashcards") names the exact course it
+      // built for — open that one directly, overriding the last-studied resume.
+      if (courseIdParam) {
+        const deep = list.find(c => String(c.dbId) === String(courseIdParam));
+        if (deep) initial = deep;
+      }
+      // Only seed the picker on first load; a refresh shouldn't yank the user
+      // off a course they've since selected.
+      setCourse(prev => prev ?? initial);
+    } catch {
+      setCoursesError(true);
+    } finally {
+      setCoursesLoaded(true);
     }
-    load();
-    return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, modeParam, courseIdParam]);
+
+  useEffect(() => { loadCourses(); }, [loadCourses]);
+
+  // Persist the current course + mode so a later "Jump back in" resumes here.
+  useEffect(() => {
+    if (!course) return;
+    AsyncStorage.setItem(LAST_STUDY_KEY, JSON.stringify({
+      courseId: course.dbId, courseCode: course.courseCode, name: course.name, mode,
+    })).catch(() => {});
+  }, [course, mode]);
 
   // Load saved flashcards + SRS scheduling state for the selected course
-  const loadExisting = async () => {
+  const loadExisting = useCallback(async () => {
     if (!course) return;
     setLoading(true);
     if (mode === "flashcards") {
@@ -457,17 +516,53 @@ export default function StudyScreen() {
       }
     }
     setLoading(false);
-  };
+  }, [course, mode, userId]);
 
-  // AI generation needs the groq/RAG serverless endpoints — not reachable from
-  // mobile yet, so this degrades to a clean coming-soon affordance.
-  const generate = () => {
-    showToast(
-      mode === "guide"
-        ? "Study guide generation is coming soon on mobile — use the web app for now."
-        : "Flashcard generation is coming soon on mobile — use the web app for now.",
-      "info"
-    );
+  // Pull-to-refresh: refresh the course list, then re-pull the current course's
+  // saved cards / guide so it reflects anything generated on another surface.
+  const reload = useCallback(async () => {
+    await loadCourses();
+    if (course) await loadExisting();
+  }, [loadCourses, loadExisting, course]);
+
+  const { refreshing, onRefresh } = useRefresh(reload);
+
+  // Arriving from Reggie with ?courseId= means "show me this course's deck now" —
+  // auto-run the load once so the generated cards / guide are on screen with no tap.
+  const didAutoLoad = useRef(false);
+  useEffect(() => {
+    if (!coursesLoaded || !courseIdParam || didAutoLoad.current) return;
+    if (course && String(course.dbId) === String(courseIdParam)) {
+      didAutoLoad.current = true;
+      loadExisting();
+    }
+  }, [coursesLoaded, courseIdParam, course, loadExisting]);
+
+  // Generate flashcards / a study guide with AI, grounded in the course's own
+  // material (shared pipeline in services/generate.ts — Reggie chat uses the same).
+  const generate = async () => {
+    if (!course || loading) return;
+    setLoading(true);
+    try {
+      if (mode === "guide") {
+        const { text, saved } = await generateStudyGuide(userId, course);
+        if (!text) { showToast("Couldn't generate a study guide — try again.", "warn"); return; }
+        setGuide(text); setFlashcards([]);
+        showToast(saved ? "Study guide ready." : "Generated, but couldn't save — check your connection.", saved ? "ok" : "warn");
+      } else {
+        const { cards, saved } = await generateFlashcards(userId, course, flashcards.map(c => c.question));
+        if (!cards.length) { showToast("Couldn't generate cards — try again.", "warn"); return; }
+        setFlashcards(prev => [...cards, ...prev]); setGuide("");
+        showToast(
+          saved ? `Added ${cards.length} flashcard${cards.length !== 1 ? "s" : ""}.` : "Generated, but couldn't save — check your connection.",
+          saved ? "ok" : "warn",
+        );
+      }
+    } catch {
+      showToast("Generation failed — try again in a moment.", "warn");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const deleteCard = async (cardId: string) => {
@@ -514,37 +609,59 @@ export default function StudyScreen() {
     );
   }
 
-  // ── No Canvas courses yet ────────────────────────────────────────────────────
+  // ── No courses yet, or the course fetch failed ───────────────────────────────
   if (coursesLoaded && courses.length === 0) {
     return (
       <ScreenWrapper page="study">
         <Text style={s.h1}>Study</Text>
-        <View style={s.emptyCard}>
-          <Text style={s.emptyTitle}>No courses found</Text>
-          <Text style={s.emptySub}>
-            Connect Canvas on the web app to load your real courses here.
-          </Text>
-        </View>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1 }}
+          refreshControl={<ThemedRefreshControl colors={C} refreshing={refreshing} onRefresh={onRefresh} />}
+        >
+          {coursesError ? (
+            <ErrorState colors={C} onRetry={reload} message="We couldn't load your courses. Pull down to refresh or try again." />
+          ) : (
+            <EmptyState
+              colors={C}
+              Icon={BookOpen}
+              title="No courses yet"
+              message="Connect Canvas on the web app and your courses will show up here. Pull down to refresh."
+            />
+          )}
+        </ScrollView>
       </ScreenWrapper>
     );
   }
 
   return (
     <ScreenWrapper page="study">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 8 }}
+        refreshControl={<ThemedRefreshControl colors={C} refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <Text style={s.h1}>Study</Text>
 
         {!coursesLoaded ? (
-          <ActivityIndicator color={C.textDim} style={{ marginTop: 40 }} />
+          <View style={{ gap: 12, marginTop: 4 }}>
+            <Skeleton colors={C} height={44} radius={RADIUS_BTN} />
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <Skeleton colors={C} height={44} radius={RADIUS_BTN} style={{ flex: 1 }} />
+              <Skeleton colors={C} height={44} radius={RADIUS_BTN} style={{ flex: 1 }} />
+            </View>
+            <Skeleton colors={C} height={116} radius={RADIUS_CARD} style={{ marginTop: 6 }} />
+            <Skeleton colors={C} height={116} radius={RADIUS_CARD} />
+          </View>
         ) : (
           <>
             {/* Course picker */}
-            <TouchableOpacity style={s.select} onPress={() => setPickerOpen(o => !o)} activeOpacity={0.7}>
+            <Glass colors={C} radius={RADIUS_BTN} onPress={() => setPickerOpen(o => !o)} style={s.select}>
               <Text style={s.selectText} numberOfLines={1}>{course?.label ?? "Select a course"}</Text>
               <ChevronDown size={14} color={C.textDim} />
-            </TouchableOpacity>
+            </Glass>
             {pickerOpen && (
-              <View style={s.dropdown}>
+              <Glass colors={C} radius={RADIUS_BTN} style={s.dropdown}>
                 {courses.map(c => (
                   <TouchableOpacity
                     key={c.dbId}
@@ -560,24 +677,11 @@ export default function StudyScreen() {
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </View>
+              </Glass>
             )}
 
-            {/* Mode toggle */}
-            <View style={s.modeToggle}>
-              {(["flashcards", "guide"] as const).map(m => (
-                <TouchableOpacity
-                  key={m}
-                  style={[s.modeBtn, mode === m && s.modeBtnActive]}
-                  onPress={() => { setMode(m); setFlashcards([]); setGuide(""); }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[s.modeText, mode === m && s.modeTextActive]}>
-                    {m === "guide" ? "Study Guide" : "Flashcards"}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {/* Flashcards / Study Guide mode is chosen from the Learn tab's chip
+                row (SubNav), so no in-screen toggle here anymore. */}
 
             {/* Toast */}
             {toast ? (
@@ -606,9 +710,9 @@ export default function StudyScreen() {
                 )}
               </TouchableOpacity>
 
-              {/* AI generation — coming-soon affordance on mobile */}
+              {/* AI generation — grounded in the course's own files */}
               <TouchableOpacity
-                style={[s.primaryBtn, { opacity: 0.55 }]}
+                style={[s.primaryBtn, loading && { opacity: 0.55 }]}
                 onPress={generate}
                 disabled={loading}
                 activeOpacity={0.7}
@@ -638,13 +742,13 @@ export default function StudyScreen() {
 
                 {/* SRS: review only what's due */}
                 {dueCards.length > 0 && (
-                  <TouchableOpacity style={s.reviewDueBtn} onPress={() => startSession(dueCards)} activeOpacity={0.8}>
+                  <Glass colors={C} radius={RADIUS_BTN} onPress={() => startSession(dueCards)} style={s.reviewDueBtn}>
                     <RotateCcw size={14} color={C.textPrimary} />
                     <Text style={s.reviewDueText}>
                       Review {dueCards.length} due
                     </Text>
                     <Text style={s.reviewDueSub}>spaced repetition</Text>
-                  </TouchableOpacity>
+                  </Glass>
                 )}
 
                 <View style={{ gap: 10 }}>
@@ -667,9 +771,9 @@ export default function StudyScreen() {
 
             {/* Study guide */}
             {guide ? (
-              <View style={s.guideCard}>
+              <Glass colors={C} radius={RADIUS_CARD} style={s.guideCard}>
                 <MarkdownGuide text={guide} />
-              </View>
+              </Glass>
             ) : null}
           </>
         )}
@@ -679,72 +783,70 @@ export default function StudyScreen() {
 }
 
 // ── styles ────────────────────────────────────────────────────────────────────
-const s = StyleSheet.create({
+const makeStyles = (C: ThemeColors) => StyleSheet.create({
   h1: {
-    fontFamily: "Inter_600SemiBold", fontSize: 26, color: C.textPrimary,
+    fontWeight: "600", fontSize: 26, color: C.textPrimary,
     marginBottom: 24, letterSpacing: -0.3,
   },
 
   // Course picker
   select: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     borderRadius: RADIUS_BTN, paddingVertical: 12, paddingHorizontal: 14,
     marginBottom: 14, gap: 10,
   },
-  selectText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 14, color: C.textPrimary },
+  selectText: { flex: 1, fontWeight: "400", fontSize: 14, color: C.textPrimary },
   dropdown: {
-    backgroundColor: "#1a1a1a", borderWidth: 1, borderColor: C.border,
     borderRadius: RADIUS_BTN, marginTop: -8, marginBottom: 14, overflow: "hidden",
   },
   dropdownItem: {
     paddingVertical: 12, paddingHorizontal: 14,
-    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.04)",
+    borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  dropdownItemActive: { backgroundColor: C.surfaceHover },
-  dropdownText: { fontFamily: "Inter_400Regular", fontSize: 14, color: C.textSecondary },
+  dropdownItemActive: { backgroundColor: C.border },
+  dropdownText: { fontWeight: "400", fontSize: 14, color: C.textSecondary },
 
   // Mode toggle
   modeToggle: {
     flexDirection: "row", gap: 6, marginBottom: 20,
-    backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     borderRadius: RADIUS_BTN, padding: 4,
   },
   modeBtn: {
     flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: "center",
     borderWidth: 1, borderColor: "transparent",
   },
-  modeBtnActive: { backgroundColor: C.surfaceHover, borderColor: C.borderStrong },
-  modeText: { fontFamily: "Inter_400Regular", fontSize: 13, color: C.textSecondary },
-  modeTextActive: { fontFamily: "Inter_600SemiBold", color: C.textPrimary },
+  modeBtnActive: { backgroundColor: C.border, borderColor: C.borderStrong },
+  modeText: { fontWeight: "400", fontSize: 13, color: C.textSecondary },
+  modeTextActive: { fontWeight: "600", color: C.textPrimary },
 
   // Toast
   toast: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)", borderRadius: 12,
+    backgroundColor: C.surfaceTranslucent, borderWidth: 1,
+    borderColor: C.border, borderRadius: 12,
     paddingVertical: 12, paddingHorizontal: 16, marginBottom: 14,
   },
-  toastText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 13, color: C.textSecondary },
+  toastText: { flex: 1, fontWeight: "400", fontSize: 13, color: C.textSecondary },
 
   // Action buttons
   actionRow: { flexDirection: "row", gap: 8, marginBottom: 24 },
   btnInner:  { flexDirection: "row", alignItems: "center", gap: 6 },
   ghostBtn: {
     flex: 1, backgroundColor: "transparent", borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)", borderRadius: RADIUS_BTN,
+    borderColor: C.border, borderRadius: RADIUS_BTN,
     paddingVertical: 13, paddingHorizontal: 10, alignItems: "center", justifyContent: "center",
   },
   ghostText: {
-    fontFamily: "Inter_500Medium", fontSize: 13, color: C.textSecondary, letterSpacing: 0.2,
+    fontWeight: "500", fontSize: 13, color: C.textSecondary, letterSpacing: 0.2,
   },
   primaryBtn: {
-    flex: 2, backgroundColor: "rgba(255,255,255,0.10)", borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)", borderRadius: RADIUS_BTN,
+    flex: 2, backgroundColor: C.surfaceTranslucent, borderWidth: 1,
+    borderColor: C.borderStrong, borderRadius: RADIUS_BTN,
     paddingVertical: 13, paddingHorizontal: 10, alignItems: "center", justifyContent: "center",
   },
   primaryText: {
-    fontFamily: "Inter_600SemiBold", fontSize: 13, color: C.textPrimary, letterSpacing: 0.2,
+    fontWeight: "600", fontSize: 13, color: C.textPrimary, letterSpacing: 0.2,
   },
 
   // Flashcard list
@@ -752,28 +854,26 @@ const s = StyleSheet.create({
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     marginBottom: 14,
   },
-  listCount: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim },
+  listCount: { flex: 1, fontWeight: "400", fontSize: 12, color: C.textDim },
   studyNowBtn: {
-    backgroundColor: C.accent, borderRadius: RADIUS_BTN,
+    backgroundColor: C.scheme === "light" ? C.accent : "rgba(255,255,255,0.85)", borderRadius: RADIUS_BTN,
     paddingVertical: 9, paddingHorizontal: 18,
   },
-  studyNowText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#111" },
+  studyNowText: { fontWeight: "600", fontSize: 13, color: C.scheme === "light" ? "#FFFFFF" : "#111" },
   reviewDueBtn: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.borderStrong,
     borderRadius: RADIUS_BTN, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 14,
   },
-  reviewDueText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: C.textPrimary },
-  reviewDueSub:  { fontFamily: "Inter_400Regular", fontSize: 11, color: C.textDim, marginLeft: "auto" },
+  reviewDueText: { fontWeight: "600", fontSize: 13, color: C.textPrimary },
+  reviewDueSub:  { fontWeight: "400", fontSize: 11, color: C.textDim, marginLeft: "auto" },
   flipCard: {
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     borderRadius: RADIUS_CARD, padding: 22, minHeight: 100, justifyContent: "center",
   },
   flipLabel: {
-    fontFamily: "Inter_400Regular", fontSize: 10, color: C.textDim,
-    letterSpacing: 1.5, marginBottom: 8,
+    fontWeight: "400", fontSize: 10, color: C.textDim,
+    letterSpacing: 0.2, marginBottom: 8,
   },
-  flipText: { fontFamily: "Inter_400Regular", fontSize: 15, color: C.textPrimary, lineHeight: 24 },
+  flipText: { fontWeight: "400", fontSize: 15, color: C.textPrimary, lineHeight: 24 },
   deleteBtn: {
     position: "absolute", top: 8, right: 8,
     backgroundColor: "rgba(255,60,60,0.12)", borderWidth: 1,
@@ -783,49 +883,47 @@ const s = StyleSheet.create({
 
   // Study guide card
   guideCard: {
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     borderRadius: RADIUS_CARD, paddingVertical: 20, paddingHorizontal: 22,
   },
 
   // Empty state
   emptyCard: {
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     borderRadius: RADIUS_CARD, padding: 24,
   },
-  emptyTitle: { fontFamily: "Inter_400Regular", fontSize: 14, color: C.textSecondary, marginBottom: 4 },
-  emptySub:   { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim, lineHeight: 19 },
+  emptyTitle: { fontWeight: "400", fontSize: 14, color: C.textSecondary, marginBottom: 4 },
+  emptySub:   { fontWeight: "400", fontSize: 12, color: C.textDim, lineHeight: 19 },
 
   // Markdown guide
-  mdBold: { fontFamily: "Inter_600SemiBold", color: C.textPrimary },
+  mdBold: { fontWeight: "600", color: C.textPrimary },
   mdH3: {
-    fontFamily: "Inter_700Bold", fontSize: 13, color: C.textPrimary, opacity: 0.6,
-    letterSpacing: 1.5, marginTop: 20, marginBottom: 8,
+    fontWeight: "700", fontSize: 13, color: C.textPrimary, opacity: 0.6,
+    letterSpacing: 0.2, marginTop: 20, marginBottom: 8,
   },
-  mdH2: { fontFamily: "Inter_700Bold", fontSize: 15, color: C.textPrimary, marginTop: 22, marginBottom: 8 },
-  mdH1: { fontFamily: "Inter_700Bold", fontSize: 17, color: C.textPrimary, marginTop: 24, marginBottom: 10 },
+  mdH2: { fontWeight: "700", fontSize: 15, color: C.textPrimary, marginTop: 22, marginBottom: 8 },
+  mdH1: { fontWeight: "700", fontSize: 17, color: C.textPrimary, marginTop: 24, marginBottom: 10 },
   mdBulletRow:  { flexDirection: "row", gap: 10, marginBottom: 6, alignItems: "flex-start" },
-  mdBulletDot:  { fontFamily: "Inter_400Regular", fontSize: 13, color: C.textDim, marginTop: 1 },
-  mdBulletText: { fontFamily: "Inter_400Regular", fontSize: 14, color: C.textSecondary, lineHeight: 24 },
-  mdPara:       { fontFamily: "Inter_400Regular", fontSize: 14, color: C.textSecondary, lineHeight: 24, marginBottom: 6 },
+  mdBulletDot:  { fontWeight: "400", fontSize: 13, color: C.textDim, marginTop: 1 },
+  mdBulletText: { fontWeight: "400", fontSize: 14, color: C.textSecondary, lineHeight: 24 },
+  mdPara:       { fontWeight: "400", fontSize: 14, color: C.textSecondary, lineHeight: 24, marginBottom: 6 },
 
   // ── Session ──
   sessTop: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingTop: 8,
   },
-  sessExit:  { fontFamily: "Inter_400Regular", fontSize: 14, color: C.textSecondary },
-  sessCount: { fontFamily: "Inter_400Regular", fontSize: 13, color: C.textDim, fontVariant: ["tabular-nums"] },
+  sessExit:  { fontWeight: "400", fontSize: 14, color: C.textSecondary },
+  sessCount: { fontWeight: "400", fontSize: 13, color: C.textDim, fontVariant: ["tabular-nums"] },
   progressTrack: {
-    height: 2, backgroundColor: "rgba(255,255,255,0.06)", marginTop: 14, borderRadius: 2,
+    height: 2, backgroundColor: C.surfaceTranslucent, marginTop: 14, borderRadius: 2,
   },
-  progressFill: { height: "100%", backgroundColor: "rgba(255,255,255,0.55)", borderRadius: 2 },
+  progressFill: { height: "100%", backgroundColor: C.scheme === "light" ? C.accent : "rgba(255,255,255,0.55)", borderRadius: 2 },
   hintRow: {
     flexDirection: "row", justifyContent: "space-between",
     paddingTop: 14, paddingHorizontal: 6,
   },
   hintItem:   { flexDirection: "row", alignItems: "center", gap: 3 },
-  hintMissed: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: "rgba(255,75,65,0.8)" },
-  hintGot:    { fontFamily: "Inter_600SemiBold", fontSize: 12, color: "rgba(52,199,89,0.85)" },
+  hintMissed: { fontWeight: "600", fontSize: 12, color: "rgba(255,75,65,0.8)" },
+  hintGot:    { fontWeight: "600", fontSize: 12, color: "rgba(52,199,89,0.85)" },
 
   cardArea: { flex: 1, alignItems: "center", justifyContent: "center" },
   cardBox:  { width: "100%", aspectRatio: 100 / 68 },
@@ -837,25 +935,25 @@ const s = StyleSheet.create({
     shadowOpacity: 0.45, shadowRadius: 30, elevation: 12,
   },
   cardFront: {
-    backgroundColor: "rgba(255,255,255,0.055)", borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.09)",
+    backgroundColor: C.surfaceTranslucent, borderWidth: 1,
+    borderColor: C.border,
   },
   cardBack: {
-    backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: C.surfaceTranslucent, borderWidth: 1,
+    borderColor: C.border,
   },
   cardLabel: {
-    fontFamily: "Inter_400Regular", fontSize: 10, color: "rgba(255,255,255,0.28)",
-    letterSpacing: 2, marginBottom: 14,
+    fontWeight: "400", fontSize: 10, color: C.textTertiary,
+    letterSpacing: 0.2, marginBottom: 14,
   },
   cardQuestion: {
-    fontFamily: "Inter_500Medium", fontSize: 18, color: C.textPrimary, lineHeight: 29,
+    fontWeight: "500", fontSize: 18, color: C.textPrimary, lineHeight: 29,
   },
   cardAnswer: {
-    fontFamily: "Inter_400Regular", fontSize: 17, color: C.textPrimary, lineHeight: 29,
+    fontWeight: "400", fontSize: 17, color: C.textPrimary, lineHeight: 29,
   },
   cardHint: {
-    fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(255,255,255,0.2)", marginTop: 22,
+    fontWeight: "400", fontSize: 12, color: C.textTertiary, marginTop: 22,
   },
 
   judgeRow: { flexDirection: "row", gap: 12, paddingBottom: 12, paddingTop: 8 },
@@ -864,33 +962,33 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255,59,48,0.1)", borderWidth: 1,
     borderColor: "rgba(255,59,48,0.22)", borderRadius: RADIUS_BTN, paddingVertical: 16,
   },
-  missedText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "rgba(255,85,75,0.9)" },
+  missedText: { fontWeight: "600", fontSize: 15, color: "rgba(255,85,75,0.9)" },
   gotBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     backgroundColor: "rgba(52,199,89,0.08)", borderWidth: 1,
     borderColor: "rgba(52,199,89,0.22)", borderRadius: RADIUS_BTN, paddingVertical: 16,
   },
-  gotText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "rgba(72,210,110,0.9)" },
+  gotText: { fontWeight: "600", fontSize: 15, color: "rgba(72,210,110,0.9)" },
 
   // Done screen
   doneWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
   donePct: {
-    fontFamily: "Inter_700Bold", fontSize: 60, color: C.textPrimary,
+    fontWeight: "700", fontSize: 60, color: C.textPrimary,
     letterSpacing: -2, marginBottom: 8,
   },
-  doneSub: { fontFamily: "Inter_400Regular", fontSize: 15, color: C.textSecondary, marginBottom: 32 },
+  doneSub: { fontWeight: "400", fontSize: 15, color: C.textSecondary, marginBottom: 32 },
   doneDots: {
     flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center", marginBottom: 40,
   },
   doneDot: { width: 10, height: 10, borderRadius: 5 },
   doneBtn: {
-    width: "100%", backgroundColor: C.accent, borderRadius: RADIUS_BTN,
+    width: "100%", backgroundColor: C.scheme === "light" ? C.accent : "rgba(255,255,255,0.85)", borderRadius: RADIUS_BTN,
     paddingVertical: 14, alignItems: "center", marginBottom: 12,
   },
-  doneBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#111" },
+  doneBtnText: { fontWeight: "600", fontSize: 15, color: C.scheme === "light" ? "#FFFFFF" : "#111" },
   retryBtn: {
-    width: "100%", backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1,
+    width: "100%", backgroundColor: C.surfaceTranslucent, borderWidth: 1,
     borderColor: C.border, borderRadius: RADIUS_BTN, paddingVertical: 14, alignItems: "center",
   },
-  retryBtnText: { fontFamily: "Inter_400Regular", fontSize: 15, color: C.textPrimary },
+  retryBtnText: { fontWeight: "400", fontSize: 15, color: C.textPrimary },
 });

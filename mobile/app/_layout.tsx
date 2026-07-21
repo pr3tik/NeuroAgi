@@ -27,30 +27,26 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as SystemUI from "expo-system-ui";
 import { useFonts } from "expo-font";
-import { FunnelDisplay_300Light } from "@expo-google-fonts/funnel-display";
-import { Fraunces_300Light_Italic } from "@expo-google-fonts/fraunces";
 import {
   Inter_400Regular,
   Inter_500Medium,
   Inter_600SemiBold,
   Inter_700Bold,
 } from "@expo-google-fonts/inter";
-import { DMSans_400Regular } from "@expo-google-fonts/dm-sans";
 import { AuthProvider, useAuth } from "../context/AuthContext";
+import { ThemeProvider } from "../constants/appTheme";
 
-const BG = "#0f0f0f";
+const BG = "#141216";
 
-// Same font set as the web app's mobile view (src/pages/Work.tsx's Google
-// Fonts <link>) — keeps typography identical across platforms.
+// Warm Ink: one type family. Inter carries the whole UI (SF Pro is the next
+// step); the old FunnelDisplay/Fraunces/DM Sans faces were dropped to kill the
+// four-font, serif-italic "AI" look.
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    FunnelDisplay_300Light,
-    Fraunces_300Light_Italic,
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    DMSans_400Regular,
   });
 
   useEffect(() => {
@@ -63,9 +59,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: BG }}>
       <SafeAreaProvider style={{ backgroundColor: BG }}>
         <StatusBar style="light" backgroundColor={BG} />
-        <AuthProvider>
-          <RootNavigator />
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <RootNavigator />
+          </AuthProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -111,6 +109,7 @@ function RootNavigator() {
         <Stack.Screen name="spaces" />
         <Stack.Screen name="study" />
         <Stack.Screen name="toolkit" />
+        <Stack.Screen name="tutor" />
       </Stack.Protected>
       <Stack.Protected guard={status === "guest"}>
         <Stack.Screen name="login" />

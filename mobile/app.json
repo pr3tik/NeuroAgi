@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "mobile",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#0f0f0f",
+    "backgroundColor": "#141216",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
@@ -44,9 +44,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0f0f0f",
+          "backgroundColor": "#141216",
           "dark": {
-            "backgroundColor": "#0f0f0f"
+            "backgroundColor": "#141216"
           }
         }
       ],

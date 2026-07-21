@@ -19,10 +19,10 @@ const ACCENT = "#C49A3C";
 
 // tokens.css palette (mirrors identity.tsx's `C`)
 const C = {
-  textPrimary:   "#F5F5F5",
+  textPrimary:   "#ECE8E1",
   textSecondary: "rgba(255,255,255,0.45)",
   textDim:       "rgba(255,255,255,0.35)",
-  surface:       "rgba(255,255,255,0.05)",
+  surface:       "#1d1b20",
   surfaceInput:  "rgba(255,255,255,0.05)",
   border:        "rgba(255,255,255,0.08)",
   borderInput:   "rgba(255,255,255,0.09)",
@@ -208,19 +208,19 @@ const styles = StyleSheet.create({
     borderRadius: 16, padding: 20, marginBottom: 24,
   },
   headerRow:      { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 3 },
-  headerTitle:    { fontFamily: "Inter_600SemiBold", fontSize: 14, color: C.textPrimary },
-  headerSubtitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim, marginBottom: 14, lineHeight: 17 },
+  headerTitle:    { fontWeight: "600", fontSize: 14, color: C.textPrimary },
+  headerSubtitle: { fontWeight: "400", fontSize: 12, color: C.textDim, marginBottom: 14, lineHeight: 17 },
 
   titleInput: {
     width: "100%", marginBottom: 8, backgroundColor: C.surfaceInput,
     borderWidth: 1, borderColor: C.borderInput, borderRadius: 12,
     paddingHorizontal: 12, paddingVertical: 9, color: C.textPrimary,
-    fontFamily: "Inter_400Regular", fontSize: 13,
+    fontWeight: "400", fontSize: 13,
   },
   textArea: {
     width: "100%", backgroundColor: C.surfaceInput, borderWidth: 1, borderColor: C.borderInput,
     borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: C.textPrimary,
-    fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 19, minHeight: 110, marginBottom: 10,
+    fontWeight: "400", fontSize: 13, lineHeight: 19, minHeight: 110, marginBottom: 10,
   },
 
   analyzeBtn: {
@@ -229,40 +229,39 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(196,154,60,0.14)", borderWidth: 1, borderColor: "rgba(196,154,60,0.3)",
   },
   analyzeBtnDisabled: { backgroundColor: "rgba(255,255,255,0.06)", borderColor: C.border },
-  analyzeBtnText:         { fontFamily: "Inter_600SemiBold", fontSize: 13, color: ACCENT },
+  analyzeBtnText:         { fontWeight: "600", fontSize: 13, color: ACCENT },
   analyzeBtnTextDisabled: { color: C.textDim },
 
-  errorText: { fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(255,196,0,0.85)", marginTop: 12 },
+  errorText: { fontWeight: "400", fontSize: 12, color: "rgba(255,196,0,0.85)", marginTop: 12 },
 
   chipGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
   chip: {
     flexBasis: "30%", flexGrow: 1, minWidth: 90,
-    backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#1d1b20", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
     borderRadius: 10, paddingVertical: 8, paddingHorizontal: 11,
   },
-  chipValue: { fontFamily: "Inter_700Bold", fontSize: 15, color: C.textPrimary },
-  chipLabel: { fontFamily: "Inter_400Regular", fontSize: 10, color: C.textDim, letterSpacing: 0.4, textTransform: "uppercase", marginTop: 2 },
+  chipValue: { fontWeight: "700", fontSize: 15, color: C.textPrimary },
+  chipLabel: { fontWeight: "400", fontSize: 10, color: C.textDim, letterSpacing: 0.4, marginTop: 2 },
 
   deltaRow:  { flexDirection: "row", flexWrap: "wrap", columnGap: 14, rowGap: 6, marginBottom: 12 },
   deltaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  deltaText: { fontFamily: "Inter_400Regular", fontSize: 11, color: C.textSecondary },
+  deltaText: { fontWeight: "400", fontSize: 11, color: C.textSecondary },
 
-  assessmentText: { fontFamily: "Inter_400Regular", fontSize: 12.5, color: C.textSecondary, lineHeight: 19, marginBottom: 8 },
+  assessmentText: { fontWeight: "400", fontSize: 12.5, color: C.textSecondary, lineHeight: 19, marginBottom: 8 },
   tipBox: {
     flexDirection: "row", gap: 7, backgroundColor: "rgba(196,154,60,0.05)",
     borderWidth: 1, borderColor: "rgba(196,154,60,0.16)", borderRadius: 10,
     paddingVertical: 10, paddingHorizontal: 12,
   },
-  tipText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12, color: C.textSecondary, lineHeight: 18 },
+  tipText: { flex: 1, fontWeight: "400", fontSize: 12, color: C.textSecondary, lineHeight: 18 },
 
   timeline:           { marginTop: 18, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", paddingTop: 14 },
   timelineHeader:      { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
   timelineHeaderText: {
-    fontFamily: "Inter_600SemiBold", fontSize: 11, color: C.textDim,
-    letterSpacing: 0.5, textTransform: "uppercase",
-  },
+    fontWeight: "600", fontSize: 11, color: C.textDim,
+    letterSpacing: 0.5,   },
   timelineRow:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  timelineTitle: { flex: 1, minWidth: 0, fontFamily: "Inter_400Regular", fontSize: 12, color: C.textSecondary },
-  timelineMeta:  { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim, flexShrink: 0 },
-  timelineDate:  { fontFamily: "Inter_400Regular", fontSize: 12, color: C.textDim, flexShrink: 0, minWidth: 44, textAlign: "right" },
+  timelineTitle: { flex: 1, minWidth: 0, fontWeight: "400", fontSize: 12, color: C.textSecondary },
+  timelineMeta:  { fontWeight: "400", fontSize: 12, color: C.textDim, flexShrink: 0 },
+  timelineDate:  { fontWeight: "400", fontSize: 12, color: C.textDim, flexShrink: 0, minWidth: 44, textAlign: "right" },
 });

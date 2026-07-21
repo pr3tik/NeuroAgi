@@ -5,29 +5,31 @@
 // Write actions (create space, add/remove docs, send chat, take exams) live on
 // the web app and are shown here as clean disabled affordances.
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet,
 } from "react-native";
-import Animated, {
-  useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
-} from "react-native-reanimated";
 import {
   FileText, Image as ImageIcon, StickyNote, FolderOpen, FolderArchive,
   Sparkles, Hexagon, ArrowUp, ChevronRight, ChevronLeft, PenLine, Medal,
   ClipboardList, X,
 } from "lucide-react-native";
 import ScreenWrapper from "../components/ScreenWrapper";
+import Glass from "../components/Glass";
+import { Skeleton, ErrorState, useRefresh, ThemedRefreshControl } from "../components/States";
 import { supabase } from "../services/supabase";
 import { useUserId } from "../context/AuthContext";
+import { usePageTheme, ThemeColors } from "../constants/appTheme";
+
+const PAGE = "spaces";
 
 // ── tokens.css values used by the web page ───────────────────────────────────
 
 const T = {
-  surface:       "rgba(255,255,255,0.05)",
+  surface:       "#1d1b20",
   border:        "rgba(255,255,255,0.08)",
   borderStrong:  "rgba(255,255,255,0.14)",
-  textPrimary:   "#F5F5F5",
+  textPrimary:   "#ECE8E1",
   textSecondary: "rgba(255,255,255,0.45)",
   textTertiary:  "rgba(255,255,255,0.25)",
   textDim:       "rgba(255,255,255,0.35)",
@@ -106,28 +108,20 @@ function stripMd(md: string): string {
     .trim();
 }
 
-function docIcon(fileType: string | null | undefined, size = 18) {
-  if (fileType?.includes("pdf"))   return <FileText size={size} color={T.textSecondary} strokeWidth={1.8} />;
-  if (fileType?.includes("image")) return <ImageIcon size={size} color={T.textSecondary} strokeWidth={1.8} />;
-  return <StickyNote size={size} color={T.textSecondary} strokeWidth={1.8} />;
+function docIcon(C: ThemeColors, fileType: string | null | undefined, size = 18) {
+  if (fileType?.includes("pdf"))   return <FileText size={size} color={C.textSecondary} strokeWidth={1.8} />;
+  if (fileType?.includes("image")) return <ImageIcon size={size} color={C.textSecondary} strokeWidth={1.8} />;
+  return <StickyNote size={size} color={C.textSecondary} strokeWidth={1.8} />;
 }
 
 // ── Skeleton loader (web's spaces-pulse keyframes) ────────────────────────────
 
 function SkeletonRows() {
-  const pulse = useSharedValue(0.35);
-  useEffect(() => {
-    pulse.value = withRepeat(
-      withTiming(0.65, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-      -1, true,
-    );
-  }, []);
-  const anim = useAnimatedStyle(() => ({ opacity: pulse.value }));
-
+  const C = usePageTheme(PAGE);
   return (
     <View style={{ gap: 10 }}>
-      {[1, 2, 3].map(i => (
-        <Animated.View key={i} style={[styles.skeleton, anim]} />
+      {[0, 1, 2].map(i => (
+        <Skeleton key={i} colors={C} height={72} radius={14} />
       ))}
     </View>
   );
@@ -136,6 +130,8 @@ function SkeletonRows() {
 // ── Empty-ish shared bits ─────────────────────────────────────────────────────
 
 function TabEmpty({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   return (
     <View style={styles.tabEmpty}>
       <View style={{ marginBottom: 14, opacity: 0.35 }}>{icon}</View>
@@ -146,6 +142,8 @@ function TabEmpty({ icon, title, body }: { icon: React.ReactNode; title: string;
 }
 
 function ErrorCard({ text }: { text: string }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   return (
     <View style={styles.errorCard}>
       <Text style={styles.errorText}>{text}</Text>
@@ -158,8 +156,10 @@ function ErrorCard({ text }: { text: string }) {
 function SpaceCard({ space, docCount, onOpen }: {
   space: Space; docCount: number; onOpen: () => void;
 }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   return (
-    <TouchableOpacity style={styles.spaceCard} onPress={onOpen} activeOpacity={0.7}>
+    <Glass radius={T.radiusCard} colors={C} onPress={onOpen} style={styles.spaceCard}>
       <View style={[styles.colorDot, {
         backgroundColor: space.color,
         shadowColor: space.color,
@@ -170,38 +170,40 @@ function SpaceCard({ space, docCount, onOpen }: {
           {docCount} doc{docCount !== 1 ? "s" : ""} · {timeAgo(space.last_active)}
         </Text>
       </View>
-      <ChevronRight size={16} color="rgba(255,255,255,0.2)" strokeWidth={1.5} />
-    </TouchableOpacity>
+      <ChevronRight size={16} color={C.textTertiary} strokeWidth={1.5} />
+    </Glass>
   );
 }
 
 // ── Read-only document reader (DocReader degrade) ─────────────────────────────
 
 function DocReaderView({ file, onBack }: { file: DocFile; onBack: () => void }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   return (
     <View style={{ flex: 1 }}>
       <View style={styles.detailHeader}>
         <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7}>
-          <ChevronLeft size={16} color={T.textSecondary} strokeWidth={1.8} />
+          <ChevronLeft size={16} color={C.textSecondary} strokeWidth={1.8} />
         </TouchableOpacity>
-        <View style={{ marginRight: 4 }}>{docIcon(file.file_type)}</View>
+        <View style={{ marginRight: 4 }}>{docIcon(C, file.file_type)}</View>
         <Text style={styles.detailTitle} numberOfLines={1}>{file.name}</Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingBottom: 8 }}>
         {file.summary ? (
           <View style={styles.readerBox}>
-            <Text style={styles.readerLabel}>SUMMARY</Text>
+            <Text style={styles.readerLabel}>Summary</Text>
             <Text style={styles.readerBody}>{file.summary}</Text>
           </View>
         ) : null}
 
         {file.highlights?.length ? (
           <View style={styles.readerBox}>
-            <Text style={styles.readerLabel}>HIGHLIGHTS</Text>
+            <Text style={styles.readerLabel}>Highlights</Text>
             {file.highlights.map((h, i) => (
               <View key={i} style={{ flexDirection: "row", gap: 8, marginTop: i === 0 ? 0 : 8 }}>
-                <Text style={[styles.readerBody, { color: T.gold }]}>•</Text>
+                <Text style={[styles.readerBody, { color: C.gold }]}>•</Text>
                 <Text style={[styles.readerBody, { flex: 1 }]}>{h}</Text>
               </View>
             ))}
@@ -210,14 +212,14 @@ function DocReaderView({ file, onBack }: { file: DocFile; onBack: () => void }) 
 
         {file.content_text ? (
           <View style={styles.readerBox}>
-            <Text style={styles.readerLabel}>CONTENT</Text>
+            <Text style={styles.readerLabel}>Content</Text>
             <Text style={styles.readerBody}>{file.content_text}</Text>
           </View>
         ) : null}
 
         {!file.summary && !file.highlights?.length && !file.content_text && (
           <TabEmpty
-            icon={<FileText size={32} color={T.textPrimary} strokeWidth={1.5} />}
+            icon={<FileText size={32} color={C.textPrimary} strokeWidth={1.5} />}
             title="Nothing to preview"
             body="This document has no extracted text yet. Open it on the web app for the full reader."
           />
@@ -237,6 +239,8 @@ const TABS: { key: DetailTab; label: string }[] = [
 ];
 
 function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const userId = useUserId();
   const [tab,      setTab]      = useState<DetailTab>("docs");
   const [items,    setItems]    = useState<SpaceItem[]>([]);
@@ -356,14 +360,14 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
       {/* Header */}
       <View style={styles.detailHeader}>
         <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7}>
-          <ChevronLeft size={16} color={T.textSecondary} strokeWidth={1.8} />
+          <ChevronLeft size={16} color={C.textSecondary} strokeWidth={1.8} />
         </TouchableOpacity>
         <View style={[styles.colorDotSm, { backgroundColor: space.color, shadowColor: space.color }]} />
         <Text style={styles.detailTitle} numberOfLines={1}>{space.name}</Text>
       </View>
 
       {/* Tab bar */}
-      <View style={styles.tabBar}>
+      <Glass radius={11} colors={C} style={styles.tabBar}>
         {TABS.map(t => (
           <TouchableOpacity
             key={t.key}
@@ -376,7 +380,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </Glass>
 
       {error ? <ErrorCard text={error} /> : null}
 
@@ -385,7 +389,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
           {docItems.length === 0 ? (
             <TabEmpty
-              icon={<FolderOpen size={32} color={T.textPrimary} strokeWidth={1.5} />}
+              icon={<FolderOpen size={32} color={C.textPrimary} strokeWidth={1.5} />}
               title="No documents"
               body="Add documents from your library on the web app to read and chat with them here."
             />
@@ -401,14 +405,14 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
                     disabled={!file}
                     onPress={() => file && setOpenFile(file)}
                   >
-                    <View style={{ flexShrink: 0 }}>{docIcon(file?.file_type)}</View>
+                    <View style={{ flexShrink: 0 }}>{docIcon(C, file?.file_type)}</View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.docName} numberOfLines={1}>{item.title ?? "(Untitled)"}</Text>
                       {file?.summary ? (
                         <Text style={styles.docSummary} numberOfLines={1}>{file.summary.slice(0, 70)}</Text>
                       ) : null}
                     </View>
-                    <ChevronRight size={14} color="rgba(255,255,255,0.2)" strokeWidth={1.5} />
+                    <ChevronRight size={14} color={C.textTertiary} strokeWidth={1.5} />
                   </TouchableOpacity>
                 );
               })}
@@ -430,7 +434,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
             {chatMsgs.length === 0 && (
               <View style={styles.chatEmpty}>
                 <View style={styles.chatEmptyIcon}>
-                  <Sparkles size={22} color={T.textDim} strokeWidth={1.6} />
+                  <Sparkles size={22} color={C.textDim} strokeWidth={1.6} />
                 </View>
                 <Text style={styles.chatEmptyTitle}>Space Chat</Text>
                 <Text style={styles.chatEmptyBody}>
@@ -463,11 +467,11 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
             <TextInput
               style={styles.chatInput}
               placeholder="Chat is available on the web app"
-              placeholderTextColor={T.textTertiary}
+              placeholderTextColor={C.textTertiary}
               editable={false}
             />
             <View style={styles.sendBtn}>
-              <ArrowUp size={16} color={T.textTertiary} strokeWidth={2} />
+              <ArrowUp size={16} color={C.textTertiary} strokeWidth={2} />
             </View>
           </View>
         </View>
@@ -478,7 +482,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
           {Object.keys(cardsByDoc).length === 0 ? (
             <TabEmpty
-              icon={<FolderArchive size={32} color={T.textPrimary} strokeWidth={1.5} />}
+              icon={<FolderArchive size={32} color={C.textPrimary} strokeWidth={1.5} />}
               title="No flashcards yet"
               body="Open a document on the web app, select text, then Flashcards to generate cards from it."
             />
@@ -521,7 +525,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
 
           {exams.length === 0 ? (
             <TabEmpty
-              icon={<PenLine size={32} color={T.textPrimary} strokeWidth={1.5} />}
+              icon={<PenLine size={32} color={C.textPrimary} strokeWidth={1.5} />}
               title="No exams yet"
               body={docRefs.length
                 ? "Generate a practice exam from your space documents on the web app."
@@ -544,7 +548,7 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
                         ? (sc! >= 70
                             ? <Medal size={20} color={col!} strokeWidth={1.8} />
                             : <ClipboardList size={20} color={col!} strokeWidth={1.8} />)
-                        : <PenLine size={20} color={T.textSecondary} strokeWidth={1.8} />}
+                        : <PenLine size={20} color={C.textSecondary} strokeWidth={1.8} />}
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.examTitle} numberOfLines={1}>{e.title}</Text>
@@ -576,6 +580,8 @@ function SpaceDetail({ space, onBack }: { space: Space; onBack: () => void }) {
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function SpacesScreen() {
+  const C = usePageTheme(PAGE);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const userId = useUserId();
   const [spaces,    setSpaces]    = useState<Space[]>([]);
   const [docCounts, setDocCounts] = useState<Map<string, number>>(new Map());
@@ -583,22 +589,16 @@ export default function SpacesScreen() {
   const [error,     setError]     = useState("");
   const [openSpace, setOpenSpace] = useState<Space | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
+  // Hoisted so pull-to-refresh re-runs the same reads.
+  const reload = useCallback(async () => {
+    setError("");
+    try {
       const { data: rows, error: err } = await supabase
         .from("spaces")
         .select("*")
         .eq("user_id", userId)
         .order("last_active", { ascending: false });
-      if (cancelled) return;
-
-      if (err) {
-        setError("Couldn't load your spaces. Pull down or reopen to retry.");
-        setLoading(false);
-        return;
-      }
+      if (err) throw err;
 
       const list = (rows ?? []) as Space[];
       setSpaces(list);
@@ -610,18 +610,21 @@ export default function SpacesScreen() {
           .eq("user_id", userId)
           .eq("item_type", "document")
           .in("space_id", list.map(s => s.id));
-        if (cancelled) return;
 
         const counts = new Map<string, number>();
         (items ?? []).forEach((i: any) => counts.set(i.space_id, (counts.get(i.space_id) ?? 0) + 1));
         setDocCounts(counts);
       }
+    } catch {
+      setError("Couldn't load your spaces.");
+    } finally {
       setLoading(false);
     }
-
-    load();
-    return () => { cancelled = true; };
   }, [userId]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const { refreshing, onRefresh } = useRefresh(reload);
 
   if (openSpace) {
     return (
@@ -649,16 +652,22 @@ export default function SpacesScreen() {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 8 }}
+        refreshControl={<ThemedRefreshControl colors={C} refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         {loading && <SkeletonRows />}
 
-        {!loading && error ? <ErrorCard text={error} /> : null}
+        {!loading && error ? (
+          <ErrorState colors={C} title="Couldn't load your spaces" onRetry={reload} />
+        ) : null}
 
         {/* Empty state */}
         {!loading && !error && spaces.length === 0 && (
           <View style={styles.emptyWrap}>
             <View style={styles.emptyIcon}>
-              <Hexagon size={38} color={T.textPrimary} strokeWidth={1.4} />
+              <Hexagon size={38} color={C.textPrimary} strokeWidth={1.4} />
             </View>
             <Text style={styles.emptyTitle}>No spaces yet</Text>
             <Text style={styles.emptyBody}>
@@ -692,99 +701,99 @@ export default function SpacesScreen() {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
+const makeStyles = (C: ThemeColors) => StyleSheet.create({
   // Hub header
   hubHeader:    { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28 },
-  hubTitle:     { fontFamily: "Inter_700Bold", fontSize: 28, color: T.textPrimary, letterSpacing: -0.5, lineHeight: 31 },
-  hubSubtitle:  { fontFamily: "Inter_400Regular", fontSize: 13, color: T.textDim, marginTop: 5 },
+  hubTitle:     { fontWeight: "700", fontSize: 28, color: C.textPrimary, letterSpacing: -0.5, lineHeight: 31 },
+  hubSubtitle:  { fontWeight: "400", fontSize: 13, color: C.textDim, marginTop: 5 },
   newBtn:       { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 9, backgroundColor: T.goldBg, borderWidth: 1, borderColor: T.goldBorder, borderRadius: T.radiusPill, opacity: 0.45, flexShrink: 0 },
-  newBtnText:   { fontFamily: "Inter_600SemiBold", fontSize: 13, color: T.gold },
+  newBtnText:   { fontWeight: "600", fontSize: 13, color: C.gold },
 
   // Skeletons
-  skeleton:     { height: 68, borderRadius: T.radiusCard, backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.05)" },
+  skeleton:     { height: 68, borderRadius: T.radiusCard, backgroundColor: C.surface, borderWidth: 1, borderColor: C.surfaceTranslucent },
 
   // Empty state
   emptyWrap:    { alignItems: "center", paddingTop: 64 },
-  emptyIcon:    { width: 84, height: 84, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: T.border, alignItems: "center", justifyContent: "center", marginBottom: 22, opacity: 0.9 },
-  emptyTitle:   { fontFamily: "Inter_700Bold", fontSize: 18, color: T.textSecondary, letterSpacing: -0.2, marginBottom: 10 },
-  emptyBody:    { fontFamily: "Inter_400Regular", fontSize: 13, color: T.textDim, lineHeight: 22, maxWidth: 270, textAlign: "center", marginBottom: 32 },
+  emptyIcon:    { width: 84, height: 84, borderRadius: 22, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginBottom: 22, opacity: 0.9 },
+  emptyTitle:   { fontWeight: "700", fontSize: 18, color: C.textSecondary, letterSpacing: -0.2, marginBottom: 10 },
+  emptyBody:    { fontWeight: "400", fontSize: 13, color: C.textDim, lineHeight: 22, maxWidth: 270, textAlign: "center", marginBottom: 32 },
   emptyCTA:     { paddingHorizontal: 26, paddingVertical: 12, backgroundColor: "rgba(196,154,60,0.12)", borderWidth: 1, borderColor: "rgba(196,154,60,0.32)", borderRadius: T.radiusPill, opacity: 0.45 },
-  emptyCTAText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: T.gold },
-  webOnlyHint:  { fontFamily: "Inter_400Regular", fontSize: 11, color: T.textTertiary, marginTop: 10, textAlign: "center" },
+  emptyCTAText: { fontWeight: "600", fontSize: 14, color: C.gold },
+  webOnlyHint:  { fontWeight: "400", fontSize: 11, color: C.textTertiary, marginTop: 10, textAlign: "center" },
 
   // Space card
-  spaceCard:    { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 15, backgroundColor: T.surface, borderWidth: 1, borderColor: T.border, borderRadius: T.radiusCard },
+  spaceCard:    { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 15, borderRadius: T.radiusCard },
   colorDot:     { width: 10, height: 10, borderRadius: 5, flexShrink: 0, shadowOpacity: 0.55, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
   colorDotSm:   { width: 8, height: 8, borderRadius: 4, flexShrink: 0, shadowOpacity: 0.55, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
-  spaceName:    { fontFamily: "Inter_500Medium", fontSize: 15, color: T.textPrimary, lineHeight: 20 },
-  spaceMeta:    { fontFamily: "Inter_400Regular", fontSize: 12, color: T.textDim, marginTop: 3 },
+  spaceName:    { fontWeight: "500", fontSize: 15, color: C.textPrimary, lineHeight: 20 },
+  spaceMeta:    { fontWeight: "400", fontSize: 12, color: C.textDim, marginTop: 3 },
 
   // Error
   errorCard:    { backgroundColor: "rgba(255,59,48,0.08)", borderWidth: 1, borderColor: "rgba(255,59,48,0.2)", borderRadius: T.radiusBtn, padding: 14, marginBottom: 12 },
-  errorText:    { fontFamily: "Inter_400Regular", fontSize: 13, color: "rgba(255,100,90,0.9)", lineHeight: 19 },
+  errorText:    { fontWeight: "400", fontSize: 13, color: "rgba(255,100,90,0.9)", lineHeight: 19 },
 
   // Detail header
   detailHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 22 },
-  backBtn:      { width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  detailTitle:  { fontFamily: "Inter_700Bold", fontSize: 19, color: T.textPrimary, letterSpacing: -0.2, flex: 1, minWidth: 0 },
+  backBtn:      { width: 32, height: 32, borderRadius: 16, backgroundColor: C.surfaceTranslucent, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  detailTitle:  { fontWeight: "700", fontSize: 19, color: C.textPrimary, letterSpacing: -0.2, flex: 1, minWidth: 0 },
 
   // Tab bar
-  tabBar:        { flexDirection: "row", gap: 2, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)", borderRadius: 11, padding: 3, marginBottom: 20 },
+  tabBar:        { flexDirection: "row", gap: 2, borderRadius: 11, padding: 3, marginBottom: 20 },
   tabBtn:        { flex: 1, paddingVertical: 7, paddingHorizontal: 4, borderRadius: 8, borderWidth: 1, borderColor: "transparent", alignItems: "center" },
-  tabBtnActive:  { backgroundColor: "rgba(255,255,255,0.1)", borderColor: "rgba(255,255,255,0.1)" },
-  tabBtnText:    { fontFamily: "Inter_400Regular", fontSize: 12, color: T.textDim },
-  tabBtnTextActive: { fontFamily: "Inter_600SemiBold", color: T.textPrimary },
+  tabBtnActive:  { backgroundColor: C.accentSoft, borderColor: C.accentLine },
+  tabBtnText:    { fontWeight: "400", fontSize: 12, color: C.textDim },
+  tabBtnTextActive: { fontWeight: "600", color: C.textPrimary },
 
   // Tab empty state
   tabEmpty:      { alignItems: "center", paddingVertical: 44, paddingHorizontal: 20 },
-  tabEmptyTitle: { fontFamily: "Inter_500Medium", fontSize: 14, color: T.textSecondary, marginBottom: 5 },
-  tabEmptyBody:  { fontFamily: "Inter_400Regular", fontSize: 12, color: T.textDim, lineHeight: 19, textAlign: "center", maxWidth: 260 },
+  tabEmptyTitle: { fontWeight: "500", fontSize: 14, color: C.textSecondary, marginBottom: 5 },
+  tabEmptyBody:  { fontWeight: "400", fontSize: 12, color: C.textDim, lineHeight: 19, textAlign: "center", maxWidth: 260 },
 
   // Documents
-  docRow:       { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 15, paddingVertical: 13, backgroundColor: T.surface, borderWidth: 1, borderColor: T.border, borderRadius: 13 },
-  docName:      { fontFamily: "Inter_500Medium", fontSize: 13, color: T.textPrimary },
-  docSummary:   { fontFamily: "Inter_400Regular", fontSize: 11, color: T.textDim, marginTop: 2 },
-  addDocBtn:    { padding: 13, backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1.5, borderStyle: "dashed", borderColor: "rgba(255,255,255,0.1)", borderRadius: 13, alignItems: "center", opacity: 0.6 },
-  addDocText:   { fontFamily: "Inter_400Regular", fontSize: 13, color: T.textDim },
+  docRow:       { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 15, paddingVertical: 13, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 13 },
+  docName:      { fontWeight: "500", fontSize: 13, color: C.textPrimary },
+  docSummary:   { fontWeight: "400", fontSize: 11, color: C.textDim, marginTop: 2 },
+  addDocBtn:    { padding: 13, backgroundColor: C.surface, borderWidth: 1.5, borderStyle: "dashed", borderColor: C.border, borderRadius: 13, alignItems: "center", opacity: 0.6 },
+  addDocText:   { fontWeight: "400", fontSize: 13, color: C.textDim },
 
   // Chat
   chatEmpty:      { alignItems: "center", paddingVertical: 40, paddingHorizontal: 24 },
-  chatEmptyIcon:  { width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: T.border, alignItems: "center", justifyContent: "center", marginBottom: 14 },
-  chatEmptyTitle: { fontFamily: "Inter_500Medium", fontSize: 14, color: T.textSecondary, marginBottom: 6 },
-  chatEmptyBody:  { fontFamily: "Inter_400Regular", fontSize: 12, color: T.textDim, lineHeight: 19, maxWidth: 240, textAlign: "center" },
+  chatEmptyIcon:  { width: 52, height: 52, borderRadius: 26, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  chatEmptyTitle: { fontWeight: "500", fontSize: 14, color: C.textSecondary, marginBottom: 6 },
+  chatEmptyBody:  { fontWeight: "400", fontSize: 12, color: C.textDim, lineHeight: 19, maxWidth: 240, textAlign: "center" },
   msgRow:         { flexDirection: "row", marginBottom: 9 },
   bubble:         { maxWidth: "88%", paddingHorizontal: 13, paddingVertical: 9, borderWidth: 1 },
   bubbleUser:      { backgroundColor: "rgba(196,154,60,0.13)", borderColor: "rgba(196,154,60,0.2)", borderTopLeftRadius: 16, borderTopRightRadius: 16, borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
-  bubbleAssistant: { backgroundColor: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.07)", borderTopLeftRadius: 16, borderTopRightRadius: 16, borderBottomLeftRadius: 4, borderBottomRightRadius: 16 },
-  bubbleText:     { fontFamily: "Inter_400Regular", fontSize: 13, color: T.textPrimary, lineHeight: 21 },
-  chatInputRow:   { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
-  chatInput:      { flex: 1, backgroundColor: T.surface, borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", borderRadius: 10, paddingHorizontal: 13, paddingVertical: 10, fontFamily: "Inter_400Regular", fontSize: 13, color: T.textPrimary, opacity: 0.5 },
-  sendBtn:        { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  bubbleAssistant: { backgroundColor: C.surfaceTranslucent, borderColor: C.border, borderTopLeftRadius: 16, borderTopRightRadius: 16, borderBottomLeftRadius: 4, borderBottomRightRadius: 16 },
+  bubbleText:     { fontWeight: "400", fontSize: 13, color: C.textPrimary, lineHeight: 21 },
+  chatInputRow:   { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.border },
+  chatInput:      { flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 10, fontWeight: "400", fontSize: 13, color: C.textPrimary, opacity: 0.5 },
+  sendBtn:        { width: 36, height: 36, borderRadius: 18, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", flexShrink: 0 },
 
   // Flashcards
-  deckCard:      { paddingHorizontal: 16, paddingVertical: 14, backgroundColor: T.surface, borderWidth: 1, borderColor: T.border, borderRadius: 13 },
+  deckCard:      { paddingHorizontal: 16, paddingVertical: 14, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 13 },
   deckHeader:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8 },
-  deckName:      { fontFamily: "Inter_600SemiBold", fontSize: 13, color: T.textPrimary, flex: 1, minWidth: 0 },
+  deckName:      { fontWeight: "600", fontSize: 13, color: C.textPrimary, flex: 1, minWidth: 0 },
   deckBadge:     { paddingHorizontal: 9, paddingVertical: 2, borderRadius: 20, backgroundColor: T.goldBg, borderWidth: 1, borderColor: "rgba(196,154,60,0.22)", flexShrink: 0 },
-  deckBadgeText: { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(196,154,60,0.9)" },
-  deckPreview:   { fontFamily: "Inter_400Regular", fontSize: 12, color: T.textDim, fontStyle: "italic", lineHeight: 18 },
+  deckBadgeText: { fontWeight: "400", fontSize: 11, color: "rgba(196,154,60,0.9)" },
+  deckPreview:   { fontWeight: "400", fontSize: 12, color: C.textDim, fontStyle: "italic", lineHeight: 18 },
 
   // Exams
   examsHeader:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18 },
-  examsCount:       { fontFamily: "Inter_400Regular", fontSize: 13, color: T.textDim },
-  createExamBtn:    { paddingHorizontal: 14, paddingVertical: 8, borderRadius: T.radiusPill, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" },
-  createExamText:   { fontFamily: "Inter_600SemiBold", fontSize: 13, color: T.textTertiary },
-  examCard:         { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: T.surface, borderWidth: 1, borderColor: T.border, borderRadius: 14 },
-  examIcon:         { width: 40, height: 40, borderRadius: 10, backgroundColor: T.surface, borderWidth: 1, borderColor: T.border, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  examTitle:        { fontFamily: "Inter_600SemiBold", fontSize: 13, color: T.textPrimary },
-  examMeta:         { fontFamily: "Inter_400Regular", fontSize: 11, color: T.textDim, marginTop: 3 },
+  examsCount:       { fontWeight: "400", fontSize: 13, color: C.textDim },
+  createExamBtn:    { paddingHorizontal: 14, paddingVertical: 8, borderRadius: T.radiusPill, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  createExamText:   { fontWeight: "600", fontSize: 13, color: C.textTertiary },
+  examCard:         { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14 },
+  examIcon:         { width: 40, height: 40, borderRadius: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  examTitle:        { fontWeight: "600", fontSize: 13, color: C.textPrimary },
+  examMeta:         { fontWeight: "400", fontSize: 11, color: C.textDim, marginTop: 3 },
   examScorePill:    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, flexShrink: 0 },
-  examScoreText:    { fontFamily: "Inter_600SemiBold", fontSize: 12 },
-  examNotTaken:     { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", flexShrink: 0 },
-  examNotTakenText: { fontFamily: "Inter_500Medium", fontSize: 12, color: T.textSecondary },
+  examScoreText:    { fontWeight: "600", fontSize: 12 },
+  examNotTaken:     { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: C.surfaceTranslucent, borderWidth: 1, borderColor: C.border, flexShrink: 0 },
+  examNotTakenText: { fontWeight: "500", fontSize: 12, color: C.textSecondary },
 
   // Doc reader
-  readerBox:   { backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", borderRadius: 12, padding: 14 },
-  readerLabel: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: T.textTertiary, letterSpacing: 1, marginBottom: 8 },
-  readerBody:  { fontFamily: "Inter_400Regular", fontSize: 13, color: T.textSecondary, lineHeight: 21 },
+  readerBox:   { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 14 },
+  readerLabel: { fontWeight: "600", fontSize: 10, color: C.textTertiary, letterSpacing: 1, marginBottom: 8 },
+  readerBody:  { fontWeight: "400", fontSize: 13, color: C.textSecondary, lineHeight: 21 },
 });
