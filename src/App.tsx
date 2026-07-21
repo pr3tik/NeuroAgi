@@ -152,6 +152,13 @@ const SHELL_STYLES = `
       padding-right: 0;
       padding-bottom: 24px;
     }
+    /* Reggie: hover-expanding the collapsed rail SHIFTS the chat aside instead of
+       overlaying it (the rail would cover the conversation list). Other pages keep
+       the no-reflow overlay. Same 0.2s ease as the rail's width animation, so the
+       two move in lockstep. */
+    .nav-tabs.page-locked.nav-collapsed.nav-hover .app-page-transition {
+      margin-left: 232px;
+    }
   }
 `;
 
@@ -203,6 +210,7 @@ export default function App() {
   const [currentPage,         setCurrentPage]        = useState("work");
   const [visible,             setVisible]            = useState(true);
   const [navCollapsed,        setNavCollapsed]       = useState(true); // collapsed by default; expands on hover (or pin-open via the toggle)
+  const [navHover,            setNavHover]           = useState(false); // rail hover-expanded (BottomNav broadcast) — page-locked pages shift content with it
 
   // ── Notification bell state ────────────────────────────────────────────────
   const [unreadCount,   setUnreadCount]   = useState(0);
@@ -502,6 +510,14 @@ export default function App() {
     window.addEventListener("fschool:navigate", onNav);
     return () => window.removeEventListener("fschool:navigate", onNav);
   }, [navigate]);
+
+  // Rail hover-expansion (BottomNav broadcast). Only page-locked pages consume it —
+  // their content shifts alongside the rail instead of being overlaid.
+  useEffect(() => {
+    const onHover = (e: any) => setNavHover(!!e?.detail);
+    window.addEventListener("fschool:nav-hover", onHover);
+    return () => window.removeEventListener("fschool:nav-hover", onHover);
+  }, []);
 
   useEffect(() => {
     if (!pendingNav) return;
@@ -904,7 +920,7 @@ export default function App() {
   // page-wide: only INSIDE a room (activeRoomId set by RoomView on enter, cleared on
   // leave) — the room list keeps the readable 1240px cap like every other page.
   return (
-    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${currentPage === "rooms" && activeRoomId ? " page-wide" : ""}${currentPage === "studyAssistant" ? " page-locked" : ""}`}>
+    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${navHover ? " nav-hover" : ""}${currentPage === "rooms" && activeRoomId ? " page-wide" : ""}${currentPage === "studyAssistant" ? " page-locked" : ""}`}>
       {overlays}
       <TokenToast />
 
