@@ -12,7 +12,7 @@
 // body — so no one can read or poison another person's brain. (PR1: subject is FschoolAI-local;
 // PR2 upgrades subjectForUser() to the global neuro_person id shared across products.)
 import { requireUserOr401 } from "./_auth.js";
-import { postgrestStore, remember, recall, forget, reinforce, tickDecay } from "./_brain/kernel.js";
+import { postgrestStore, remember, recall, forget, reinforce, tickDecay, readableScopes, canWrite } from "./_brain/kernel.js";
 import { brainConn } from "./_brain/conn.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
 
@@ -47,7 +47,13 @@ export default async function handler(req: any, res: any) {
     if (action === "remember") {
       const { kind, body, salience, audience, source } = req.body ?? {};
       if (!kind || typeof kind !== "string") return res.status(400).json({ error: "kind required" });
-      const m = await remember(s, { subject, kind, body, salience, audience, source: source ?? "fschoolai" });
+      // Target: own personal scope by default; a shared space (course:/room:/prof:) requires the
+      // caller to be a writer/owner member — never trust an arbitrary scope from the body.
+      const target = typeof req.body?.scope === "string" && req.body.scope ? req.body.scope : subject;
+      if (target !== subject && !(await canWrite(s, target, subject))) {
+        return res.status(403).json({ error: "not authorized to write this scope" });
+      }
+      const m = await remember(s, { subject: target, kind, body, salience, audience, source: source ?? "fschoolai" });
       return res.status(200).json({ ok: true, id: m.id });
     }
 
@@ -55,7 +61,12 @@ export default async function handler(req: any, res: any) {
       const kind = req.body?.kind ?? req.query?.kind;
       const rawLimit = req.body?.limit ?? req.query?.limit;
       const limit = rawLimit ? Math.min(200, Math.max(1, Number(rawLimit) || 20)) : 20;
-      const rows = await recall(s, [subject], { kind, limit });
+      // Read the caller's OWN scope + shared spaces they belong to (+ directed/public shares via
+      // audience). A caller may narrow via body.scopes, but only to scopes they're allowed to read.
+      const readable = await readableScopes(s, subject);
+      const requested: string[] = Array.isArray(req.body?.scopes) ? req.body.scopes.filter((x: any) => typeof x === "string") : readable;
+      const scopes = requested.filter((sc) => readable.includes(sc));
+      const rows = await recall(s, scopes.length ? scopes : [subject], { kind, limit });
       return res.status(200).json({ ok: true, memories: rows });
     }
 
