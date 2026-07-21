@@ -36,6 +36,7 @@ import StudyOrb from "../components/StudyOrb";
 import VoiceRoom from "../components/VoiceRoom";
 import RoomGroundingChips from "../components/RoomGroundingChips";
 import type { GroundingRef } from "../lib/roomGrounding";
+import { MUSIC_PRESETS, stopAudio, cycleIndex } from "../lib/focusMusic";
 import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
@@ -2040,6 +2041,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   // ── Focus music — iTunes 30s previews the tutor/you can play while studying ──
   const musicAudioRef = useRef<HTMLAudioElement | null>(null);
   const [musicTracks,  setMusicTracks]  = useState<{ title: string; artist: string; previewUrl: string; artwork: string }[]>([]);
+  const [musicPreset,  setMusicPreset]  = useState(MUSIC_PRESETS[0].query);
   const [musicIdx,     setMusicIdx]     = useState(0);
   const [musicPlaying, setMusicPlaying] = useState(false);
   const [musicOpen,    setMusicOpen]    = useState(false);
@@ -2319,14 +2321,24 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   }
   function nextMusic() {
     if (!musicTracks.length) return;
-    playMusicIdx((musicIdx + 1) % musicTracks.length);
+    playMusicIdx(cycleIndex(musicIdx, musicTracks.length));
   }
   async function toggleMusic() {
     const a = musicAudioRef.current;
     if (musicPlaying && a) { a.pause(); setMusicPlaying(false); return; }
     if (a && a.src) { a.play().then(() => setMusicPlaying(true)).catch(() => {}); return; }
     let tracks = musicTracks;
-    if (!tracks.length) tracks = await loadMusic();
+    if (!tracks.length) tracks = await loadMusic(musicPreset);
+    if (tracks.length) playMusicIdx(0, tracks);
+  }
+  // Fully stop + rewind so closing the player (or toggling music off from the toolbar) truly
+  // silences audio — Close used to only hide the UI and leave playback running.
+  function stopMusic() { setMusicPlaying(stopAudio(musicAudioRef.current)); }
+  // Switch to a curated preset: stop the current track, load that genre, start from the top.
+  async function selectMusicPreset(query: string) {
+    setMusicPreset(query);
+    stopMusic();
+    const tracks = await loadMusic(query);
     if (tracks.length) playMusicIdx(0, tracks);
   }
 
@@ -2419,7 +2431,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               { label: "Chat", icon: <MessageCircle size={13} />, on: showChat, act: () => (showChat ? setShowChat(false) : handleOpenChat()) },
               { label: "Board", icon: <Pen size={13} />, on: centerTab === "board" && showBoard, act: () => { if (centerTab === "board" && showBoard) { setShowBoard(false); } else { setCenterTab("board"); handleOpenBoard(); } } },
               { label: "Voice", icon: <Mic size={13} />, on: showVoice, act: () => setShowVoice(v => !v) },
-              { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => setMusicOpen(o => !o) },
+              { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => { if (musicOpen) stopMusic(); setMusicOpen(o => !o); } },
               { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
             ].map(b => (
               <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(var(--teal-rgb),0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#DCE3FF" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
@@ -3022,9 +3034,14 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 13px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
             <Music size={15} color="rgb(var(--teal-rgb))" />
             <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text-primary)" }}>Focus music</span>
-            <button onClick={() => setMusicOpen(false)} aria-label="Close music" style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", display: "inline-flex" }}><X size={15} /></button>
+            <button onClick={() => { stopMusic(); setMusicOpen(false); }} aria-label="Close music" style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", display: "inline-flex" }}><X size={15} /></button>
           </div>
           <div style={{ padding: 13 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 11 }}>
+              {MUSIC_PRESETS.map(p => (
+                <button key={p.query} onClick={() => selectMusicPreset(p.query)} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", background: musicPreset === p.query ? "rgba(var(--teal-rgb),0.22)" : "rgba(255,255,255,0.05)", border: musicPreset === p.query ? "1px solid rgba(var(--teal-rgb),0.45)" : "1px solid rgba(255,255,255,0.12)", color: musicPreset === p.query ? "#DCE3FF" : "var(--text-secondary)" }}>{p.label}</button>
+              ))}
+            </div>
             {musicTracks.length === 0 ? (
               <button onClick={() => toggleMusic()} disabled={musicLoading} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: musicLoading ? "default" : "pointer", opacity: musicLoading ? 0.7 : 1, fontFamily: "inherit" }}>{musicLoading ? "Finding tracks…" : <><Play size={14} />Play focus music</>}</button>
             ) : (<>
