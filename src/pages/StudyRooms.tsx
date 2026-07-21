@@ -2453,7 +2453,30 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             (one chat, opened from the Chat pill) — the fake "Live Transcript" and the
             duplicate inline chat input are gone. A real activity feed can take a left
             panel later, opt-in, per the UX audit. */}
-        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "1fr 320px", gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
+        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "280px 1fr 320px", gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
+
+          {/* LEFT — live transcript / room chat, docked like the mockup. Same state the
+              Chat pill drives; the floating ChatPanel now only serves focus mode. */}
+          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 18, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", padding: 16, minHeight: 0, overflow: "hidden" }}>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: "0 0 10px" }}>Live transcript</p>
+            {!showChat ? (
+              <button onClick={handleOpenChat} style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 10, padding: "9px 14px", fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Start transcript →</button>
+            ) : (<>
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                {chatMessages.length === 0 && <span style={{ fontSize: 12, color: "var(--text-dim)" }}>Messages and session activity appear here.</span>}
+                {chatMessages.map((m: any, i: number) => (
+                  <div key={m.id ?? i} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
+                    <span style={{ color: "rgb(var(--teal-rgb))", fontWeight: 600 }}>{m.user_name || m.userName || (m.user_id === userId ? "You" : "Member")}</span>{" "}
+                    <span style={{ color: "var(--text-secondary)" }}>{m.message || m.text || m.content}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && chatInput.trim()) sendChatMessage(); }} placeholder="Message the room…" style={{ flex: 1, minWidth: 0, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 10, padding: "8px 11px", fontSize: 12.5, color: "var(--text-primary)", outline: "none", fontFamily: "inherit" }} />
+                <button onClick={() => chatInput.trim() && sendChatMessage()} disabled={chatSending} style={{ background: "rgba(var(--teal-rgb),0.2)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 10, padding: "0 12px", color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5 }}>→</button>
+              </div>
+            </>)}
+          </div>
 
           {/* CENTER — Guided session (default) / Whiteboard / Flashcards */}
           <div style={{ display: "flex", flexDirection: "column", background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 18, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", padding: 16, overflow: "hidden" }}>
@@ -2934,7 +2957,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       )}
 
       {/* Chat panel — persisted, WhatsApp-style */}
-      {showChat && (
+      {showChat && focusMode && (
         <ChatPanel
           messages={chatMessages}
           myUserId={userId}
