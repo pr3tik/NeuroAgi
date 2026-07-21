@@ -4,6 +4,13 @@ name: Deploy to Vercel (production)
 # This decouples deployments from Vercel team membership, so ANY committer's
 # push deploys without each person needing a paid Vercel seat. The native Vercel
 # Git integration is disabled for this branch in vercel.json to avoid double-deploys.
+#
+# The build MUST run on Vercel's builders (`vercel deploy`, not `vercel build`
+# + `--prebuilt`): this project's env vars are marked Sensitive, so `vercel pull`
+# outside Vercel writes literal "[SENSITIVE]" placeholders instead of values —
+# a local build then inlines those into the client bundle and the app crashes
+# on load (blank screen; this shipped on 2026-07-21). Sensitive values only
+# decrypt on Vercel's own infrastructure.
 
 on:
   push:
@@ -34,11 +41,8 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
-      - name: Pull Vercel project settings (production)
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-
-      - name: Build project artifacts
-        run: vercel build --prod --token="$VERCEL_TOKEN"
-
-      - name: Deploy prebuilt artifacts to production
-        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+      # Remote build: uploads source and builds on Vercel, where Sensitive env
+      # vars decrypt. VERCEL_ORG_ID + VERCEL_PROJECT_ID (job env) select the
+      # project, so no `vercel pull`/link step is needed.
+      - name: Deploy to production (build runs on Vercel)
+        run: vercel deploy --prod --token="$VERCEL_TOKEN"
