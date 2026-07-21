@@ -160,6 +160,24 @@ const SHELL_STYLES = `
       margin-left: 232px;
     }
   }
+  /* ── Light mode (periwinkle glass) ────────────────────────────────────────
+     The ground gets the mobile AmbientBackground treatment: centre lift + a deep
+     indigo pool in the far corner. The nav rail/bar are the only opaque-dark
+     INLINE styles that fight the ground — overridden here (!important beats the
+     inline declaration for these two hardcodes only). */
+  :root[data-theme="light"] .app-shell {
+    background-image:
+      radial-gradient(70% 55% at 50% 0%, rgba(140, 160, 255, 0.50) 0%, rgba(140, 160, 255, 0) 60%),
+      radial-gradient(85% 75% at 100% 100%, rgba(24, 30, 105, 0.60) 0%, rgba(24, 30, 105, 0) 55%);
+    background-attachment: fixed;
+  }
+  :root[data-theme="light"] .app-shell aside,
+  :root[data-theme="light"] .app-shell > nav,
+  :root[data-theme="light"] aside[style] {
+    background: rgba(255, 255, 255, 0.10) !important;
+    border-color: rgba(255, 255, 255, 0.22) !important;
+    backdrop-filter: blur(24px) !important;
+  }
 `;
 
 if (!document.getElementById("app-shell-styles")) {
@@ -211,6 +229,13 @@ export default function App() {
   const [visible,             setVisible]            = useState(true);
   const [navCollapsed,        setNavCollapsed]       = useState(true); // collapsed by default; expands on hover (or pin-open via the toggle)
   const [navHover,            setNavHover]           = useState(false); // rail hover-expanded (BottomNav broadcast) — page-locked pages shift content with it
+  // Light mode = Ilakkiyan's periwinkle-blue glass (tokens.css [data-theme="light"]).
+  const [theme, setTheme] = useState(() => localStorage.getItem("fschool_theme") || "dark");
+  useEffect(() => {
+    if (theme === "light") document.documentElement.dataset.theme = "light";
+    else delete document.documentElement.dataset.theme;
+    localStorage.setItem("fschool_theme", theme);
+  }, [theme]);
 
   // ── Notification bell state ────────────────────────────────────────────────
   const [unreadCount,   setUnreadCount]   = useState(0);
@@ -972,6 +997,12 @@ export default function App() {
                       {tokenSummary.tier}
                     </span>
                   </button>
+                  {/* Theme toggle — dark ↔ periwinkle light */}
+                  <button
+                    onClick={() => setTheme(t => (t === "light" ? "dark" : "light"))}
+                    title={theme === "light" ? "Switch to dark" : "Switch to light"}
+                    style={{ display: "flex", alignItems: "center", padding: "0 9px", height: "100%", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "13px", color: "var(--text-dim)" }}
+                  >{theme === "light" ? "☾" : "☀"}</button>
                   {/* Hairline divider between token and bell */}
                   <div style={{ width: 1, height: 16, background: "rgba(255,255,255,0.09)", flexShrink: 0 }} />
                 </>
