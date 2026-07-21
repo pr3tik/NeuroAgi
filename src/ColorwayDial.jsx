@@ -196,8 +196,8 @@ export default function ColorwayDial({
   const [spinProgress, setSpinProgress] = useState(0);
   const [spinFrom, setSpinFrom] = useState(null);
   const [spinEnd, setSpinEnd] = useState(null);
-  // Mobile: larger cards + tighter arc so the fan doesn't shrink to a postage stamp
-  const [layout, setLayout] = useState({ spacing: SPACING, width: cardWidth, scale: 1 });
+  // Mobile: larger cards; fan bleeds past the viewport so side cards read as off-screen
+  const [layout, setLayout] = useState({ spacing: SPACING, width: cardWidth, scale: 1, bleed: false });
   const [, bump] = useState(0);
   const forceRender = useCallback(() => bump(n => n + 1), []);
 
@@ -207,14 +207,15 @@ export default function ColorwayDial({
     const update = () => {
       const w = window.innerWidth;
       if (w >= 640) {
-        setLayout({ spacing: SPACING, width: cardWidth, scale: 1 });
+        setLayout({ spacing: SPACING, width: cardWidth, scale: 1, bleed: false });
         return;
       }
       const width = Math.round(Math.min(180, Math.max(160, w * 0.46)));
-      const spacing = Math.round(Math.min(122, Math.max(98, (w - 20 - width) / 3.05)));
-      const canvasW = spacing * 4 + width;
-      const scale = Math.min(1.18, (w - 8) / canvasW);
-      setLayout({ spacing, width, scale });
+      // Arc wide enough that ±2 cards meet the screen edge (~half on, half off)
+      const spacing = Math.round(Math.min(136, Math.max(112, w * 0.32)));
+      // Card centers at slot ±2 land near the viewport edge → roughly half the card shows
+      const scale = Math.min(1.32, (w * 0.98) / (4 * spacing));
+      setLayout({ spacing, width, scale, bleed: true });
     };
     update();
     window.addEventListener("resize", update);
@@ -224,6 +225,7 @@ export default function ColorwayDial({
   const dialScale = layout.scale;
   const activeCardWidth = layout.width;
   const activeSpacing = layout.spacing;
+  const bleedEdges = layout.bleed;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -391,7 +393,16 @@ export default function ColorwayDial({
   }
 
   return (
-    <div style={{ position: "relative", width: "100%", overflow: "visible" }}>
+    <div style={{
+      position: "relative",
+      width: bleedEdges ? "100vw" : "100%",
+      // Break out of section padding so the hard clip is the real screen edge
+      ...(bleedEdges ? {
+        marginLeft: "calc(50% - 50vw)",
+        marginRight: "calc(50% - 50vw)",
+      } : {}),
+      overflow: bleedEdges ? "hidden" : "visible",
+    }}>
       <div
         ref={containerRef}
         style={{
@@ -401,7 +412,7 @@ export default function ColorwayDial({
           alignItems: "center",
           justifyContent: "center",
           marginBottom: 48,
-          overflow: "visible",
+          overflow: bleedEdges ? "hidden" : "visible",
           touchAction: "pan-y",
           padding: "48px 0 32px",
         }}
@@ -409,14 +420,16 @@ export default function ColorwayDial({
         <div style={{
           position: "relative",
           width: activeSpacing * 4 + activeCardWidth,
-          maxWidth: "100%",
+          maxWidth: bleedEdges ? "none" : "100%",
           height: activeCardWidth * 2.85,
           transform: `scale(${dialScale})`,
           transformOrigin: "center center",
           overflow: "visible",
-          /* Soft clip only at the extreme edges — a wide mask washed cards to near-white */
-          WebkitMaskImage: `linear-gradient(to right, transparent 0%, #000 2.5%, #000 97.5%, transparent 100%)`,
-          maskImage: `linear-gradient(to right, transparent 0%, #000 2.5%, #000 97.5%, transparent 100%)`,
+          /* Desktop only: soft fade at extreme edges. Mobile uses hard screen-edge clip instead. */
+          ...(bleedEdges ? {} : {
+            WebkitMaskImage: `linear-gradient(to right, transparent 0%, #000 2.5%, #000 97.5%, transparent 100%)`,
+            maskImage: `linear-gradient(to right, transparent 0%, #000 2.5%, #000 97.5%, transparent 100%)`,
+          }),
         }}>
           {colorways.map((c, i) => {
             const s = cardStyle(i);

@@ -3607,7 +3607,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
       {!WAITLIST_MODE && (
         <>
           <div aria-hidden="true" style={{ height: 8 }} />
-          <section id="colorway" style={{ padding: "100px 20px 110px", textAlign: "center", background: "#ffffff", scrollMarginTop: 64 }}>
+          <section id="colorway" style={{ padding: "100px 20px 110px", textAlign: "center", background: "#ffffff", scrollMarginTop: 64, overflow: "hidden" }}>
             <Reveal>
               <p style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.16em", color: "#86868b", textTransform: "uppercase", marginBottom: 16, fontFamily: FONT }}>
                 Colorway
