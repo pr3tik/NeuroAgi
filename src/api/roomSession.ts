@@ -134,3 +134,49 @@ export async function bindRoomSources(
     }),
   });
 }
+
+export type QuizQuestion = {
+  question: string;
+  options: string[];
+  correctIndex: number;
+  rationale: string;
+  evidence?: string;
+};
+
+export type BrainProposal = {
+  id: string;
+  patch: any;
+  evidence?: string;
+  confidence?: number;
+  status: string;
+};
+
+export type ReviewResponse = {
+  ok: boolean;
+  session: { id: string; roomId: string; startedAt: string; endedAt: string | null; state: string };
+  groupSummary: any | null;   // { objectives[], concepts[{name,explanation}], examples[{title,detail}], unresolved[], citations[] }
+  mySummary: any | null;
+  myQuiz: QuizQuestion[] | null;
+  myProposals: BrainProposal[];
+  jobs: Record<string, string>;
+};
+
+/** The caller's session recap: group + own summary, own 5-question quiz, own brain proposals, and
+ *  the async-job status map to poll on. Membership-checked + caller-scoped server-side. */
+export async function reviewSession(sessionId: string): Promise<ReviewResponse> {
+  return roomSessionRequest<ReviewResponse>("review", { method: "GET" }, { sessionId });
+}
+
+export type ProposalDecision = "accept" | "edit" | "reject";
+
+/** Owner-gated accept/edit/reject of one brain-update proposal (edit carries the revised patch). */
+export async function decideProposal(
+  proposalId: string,
+  decision: ProposalDecision,
+  patch?: any
+): Promise<{ ok: boolean }> {
+  return roomSessionRequest<{ ok: boolean }>("proposal", {
+    method: "POST",
+    body: JSON.stringify({ proposalId, decision, ...(patch ? { patch } : {}) }),
+  });
+}

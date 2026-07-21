@@ -38,6 +38,7 @@ import RoomGroundingChips from "../components/RoomGroundingChips";
 import type { GroundingRef } from "../lib/roomGrounding";
 import { MUSIC_PRESETS, stopAudio, cycleIndex } from "../lib/focusMusic";
 import { interventionReason, shouldShowIntervention, type InterventionPayload } from "../lib/roomIntervention";
+import SessionReview from "../components/SessionReview";
 import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
@@ -2055,6 +2056,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [interventionCard, setInterventionCard] = useState<InterventionPayload | null>(null);
   const interventionsPausedRef = useRef(false);
   const lastInterventionIdRef = useRef<string | null>(null);
+  // Post-session recap (summary + quiz + brain proposals). sessionId is captured when the AI
+  // session starts; the Recap toolbar button opens the review modal.
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewSessionId, setReviewSessionId] = useState<string | null>(null);
   const [musicIdx,     setMusicIdx]     = useState(0);
   const [musicPlaying, setMusicPlaying] = useState(false);
   const [musicOpen,    setMusicOpen]    = useState(false);
@@ -2073,6 +2078,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       const e = await r.json().catch(() => ({}));
       throw new Error(e?.error || `Couldn't start Reggie's session (${r.status})`);
     }
+    const started = await r.json().catch(() => ({} as any));
+    if (started?.session?.id) setReviewSessionId(started.session.id);   // enables the Recap button
     reggieSessionRef.current = true;
   }
 
@@ -2445,6 +2452,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               { label: "Board", icon: <Pen size={13} />, on: centerTab === "board" && showBoard, act: () => { if (centerTab === "board" && showBoard) { setShowBoard(false); } else { setCenterTab("board"); handleOpenBoard(); } } },
               { label: "Voice", icon: <Mic size={13} />, on: showVoice, act: () => setShowVoice(v => !v) },
               { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => { if (musicOpen) stopMusic(); setMusicOpen(o => !o); } },
+              { label: "Recap", icon: <BookOpen size={13} />, on: reviewOpen, act: () => { if (reviewSessionId) setReviewOpen(true); } },
               { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
             ].map(b => (
               <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(var(--teal-rgb),0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#DCE3FF" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
@@ -3092,6 +3100,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             <button onClick={() => { interventionsPausedRef.current = true; setInterventionCard(null); }} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Pause nudges</button>
           </div>
         </div>
+      )}
+
+      {reviewOpen && reviewSessionId && (
+        <SessionReview sessionId={reviewSessionId} onClose={() => setReviewOpen(false)} />
       )}
 
       {/* Whiteboard now renders inline in the center pane (Pass 2). */}
