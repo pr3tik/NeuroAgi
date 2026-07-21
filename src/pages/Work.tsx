@@ -438,7 +438,7 @@ export default function Work() {
               {greetingWord},{" "}
             </span>
             {name && (
-              <span style={{ fontFamily: "'Fraunces', serif", fontStyle: "italic", fontWeight: 300, color: "#343535" }}>
+              <span style={{ fontFamily: "'Fraunces', serif", fontStyle: "italic", fontWeight: 300, color: "var(--text-tertiary)" }}>
                 {name}.
               </span>
             )}

@@ -121,38 +121,42 @@
    here so a toggle is a one-line change. Non-colour tokens (spacing, radius,
    type, motion) are theme-invariant and inherit from :root. */
 :root[data-theme="light"] {
-  color-scheme: light;
+  /* "Light" = Ilakkiyan's periwinkle-blue glass (mobile commit 5eac613), NOT white
+     paper: a royal-periwinkle ground, translucent white frost, LIGHT text. Chosen
+     deliberately — the app's thousands of white-alpha glass fills/borders read
+     correctly on this ground, so the theme lands without a per-component rewrite. */
+  color-scheme: dark;                       /* light TEXT → native controls stay dark-styled */
 
-  --color-bg:             #F5F5F7;
-  --color-surface:        rgba(0, 0, 0, 0.04);
-  --color-surface-hover:  rgba(0, 0, 0, 0.07);
-  --color-border:         rgba(0, 0, 0, 0.08);
-  --color-border-strong:  rgba(0, 0, 0, 0.16);
-  --color-accent:         rgba(0, 0, 0, 0.85);
+  --color-bg:             #4657CE;
+  --color-surface:        rgba(255, 255, 255, 0.10);
+  --color-surface-hover:  rgba(255, 255, 255, 0.16);
+  --color-border:         rgba(255, 255, 255, 0.22);
+  --color-border-strong:  rgba(255, 255, 255, 0.34);
+  --color-accent:         rgb(120, 205, 150);
 
-  --text-primary:   #1D1D1F;
-  --text-secondary: rgba(0, 0, 0, 0.55);
-  --text-tertiary:  rgba(0, 0, 0, 0.35);
-  --text-dim:       rgba(0, 0, 0, 0.45);
+  --text-primary:   #F4F6FF;
+  --text-secondary: rgba(255, 255, 255, 0.74);
+  --text-tertiary:  rgba(255, 255, 255, 0.52);
+  --text-dim:       rgba(255, 255, 255, 0.60);
 
-  --color-urgent-bg:    rgba(255, 59, 48, 0.12);
-  --color-urgent-text:  #C93400;
-  --color-success-bg:   rgba(52, 199, 89, 0.12);
-  --color-success-text: #1E7E38;
-  --color-amber:        rgba(178, 125, 0, 0.9);
-  --color-amber-bar:    rgba(178, 125, 0, 0.7);
+  --color-urgent-bg:    rgba(255, 82, 82, 0.22);
+  --color-urgent-text:  #FFC9C4;
+  --color-success-bg:   rgba(120, 205, 150, 0.18);
+  --color-success-text: #C9F0D6;
+  --color-amber:        rgba(255, 214, 92, 0.95);
+  --color-amber-bar:    rgba(255, 214, 92, 0.75);
 
-  /* Gold family darkens slightly so it keeps contrast on light paper */
-  --gold:            #A9822F;
-  --gold-rgb:        169, 130, 47;
-  --gold-bright:     rgb(197, 158, 33);
-  --gold-bright-rgb: 197, 158, 33;
-  --cream:           #4A4030;
-  --cream-rgb:       74, 64, 48;
-  --teal:            rgb(0, 150, 136);
-  --teal-rgb:        0, 150, 136;
-  --amber-rgb:       178, 125, 0;
-  --ink-warm:        #FBF8F2;
+  /* Gold family brightens slightly so it keeps contrast on the blue ground */
+  --gold:            #EBC25E;
+  --gold-rgb:        235, 194, 94;
+  --gold-bright:     rgb(255, 224, 120);
+  --gold-bright-rgb: 255, 224, 120;
+  --cream:           #FDF9EE;
+  --cream-rgb:       253, 249, 238;
+  --teal:            rgb(120, 205, 150);
+  --teal-rgb:        120, 205, 150;         /* brightened sage — reads on periwinkle */
+  --amber-rgb:       255, 214, 92;
+  --ink-warm:        #2E3A9E;
 
-  --depth-line: 0 1px 0 rgba(0, 0, 0, 0.04);
+  --depth-line: 0 1px 0 rgba(255, 255, 255, 0.14);
 }
