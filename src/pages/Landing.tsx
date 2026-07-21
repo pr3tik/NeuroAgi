@@ -38,6 +38,14 @@ const LIGHT = {
 // Apple.com exact font stack — SF Pro Display first, then system fallbacks
 const FONT = '-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif';
 
+// ── PRIMARY CTA SWITCH ───────────────────────────────────────────────────────
+// Single on/off toggle for what the primary CTAs do across the landing page.
+//   true  (on)  → "Join the waitlist"  — opens the waitlist modal   (default)
+//   false (off) → "Claim your card"    — routes to the /card funnel
+// Flip this one line to switch every hero / nav / banner / footer CTA at once.
+const WAITLIST_MODE: boolean = true;
+const PRIMARY_CTA_LABEL = WAITLIST_MODE ? "Join the waitlist" : "Claim your card";
+
 // ── Hooks ──────────────────────────────────────────────────────────────────────
 function useInView(threshold = 0.15) {
   const ref = useRef<HTMLDivElement>(null);
@@ -2535,7 +2543,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
                 : "0 4px 16px rgba(0,113,227,0.24), 0 1px 4px rgba(0,113,227,0.12)",
             }}
           >
-            Claim your card
+            {PRIMARY_CTA_LABEL}
             {/* Shimmer sweep */}
             <span aria-hidden="true" style={{
               position: "absolute", inset: 0,
@@ -3111,6 +3119,11 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
     } catch { return false; }
   });
   const [forgotStatus, setForgotStatus] = useState<"sent"|"error"|null>(null);
+  // Primary CTA action — driven by the WAITLIST_MODE switch at the top of the file.
+  const onPrimaryCta = () => {
+    if (WAITLIST_MODE) setWaitlistOpen(true);
+    else window.location.href = "/card";
+  };
   const [scrollY, setScrollY] = useState(0);
   const [faqOpen, setFaqOpen] = useState<number|null>(null);
   // Ghost wordmark: fires once when the product section scrolls into view, stays on.
@@ -3265,7 +3278,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           Founding Card
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => { window.location.href = "/card"; }} style={{
+          <button onClick={onPrimaryCta} style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
             padding: "7px 17px", fontSize: 13, fontWeight: 400,
             color: "#0066cc", background: "transparent", cursor: "pointer", fontFamily: FONT,
@@ -3274,7 +3287,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           }}
             onMouseEnter={e => { const a = e.currentTarget; a.style.background = "rgba(0,102,204,0.06)"; a.style.borderColor = "#0066cc"; }}
             onMouseLeave={e => { const a = e.currentTarget; a.style.background = "transparent"; a.style.borderColor = "rgba(0,102,204,0.56)"; }}
-          >Claim your card</button>
+          >{PRIMARY_CTA_LABEL}</button>
         </div>
       </div>
 
@@ -3300,14 +3313,14 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
             Lifetime Pro&nbsp;· guaranteed founding number&nbsp;· express delivery
           </span>
           {" · "}
-          <button onClick={() => { window.location.href = "/card"; }} style={{
+          <button onClick={onPrimaryCta} style={{
             color: "#0066cc", background: "none", border: "none", cursor: "pointer",
             fontFamily: FONT, fontSize: "inherit", padding: 0,
             transition: "color 0.12s",
           }}
             onMouseEnter={e => { e.currentTarget.style.color = "#004499"; }}
             onMouseLeave={e => { e.currentTarget.style.color = "#0066cc"; }}
-          >Claim your card →</button>
+          >{PRIMARY_CTA_LABEL} →</button>
         </p>
       </div>
 
@@ -3383,10 +3396,10 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
               The AI that reads your Canvas, explains your lectures, and builds your exam prep, grounded in your actual notes.
             </p>
 
-            {/* Hero CTA — routes to /card (Founding Card learn-more page + waitlist form) */}
+            {/* Hero CTA — action driven by the WAITLIST_MODE switch (waitlist modal vs /card funnel) */}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
               <button
-                onClick={() => { window.location.href = "/card"; }}
+                onClick={onPrimaryCta}
                 style={{
                   display: "inline-flex", alignItems: "center",
                   background: "#0071e3", color: "#fff", border: "none",
@@ -3397,7 +3410,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
                 onMouseEnter={e => { e.currentTarget.style.opacity = "0.86"; e.currentTarget.style.transform = "scale(1.02)"; }}
                 onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1)"; }}
               >
-                <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>Claim your card</span>
+                <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>{PRIMARY_CTA_LABEL}</span>
                 <HeroBtnCountdown />
               </button>
             </div>
@@ -3462,7 +3475,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
       <ThreeMoments t={t} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
-      <PremiumCTA onSignup={() => { window.location.href = "/card"; }} onLogin={() => setWaitlistOpen(true)} />
+      <PremiumCTA onSignup={onPrimaryCta} onLogin={() => setWaitlistOpen(true)} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
       {/* ── FAQ — clean solid tile ── */}
