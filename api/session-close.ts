@@ -111,6 +111,31 @@ export default async function handler(req, res) {
       if (impRes.ok) impressions = await impRes.json();
     } catch { /* non-fatal */ }
 
+    // ── 4a. NeuroAGI kernel write (LLM-INDEPENDENT) — record the session + reflect NOW, so an
+    // Anthropic hiccup or an empty rewrite below never costs the session its brain memories. The
+    // academic signal + hypothesis/trait passes need no LLM; only the living-mind digest (6b) does.
+    let kctx: { store: any; subject: string } | null = null;
+    try {
+      const personId = await resolveFschoolPerson({ url: supabaseUrl, key: supabaseKey }, userId);
+      if (personId) {
+        const bc = brainConn() ?? { url: supabaseUrl, key: supabaseKey };   // memory log → NeuroAGI project if configured
+        const store = postgrestStore(bc.url, bc.key);
+        const subject = `person:${personId}`;
+        kctx = { store, subject };
+        await remember(store, {
+          subject, kind: "signal", source: "fschoolai",
+          salience: Math.min(1, msgs.length / 20),
+          body: {
+            signal_type: "academic", event: "session_end",
+            session_messages: msgs.length, duration_mins: Math.round(msgs.length * 1.5),
+            user_gpa: userProfile?.gpa, user_streak: userProfile?.streak, school: userProfile?.school,
+          },
+        });
+        await runHypothesisPass(store, subject).catch(() => {});
+        await runTraitPass(store, subject).catch(() => {});
+      }
+    } catch (e: any) { console.error("[session-close] kernel (early) failed:", e?.message); }
+
     // ── 4. Build the rewrite prompt ─────────────────────────────────────────
     const sessionTranscript = msgs
       .slice(-20) // cap at 20 messages to stay within token budget
@@ -200,37 +225,16 @@ RULES:
       return res.status(200).json({ ok: false, reason: "upsert failed" });
     }
 
-    // ── 6b. NeuroAGI kernel write (product-DB, always on) ────────────────────
-    // The session becomes memories in the person's brain: an academic 'signal' + a 'digest'
-    // (the rewritten living mind). Independent of the legacy Brain DB below; identity resolved
-    // from the verified userId. Best-effort — never affects the response.
-    try {
-      const personId = await resolveFschoolPerson({ url: supabaseUrl, key: supabaseKey }, userId);
-      if (personId) {
-        const bc = brainConn() ?? { url: supabaseUrl, key: supabaseKey };   // memory log → NeuroAGI project if configured
-        const store = postgrestStore(bc.url, bc.key);
-        const subject = `person:${personId}`;
-        await remember(store, {
-          subject, kind: "signal", source: "fschoolai",
-          salience: Math.min(1, msgs.length / 20),
-          body: {
-            signal_type: "academic", event: "session_end",
-            session_messages: msgs.length, duration_mins: Math.round(msgs.length * 1.5),
-            user_gpa: userProfile?.gpa, user_streak: userProfile?.streak, school: userProfile?.school,
-          },
+    // ── 6b. Living-mind digest → kernel (needs the rewrite). The academic signal + reflection
+    // already ran in 4a, so they survive an LLM/upsert failure; only this digest depends on mindDoc.
+    if (kctx && mindDoc) {
+      try {
+        await remember(kctx.store, {
+          subject: kctx.subject, kind: "digest", source: "fschoolai", salience: 0.7,
+          body: { summary: String(mindDoc).slice(0, 2000) },
         });
-        if (mindDoc) {
-          await remember(store, {
-            subject, kind: "digest", source: "fschoolai", salience: 0.7,
-            body: { summary: String(mindDoc).slice(0, 2000) },
-          });
-        }
-        // Reflection: mine recent signals into hypotheses/focus + durable study-profile traits the
-        // tutor will surface next time. Pure derived layers — write memories only, deliver nothing.
-        await runHypothesisPass(store, subject).catch(() => {});
-        await runTraitPass(store, subject).catch(() => {});
-      }
-    } catch (e: any) { console.error("[session-close] kernel write failed:", e?.message); }
+      } catch (e: any) { console.error("[session-close] digest write failed:", e?.message); }
+    }
 
     // ── 7. Write signal to NeuroAGI Brain DB (fire-and-forget) ─────────────
     // Only fires if brain env vars are set AND user has a brain_person_id

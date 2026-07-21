@@ -185,4 +185,35 @@ describe("session-close handler — pinned core behavior", () => {
     expect(contextWindow?.body).toMatchObject({ person_id: "person-1" });
     expect(contextWindow?.body.recent_summary).toContain("Ann is a UofT student");
   });
+
+  it("E1 resilience: writes the kernel signal + runs reflection even when the living-mind rewrite fails", async () => {
+    const handler = await load();
+    const { resolveFschoolPerson } = await import("../api/_brain/identity.ts");
+    const { remember } = await import("../api/_brain/kernel.ts");
+    const { runHypothesisPass } = await import("../api/_brain/hypothesis.ts");
+    const { runTraitPass } = await import("../api/_brain/traits.ts");
+    (resolveFschoolPerson as any).mockResolvedValue("person-1"); // kernel block active
+
+    // Claude (first anthropic call) FAILS → the living-mind rewrite is lost.
+    const fetchMock = vi.fn(async (url: any, init: any = {}) => {
+      const u = String(url), method = init.method ?? "GET";
+      if (u.startsWith("https://api.anthropic.com")) return { ok: false, json: async () => ({}), text: async () => "boom" };
+      if (u.includes("/rest/v1/users") && method === "GET") return { ok: true, json: async () => [{ id: "user-1", brain_person_id: null, gpa: 3.5 }] };
+      return { ok: true, json: async () => [], text: async () => "" };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = makeRes();
+    await handler({ method: "POST", body: { userId: "user-1", sessionMessages: [{ role: "user", content: longMsg1 }, { role: "assistant", content: longMsg2 }] } }, res);
+
+    // Claude failed → ok:false, BUT the academic signal + reflection already ran (block 4a, before the Claude call).
+    expect(res.body).toEqual({ ok: false, reason: "claude error" });
+    const signalCall = (remember as any).mock.calls.find((c: any[]) => c[1]?.kind === "signal");
+    expect(signalCall, "academic signal written despite the rewrite failing").toBeTruthy();
+    expect(signalCall[1].body).toMatchObject({ event: "session_end" });
+    expect(runHypothesisPass).toHaveBeenCalled();
+    expect(runTraitPass).toHaveBeenCalled();
+    // No digest — mindDoc is empty because Claude failed.
+    expect((remember as any).mock.calls.some((c: any[]) => c[1]?.kind === "digest")).toBe(false);
+  });
 });
