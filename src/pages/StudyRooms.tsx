@@ -34,6 +34,8 @@ import Whiteboard, { PEN_COLORS, PEN_WIDTHS, ERASER_SIZES, DEFAULT_BG } from "..
 import type { Tool } from "../components/Whiteboard";
 import StudyOrb from "../components/StudyOrb";
 import VoiceRoom from "../components/VoiceRoom";
+import RoomGroundingChips from "../components/RoomGroundingChips";
+import type { GroundingRef } from "../lib/roomGrounding";
 import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
@@ -1961,7 +1963,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   //    server-side to YOUR Brain + your own thread; the reply returns only in your HTTP
   //    response (never broadcast), so nothing leaks to the group. Group @Reggie is later.
   const [showReggie,  setShowReggie]  = useState(false);
-  const [reggieMsgs,  setReggieMsgs]  = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [reggieMsgs,  setReggieMsgs]  = useState<{ role: "user" | "assistant"; content: string; grounded?: GroundingRef | null }[]>([]);
   const [reggieInput, setReggieInput] = useState("");
   const [reggieBusy,  setReggieBusy]  = useState(false);
   const reggieSessionRef = useRef(false); // ensured an active AI session for this room yet?
@@ -2077,7 +2079,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d?.error || `Reggie couldn't respond (${r.status})`);
-      setReggieMsgs(m => [...m, { role: "assistant", content: String(d?.message ?? "(no answer)") }]);
+      setReggieMsgs(m => [...m, { role: "assistant", content: String(d?.message ?? "(no answer)"), grounded: d?.grounded ?? null }]);
     } catch (err) {
       setReggieMsgs(m => [...m, { role: "assistant", content: `⚠️ ${(err as Error)?.message || "Reggie is unavailable right now."}` }]);
     } finally {
@@ -2988,10 +2990,14 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               </div>
             )}
             {reggieMsgs.map((m, i) => (
-              <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", padding: "8px 11px", borderRadius: 12, fontSize: 13, lineHeight: 1.5, whiteSpace: m.role === "user" ? "pre-wrap" : "normal", background: m.role === "user" ? "rgba(var(--teal-rgb),0.16)" : "rgba(255,255,255,0.05)", color: "var(--text, #ECEBF0)" }}>
-                {/* Assistant replies are markdown-ish (##/---/bullets/**bold**) — render them,
-                    don't leak raw syntax. User messages stay literal. */}
-                {m.role === "user" ? m.content : <GsRichText text={m.content} />}
+              <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
+                <div style={{ padding: "8px 11px", borderRadius: 12, fontSize: 13, lineHeight: 1.5, whiteSpace: m.role === "user" ? "pre-wrap" : "normal", background: m.role === "user" ? "rgba(var(--teal-rgb),0.16)" : "rgba(255,255,255,0.05)", color: "var(--text, #ECEBF0)" }}>
+                  {/* Assistant replies are markdown-ish (##/---/bullets/**bold**) — render them,
+                      don't leak raw syntax. User messages stay literal. */}
+                  {m.role === "user" ? m.content : <GsRichText text={m.content} />}
+                </div>
+                {/* Grounding chips: what this answer drew on (real payload from room-ai). */}
+                {m.role === "assistant" && <RoomGroundingChips grounded={m.grounded} />}
               </div>
             ))}
             {reggieBusy && <div style={{ alignSelf: "flex-start", color: "var(--text-dim)", fontSize: 13 }}>Reggie is thinking…</div>}
