@@ -28,6 +28,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { assertCourseFact, CourseFactRejected } from "./course-fact-guard.js";
+import { deriveUniversityId } from "./_reggie/canvasLive.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -56,7 +57,7 @@ export default async function handler(req, res) {
   // ── Auth check: verify userId exists ─────────────────────────────────────
   const { data: userRow, error: userErr } = await supabase
     .from("users")
-    .select("id, email")
+    .select("id, email, university_id, canvas_base_url")
     .eq("id", userId)
     .maybeSingle();
 
@@ -142,11 +143,20 @@ export default async function handler(req, res) {
       case "upsert_course_content": {
         const { rows } = payload;
         if (!Array.isArray(rows)) return res.status(400).json({ error: "rows[] required" });
-        // BR-06: every row must pass the shared-write guard. Fail-closed per row.
+        // BR-02 §4c: the shared library is institution-scoped, and university_id is an ACL
+        // boundary — NEVER trust it from the client body. Derive it server-side from the caller's
+        // stored Canvas host. No Canvas connection ⇒ we can't attribute the fact to a school, so
+        // the shared-library write is refused (the caller's user-scoped syncs still succeed).
+        const serverUni = deriveUniversityId(userRow);
+        if (!serverUni) {
+          return res.status(400).json({ error: "cannot derive university_id (no Canvas connection); shared-library write refused" });
+        }
+        // BR-06: every row passes the shared-write guard, with the SERVER-derived university_id
+        // stamped on (overriding any client value). Fail-closed per row.
         const clean: Record<string, unknown>[] = [];
         let dropped = 0;
         for (const r of rows) {
-          try { clean.push(assertCourseFact(r)); }
+          try { clean.push(assertCourseFact({ ...r, university_id: serverUni })); }
           catch (e) {
             if (e instanceof CourseFactRejected) { dropped++; console.warn("[extension-sync] BR-06 dropped row:", e.reason); }
             else throw e;

@@ -1,30 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { makeSupabaseMock, makeRes } from "./helpers";
+import { describe, it, expect } from "vitest";
+import { makeRes } from "./helpers";
+import handler, { deriveUniversityId, buildContentHash } from "../api/extension-content";
 
-// extension-content builds a Supabase client at module load + calls the course-resolver.
-vi.mock("@supabase/supabase-js", () => ({ createClient: vi.fn() }));
-import { createClient } from "@supabase/supabase-js";
-vi.mock("../api/course-resolver", () => ({
-  resolveAndEnrichCourse: vi.fn(async () => null),
-  normalizeCourseCode: vi.fn((s: string) => s),
-}));
-
-import { deriveUniversityId, buildContentHash } from "../api/extension-content";
-
-beforeEach(() => {
-  process.env.SUPABASE_URL = "http://localhost";
-  process.env.SUPABASE_SERVICE_KEY = "test";
-  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({}), text: async () => "" })));
-});
-afterEach(() => vi.unstubAllGlobals());
-
-async function loadHandler(router: (ctx: any) => any) {
-  const { client, calls } = makeSupabaseMock(router);
-  vi.resetModules();
-  (createClient as any).mockReturnValue(client);
-  const mod = await import("../api/extension-content.ts");
-  return { handler: mod.default, calls };
-}
 const post = (body: any) => ({ method: "POST", body });
 
 // ── Pure: LMS URL → canonical hostname (BR-02: matches university-brain's key) ────
@@ -36,7 +13,6 @@ describe("deriveUniversityId", () => {
     expect(deriveUniversityId("https://courseworks.columbia.edu/x")).toBe("courseworks.columbia.edu");
   });
   it("keeps the full hostname including subdomains (no short-id collapsing)", () => {
-    // Previously collapsed to 'ubc'; now distinct per host — consistent with university-brain.
     expect(deriveUniversityId("https://sub.canvas.ubc.ca/x")).toBe("sub.canvas.ubc.ca");
     expect(deriveUniversityId("https://learn.someschool.edu/x")).toBe("learn.someschool.edu");
   });
@@ -46,7 +22,7 @@ describe("deriveUniversityId", () => {
   });
 });
 
-// ── Pure: dedup hash (the key the shared library dedups on) ──────────────────
+// ── Pure: dedup hash (still exported for hash-compat callers) ──────────────────
 describe("buildContentHash", () => {
   it("is deterministic for identical inputs", () => {
     expect(buildContentHash("uoft", "ECON201", "lecture", "the text"))
@@ -65,66 +41,29 @@ describe("buildContentHash", () => {
   });
 });
 
-// ── Handler: validation + dedup behavior ────────────────────────────────────
-describe("extension-content handler", () => {
-  const ok = { userId: "u1", courseId: "ECON 201", contentType: "lecture", text: "Monetary policy lecture notes here." };
+// ── Handler: RETIRED (BR-06 §9.1) ─────────────────────────────────────────────
+// The unauthenticated raw-text scrape door into the SHARED course library is GONE, not guarded.
+// Course facts now enter the shared library only via the authenticated api/university-brain path.
+describe("extension-content handler (retired)", () => {
+  const anyPost = { userId: "u1", courseId: "ECON 201", contentType: "lecture", text: "Monetary policy lecture notes here." };
 
-  it("guards method and validates required fields", async () => {
-    const { handler } = await loadHandler(() => ({ data: null, error: null }));
-    let res = makeRes(); await handler({ method: "GET" }, res);                  expect(res.statusCode).toBe(405);
-    res = makeRes();     await handler({ method: "OPTIONS" }, res);              expect(res.statusCode).toBe(204);
-    res = makeRes();     await handler(post({ ...ok, userId: undefined }), res); expect(res.statusCode).toBe(400);
-    res = makeRes();     await handler(post({ ...ok, courseId: undefined }), res); expect(res.statusCode).toBe(400);
-    res = makeRes();     await handler(post({ ...ok, text: "short" }), res);      expect(res.statusCode).toBe(400);
-    res = makeRes();     await handler(post({ ...ok, contentType: "bogus" }), res); expect(res.statusCode).toBe(400);
+  it("returns 410 Gone on POST — the write path is absent", async () => {
+    const res = makeRes();
+    await handler(post(anyPost), res);
+    expect(res.statusCode).toBe(410);
+    expect(res.body.error).toBe("gone");
   });
 
-  it("returns 'already_exists' + increments seen_by_count when the hash matches", async () => {
-    const { handler, calls } = await loadHandler((ctx) =>
-      ctx.table === "course_content" && ctx.op === "select"
-        ? { data: { id: "row-9", seen_by_count: 4, content_hash: "h" }, error: null }
-        : { data: null, error: null });
+  it("still answers the CORS preflight (OPTIONS → 204)", async () => {
     const res = makeRes();
-    await handler(post(ok), res);
-    expect(res.statusCode).toBe(200);
-    expect(res.body.status).toBe("already_exists");
-    expect(res.body.seenByCount).toBe(5); // 4 + 1
-    expect(calls.some(c => c.table === "course_content" && c.op === "update")).toBe(true);
+    await handler({ method: "OPTIONS" }, res);
+    expect(res.statusCode).toBe(204);
   });
 
-  it("inserts new content and returns 'created'", async () => {
-    const { handler, calls } = await loadHandler((ctx) => {
-      if (ctx.table === "course_content" && ctx.op === "select") return { data: null, error: null }; // not seen before
-      if (ctx.table === "course_content" && ctx.op === "insert") return { data: { id: "new-1" }, error: null };
-      return { data: null, error: null };
-    });
+  it("a person-tainted scrape cannot reach the shared library — the door is gone, not merely screened", async () => {
     const res = makeRes();
-    await handler(post(ok), res);
-    expect(res.statusCode).toBe(201);
-    expect(res.body.status).toBe("created");
-    expect(res.body.id).toBe("new-1");
-    expect(calls.some(c => c.table === "course_content" && c.op === "insert")).toBe(true);
-  });
-});
-
-describe("BR-06: extension-content guard", () => {
-  const okBase = {
-    userId: "u1", universityId: "q.utoronto.ca", courseId: "BIO130", canvasCourseId: "123",
-    contentType: "syllabus",
-    text: "Weekly topics, readings, and lecture schedule for the course across the term.",
-    sourceUrl: "https://q.utoronto.ca/courses/1",
-  };
-  it("rejects a scrape whose text carries person data — no insert", async () => {
-    const { handler, calls } = await loadHandler((ctx) => {
-      if (ctx.table === "course_content" && ctx.op === "select") return { data: null, error: null };
-      if (ctx.table === "course_content" && ctx.op === "insert") return { data: { id: "new-1" }, error: null };
-      return { data: null, error: null };
-    });
-    const res = makeRes();
-    const tainted = "Your grade: 18/20 on the midterm. You submitted at 11:59pm — late submission. "
-      + "Additional benign course notes and reading material to exceed any minimum length. ".repeat(4);
-    await handler(post({ ...okBase, text: tainted }), res);
-    expect(res.body.status).toBe("rejected");
-    expect(calls.some(c => c.table === "course_content" && c.op === "insert")).toBe(false);
+    const tainted = "Your grade: 18/20 on the midterm. You submitted at 11:59pm — late submission.";
+    await handler(post({ userId: "u1", courseId: "BIO130", contentType: "syllabus", text: tainted }), res);
+    expect(res.statusCode).toBe(410); // never inserted; there is no insert path anymore
   });
 });

@@ -44,7 +44,9 @@ describe("theme.ts mirrors tokens.css (dark :root)", () => {
 
   it("rgba helpers emit canvas-safe strings", () => {
     expect(rgba(GOLD_RGB, 0.35)).toBe("rgba(201, 212, 255, 0.35)");
-    expect(goldAlpha(1)).toBe("rgba(196, 154, 60, 1)");
+    // goldAlpha() derives from GOLD_RGB, which was re-themed gold→indigo (#C9D4FF) — keep this
+    // expectation in lockstep with the constant above rather than the pre-re-theme gold literal.
+    expect(goldAlpha(1)).toBe("rgba(201, 212, 255, 1)");
   });
 
   it("light theme overrides every colour token it redefines from :root", () => {

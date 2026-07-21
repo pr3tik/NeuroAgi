@@ -54,7 +54,21 @@ export default async function handler(req: any, res: any) {
       if (target !== subject && !(await canWrite(s, target, subject))) {
         return res.status(403).json({ error: "not authorized to write this scope" });
       }
-      const m = await remember(s, { subject: target, kind, body, salience, audience, source: source ?? "fschoolai" });
+      // AUDIENCE IS AN ACL, NOT A FREE FIELD (BR-06 §9.4 row4). `audience` widens who may READ a
+      // memory — recall matches rows whose audience overlaps the reader's scopes, or contains '*'.
+      // So a caller may only grant read to scopes they THEMSELVES belong to: never '*' (public
+      // broadcast is a system capability, not user-settable) and never an arbitrary person:/space
+      // they aren't in — that would inject a row into a victim's recall (and thence their tutor
+      // prompt). Over-granting is rejected outright rather than silently dropped.
+      let audienceClean: string[] | undefined;
+      if (audience !== undefined && audience !== null) {
+        if (!Array.isArray(audience)) return res.status(400).json({ error: "audience must be an array of scopes" });
+        const readable = new Set(await readableScopes(s, subject)); // own subject + spaces the caller belongs to
+        const bad = audience.filter((a: any) => typeof a !== "string" || a === "*" || !readable.has(a));
+        if (bad.length) return res.status(403).json({ error: "audience may only include scopes you belong to" });
+        audienceClean = audience as string[];
+      }
+      const m = await remember(s, { subject: target, kind, body, salience, audience: audienceClean, source: source ?? "fschoolai" });
       return res.status(200).json({ ok: true, id: m.id });
     }
 
