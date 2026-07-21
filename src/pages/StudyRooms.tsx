@@ -2419,21 +2419,21 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => setMusicOpen(o => !o) },
               { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
             ].map(b => (
-              <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(var(--teal-rgb),0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#d3f0dc" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
+              <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(var(--teal-rgb),0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#DCE3FF" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
             ))}
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-            <div style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#d3f0dc" : "var(--text-primary)" }}>
+            <div style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#DCE3FF" : "var(--text-primary)" }}>
               {pomo && pomo.phase === "focus" ? formatPomoTime(remaining) : "00:00"}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {(!pomo || pomo.phase !== "focus") ? (
-                <button onClick={handlePomoStart} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>▶ Start focus sprint</button>
+                <button onClick={handlePomoStart} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>▶ Start focus sprint</button>
               ) : pomo.paused ? (<>
-                <button onClick={handlePomoResume} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>▶ Resume</button>
+                <button onClick={handlePomoResume} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>▶ Resume</button>
                 <button onClick={handlePomoReset} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 14px", fontSize: 12, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Reset</button>
               </>) : (<>
-                <button onClick={handlePomoPause} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>⏸ Pause</button>
+                <button onClick={handlePomoPause} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>⏸ Pause</button>
                 <button onClick={handlePomoSkip} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 14px", fontSize: 12, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>End</button>
               </>)}
             </div>
@@ -2445,7 +2445,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "6px 12px", fontSize: 12, color: "var(--text-secondary)", flexShrink: 0 }}>
               <Users size={13} /> {members.length}
             </div>
-            <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: focusMode ? "#d3f0dc" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Focus{focusMode ? " · ON" : ""}</button>
+            <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: focusMode ? "#DCE3FF" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Focus{focusMode ? " · ON" : ""}</button>
           </div>
         </div>
 
@@ -2456,13 +2456,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "1fr 320px", gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
 
           {/* CENTER — Guided session (default) / Whiteboard / Flashcards */}
-          <div style={{ display: "flex", flexDirection: "column", background: "rgba(var(--teal-rgb),0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
+          <div style={{ display: "flex", flexDirection: "column", background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 18, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", padding: 16, overflow: "hidden" }}>
             {/* Center tab strip — collaborative board vs. Reggie-guided session */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexShrink: 0 }}>
               {([["board", "Whiteboard"], ["session", "Guided session"], ["flashcards", "Flashcards"]] as const).map(([key, label]) => {
                 const active = centerTab === key;
                 return (
-                  <button key={key} onClick={() => { setCenterTab(key); if (key === "board" && !showBoard) handleOpenBoard(); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(var(--teal-rgb),0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#d3f0dc" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
+                  <button key={key} onClick={() => { setCenterTab(key); if (key === "board" && !showBoard) handleOpenBoard(); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(var(--teal-rgb),0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#DCE3FF" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
                     {key === "session" && <Sparkles size={12} />}{key === "flashcards" && <BookOpen size={12} />}{label}
                     {key === "session" && gs && gs.status !== "done" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(var(--teal-rgb))" }} />}
                     {key === "flashcards" && fcCards.length > 0 && !fcDone && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(var(--teal-rgb))" }} />}
@@ -2520,13 +2520,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   {!gs ? (
                     /* Launcher */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
-                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(var(--teal-rgb),0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><Sparkles size={26} color="#d3f0dc" /></div>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(var(--teal-rgb),0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><Sparkles size={26} color="#DCE3FF" /></div>
                       <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Start a guided session</h3>
                       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie plans it, teaches you step by step, and tracks your progress — grounded in your own course materials.</p>
                       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", justifyContent: "center" }}>
                         {([["learn", "Learn a topic", "📚"], ["assignment", "Work an assignment", "✍️"], ["exam", "Prep for an exam", "🎯"]] as const).map(([m, label, ic]) => {
                           const active = gsLaunchMode === m;
-                          return <button key={m} onClick={() => { setGsLaunchMode(m); setGsAssignmentId(""); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(var(--teal-rgb),0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "9px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#d3f0dc" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}><span>{ic}</span>{label}</button>;
+                          return <button key={m} onClick={() => { setGsLaunchMode(m); setGsAssignmentId(""); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(var(--teal-rgb),0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "9px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#DCE3FF" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}><span>{ic}</span>{label}</button>;
                         })}
                       </div>
                       {gsUsingPicker ? (
@@ -2594,7 +2594,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                         <div style={{ display: "flex", gap: 5, marginTop: 9, flexWrap: "wrap" }}>
                           {gs.steps.map((s, i) => {
                             const state = i < gs.currentIdx ? "done" : i === gs.currentIdx ? "cur" : "todo";
-                            return <span key={i} title={s.title} style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 999, background: state === "cur" ? "rgba(var(--teal-rgb),0.25)" : state === "done" ? "rgba(var(--teal-rgb),0.14)" : "rgba(255,255,255,0.04)", border: `1px solid ${state === "cur" ? "rgba(var(--teal-rgb),0.5)" : state === "done" ? "rgba(var(--teal-rgb),0.3)" : "rgba(255,255,255,0.08)"}`, color: state === "cur" ? "#d3f0dc" : state === "done" ? "#A9B6FF" : "var(--text-dim)", fontWeight: state === "todo" ? 400 : 600 }}>{state === "done" ? "✓ " : ""}{i + 1}</span>;
+                            return <span key={i} title={s.title} style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 999, background: state === "cur" ? "rgba(var(--teal-rgb),0.25)" : state === "done" ? "rgba(var(--teal-rgb),0.14)" : "rgba(255,255,255,0.04)", border: `1px solid ${state === "cur" ? "rgba(var(--teal-rgb),0.5)" : state === "done" ? "rgba(var(--teal-rgb),0.3)" : "rgba(255,255,255,0.08)"}`, color: state === "cur" ? "#DCE3FF" : state === "done" ? "#A9B6FF" : "var(--text-dim)", fontWeight: state === "todo" ? 400 : 600 }}>{state === "done" ? "✓ " : ""}{i + 1}</span>;
                           })}
                         </div>
                       </div>
@@ -2641,7 +2641,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   {fcCards.length === 0 ? (
                     /* Launcher */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
-                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(var(--teal-rgb),0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#d3f0dc" /></div>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(var(--teal-rgb),0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#DCE3FF" /></div>
                       <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Flashcards</h3>
                       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie builds a deck on any topic — grounded in your course materials — and quizzes you.</p>
                       <input value={fcTopic} onChange={e => setFcTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && fcTopic.trim()) fcGenerate(fcTopic); }} placeholder="Topic to make cards on…" style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
@@ -2693,7 +2693,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           </div>
 
           {/* RIGHT — Group session */}
-          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(var(--teal-rgb),0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
+          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 18, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
               <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>Group session</p>
             </div>
@@ -2729,9 +2729,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "10px 14px" }}>
                   <div>
                     <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 2 }}>Room code</div>
-                    <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 600, letterSpacing: 3, color: "#d3f0dc" }}>{room.join_code}</div>
+                    <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 600, letterSpacing: 3, color: "#DCE3FF" }}>{room.join_code}</div>
                   </div>
-                  <button onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }} style={{ background: "rgba(var(--teal-rgb),0.16)", border: "1px solid rgba(var(--teal-rgb),0.3)", borderRadius: 9, padding: "6px 13px", fontSize: 12, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
+                  <button onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }} style={{ background: "rgba(var(--teal-rgb),0.16)", border: "1px solid rgba(var(--teal-rgb),0.3)", borderRadius: 9, padding: "6px 13px", fontSize: 12, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
                 </div>
               </div>
             )}
@@ -3008,7 +3008,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <button onClick={() => toggleMusic()} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, background: "rgba(var(--teal-rgb),0.18)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 10, padding: "9px", fontSize: 13, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>{musicPlaying ? <><Pause size={14} />Pause</> : <><Play size={14} />Play</>}</button>
+                <button onClick={() => toggleMusic()} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, background: "rgba(var(--teal-rgb),0.18)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 10, padding: "9px", fontSize: 13, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>{musicPlaying ? <><Pause size={14} />Pause</> : <><Play size={14} />Play</>}</button>
                 <button onClick={nextMusic} title="Next track" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "9px 12px", color: "var(--text-secondary)", cursor: "pointer", display: "inline-flex", alignItems: "center" }}><SkipForward size={14} /></button>
               </div>
               <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "9px 0 0", textAlign: "center" }}>30-second previews · Apple Music</p>
