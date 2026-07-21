@@ -2404,7 +2404,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         {roomToast && !focusMode && (
           <div style={{ position: "fixed", top: 18, right: 18, zIndex: 90, display: "flex", alignItems: "center", gap: 8, background: "rgba(var(--teal-rgb),0.92)", color: "#fff", padding: "10px 15px", borderRadius: 12, fontSize: 13, fontWeight: 600, boxShadow: "0 10px 34px rgba(0,0,0,0.5)" }}>{roomToast}</div>
         )}
-        {/* No floating focus pill: the top bar's Focus Mode toggle stays visible in focus
+        <style>{`.gs-topic-input::placeholder { color: rgba(255,255,255,0.55); }`}</style>
+      {/* No floating focus pill: the top bar's Focus Mode toggle stays visible in focus
             mode (the right panel that used to host it collapses), so one control both
             enters and exits — Harshil's #258 regroup, adapted to the v2 layout. */}
         {/* Top bar — room controls (left) · session timer (center) · presence (right).
@@ -2555,18 +2556,18 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       {gsUsingPicker ? (
                         <select value={gsAssignmentId}
                           onChange={e => { const v = e.target.value; setGsAssignmentId(v); const a = gsAssignmentOptions.find((x: any) => String(x.id) === v); setGsTopic(a ? a.name : ""); }}
-                          style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12, cursor: "pointer" }}>
-                          <option value="" style={{ background: "#1a1a2e" }}>Choose an assignment…</option>
+                          style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 12, padding: "12px 14px", color: "#fff", fontSize: 13.5, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12, cursor: "pointer", colorScheme: "dark" as any }}>
+                          <option value="" style={{ background: "#1E2450", color: "#EDF0FF" }}>Choose an assignment…</option>
                           {gsAssignmentOptions.map((a: any) => {
                             const due = a.dueAt ? ` · due ${new Date(a.dueAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "";
                             const cc = a.courseCode ? ` · ${a.courseCode}` : "";
-                            return <option key={a.id} value={String(a.id)} style={{ background: "#1a1a2e" }}>{`${a.name}${cc}${due}`}</option>;
+                            return <option key={a.id} value={String(a.id)} style={{ background: "#1E2450", color: "#EDF0FF" }}>{`${a.name}${cc}${due}`}</option>;
                           })}
-                          <option value="__custom" style={{ background: "#1a1a2e" }}>✏️ Type it instead…</option>
+                          <option value="__custom" style={{ background: "#1E2450", color: "#EDF0FF" }}>✏️ Type it instead…</option>
                         </select>
                       ) : (
                         <input value={gsTopic} onChange={e => setGsTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsTopic.trim()) beginGuidedSession(gsLaunchMode, gsTopic); }}
-                          placeholder={gsLaunchMode === "assignment" ? "Which assignment? e.g. Contracts essay #2" : gsLaunchMode === "exam" ? "Which exam? e.g. Land Reform midterm" : "What do you want to learn?"}
+                          className="gs-topic-input" placeholder={gsLaunchMode === "assignment" ? "Which assignment? e.g. Contracts essay #2" : gsLaunchMode === "exam" ? "Which exam? e.g. Land Reform midterm" : "What do you want to learn?"}
                           style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
                       )}
                       {gsLaunchMode === "assignment" && gsAssignmentId === "__custom" && gsAssignmentOptions.length > 0 && (
