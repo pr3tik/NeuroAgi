@@ -611,6 +611,7 @@ const examInLabel = (n) => n == null ? "" : n <= 0 ? "exam today" : n === 1 ? "e
 
 function StudyPlanSection({ userId, courses }) {
   const [plans, setPlans] = useState([]);
+  const [dbCourseNames, setDbCourseNames] = useState({}); // courses-table id → code/name
   const [featuredId, setFeaturedId] = useState(null);
   const [, setDoneTick] = useState(0); // bump after localStorage writes so rows re-render
 
@@ -623,14 +624,32 @@ function StudyPlanSection({ userId, courses }) {
           .from("exam_plans").select("id, course_id, exam_date, sessions, created_at")
           .eq("user_id", userId).gte("exam_date", new Date().toISOString().slice(0, 10))
           .order("exam_date", { ascending: true }).order("created_at", { ascending: false });
-        // Regenerating a plan leaves stale rows behind — keep only the freshest per
-        // course (first in this ordering = nearest exam, newest created_at).
-        const byCourse = {};
-        for (const p of data ?? []) {
-          const k = String(p.course_id);
-          if (Array.isArray(p?.sessions) && p.sessions.length > 0 && !byCourse[k]) byCourse[k] = p;
+        const rows = (data ?? []).filter((p) => Array.isArray(p?.sessions) && p.sessions.length > 0);
+
+        // Plan writers disagree on course_id: the manual path stores a course label
+        // ("MDSB21"), the cron path stores the courses-table integer id ("1542").
+        // Resolve integer ids against the courses table so the same course can't show
+        // up twice under two spellings — then dedupe on the RESOLVED label.
+        const numericIds = [...new Set(rows.map((p) => String(p.course_id)).filter((k) => /^\d+$/.test(k)))];
+        let idMap = {};
+        if (numericIds.length) {
+          const { data: crs } = await supabase
+            .from("courses").select("id, course_code, name").in("id", numericIds);
+          for (const c of crs ?? []) idMap[String(c.id)] = c.course_code || c.name;
         }
-        if (!dead) setPlans(Object.values(byCourse));
+        const resolvedKey = (p) => {
+          const k = String(p.course_id);
+          // "MDSB21" and "MDSB21H3 S LEC01" are the same course — compare on the
+          // code's alphanumeric prefix so both spellings collapse.
+          const label = idMap[k] ?? k;
+          return String(label).split(/\s+/)[0].replace(/H\d.*$/, "").toUpperCase();
+        };
+        const byCourse = {};
+        for (const p of rows) {
+          const k = resolvedKey(p);
+          if (!byCourse[k]) byCourse[k] = p; // ordering = nearest exam, newest first
+        }
+        if (!dead) { setDbCourseNames(idMap); setPlans(Object.values(byCourse)); }
       } catch { /* non-fatal — the section simply doesn't render */ }
     })();
     return () => { dead = true; };
@@ -642,7 +661,7 @@ function StudyPlanSection({ userId, courses }) {
   const plan = plans.find((p) => p.id === featuredId) ?? plans[0];
   const courseLabel = (cid) => {
     const c = (courses ?? []).find((x) => String(x.dbId ?? x.id) === String(cid));
-    return c?.courseCode || c?.name || String(cid ?? "Course");
+    return c?.courseCode || c?.name || dbCourseNames[String(cid)] || String(cid ?? "Course");
   };
   const goPage = (k) => () => window.dispatchEvent(new CustomEvent("fschool:navigate", { detail: k }));
 
