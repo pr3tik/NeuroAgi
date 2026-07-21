@@ -18,9 +18,11 @@
 
   /* Text scale */
   --text-primary:   #F5F5F5;
-  --text-secondary: rgba(255, 255, 255, 0.45);
-  --text-tertiary:  rgba(255, 255, 255, 0.25);
-  --text-dim:       rgba(255, 255, 255, 0.35);
+  /* Contrast lifted (was .45/.25/.35) so secondary/tertiary text stays legible on glass — the old
+     values fell short of WCAG AA on translucent surfaces. */
+  --text-secondary: rgba(255, 255, 255, 0.62);
+  --text-tertiary:  rgba(255, 255, 255, 0.42);
+  --text-dim:       rgba(255, 255, 255, 0.52);
 
   /* Semantic */
   --color-urgent-bg:    rgba(255, 59, 48, 0.15);

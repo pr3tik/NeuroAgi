@@ -87,9 +87,10 @@ button {
 html.warm-ink {
   --color-bg:        #141216;
   --text-primary:    #ECE8E1;
-  --text-secondary:  rgba(236, 232, 225, 0.52);
-  --text-dim:        rgba(236, 232, 225, 0.42);
-  --text-tertiary:   rgba(236, 232, 225, 0.28);
+  /* Contrast lifted (was .52/.42/.28) for legibility on the frosted-glass surfaces. */
+  --text-secondary:  rgba(236, 232, 225, 0.66);
+  --text-dim:        rgba(236, 232, 225, 0.55);
+  --text-tertiary:   rgba(236, 232, 225, 0.42);
   --color-border:    rgba(255, 255, 255, 0.11);
   --color-accent:    rgb(122, 140, 245);
   --teal-rgb:        122, 140, 245;  /* periwinkle — re-skins every accent usage */
@@ -128,4 +129,21 @@ button, input, a, [data-no-theme-transition] {
     color            0.45s ease,
     opacity          0.18s ease,
     transform        0.18s ease;
+}
+
+/* Reduced transparency — swap frosted glass for solid tinted surfaces and drop all backdrop
+   blur, so text never sits on a low-contrast frost. (Reduced motion is handled above.) */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --color-surface:       #1b1b24;
+    --color-surface-hover: #23232e;
+  }
+  html.warm-ink {
+    --color-surface:       #1e1b22;
+    --color-surface-hover: #262230;
+  }
+  *, *::before, *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }
