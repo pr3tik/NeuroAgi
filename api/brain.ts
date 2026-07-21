@@ -14,6 +14,7 @@
 import { requireUserOr401 } from "./_auth.js";
 import { postgrestStore, remember, recall, forget, reinforce, tickDecay, readableScopes, canWrite } from "./_brain/kernel.js";
 import { brainConn } from "./_brain/conn.js";
+import { brainHealth, verifySkills, exportBrain } from "./_brain/derived.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
 
 function conn() {
@@ -91,6 +92,11 @@ export default async function handler(req: any, res: any) {
       const forgotten = await tickDecay(s, [subject]); // self-scoped decay sweep
       return res.status(200).json({ ok: true, forgotten: forgotten.length });
     }
+
+    // Derived layers (read-only, own scope): recomputable folds over the caller's memories.
+    if (action === "health") return res.status(200).json({ ok: true, health: await brainHealth(s, subject) });
+    if (action === "skills") return res.status(200).json({ ok: true, skills: await verifySkills(s, subject) });
+    if (action === "export") return res.status(200).json({ ok: true, memories: await exportBrain(s, subject) });
 
     return res.status(400).json({ error: "unknown action" });
   } catch (err: any) {
