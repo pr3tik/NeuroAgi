@@ -42,13 +42,13 @@ describe("api/brain-sync (F-5)", () => {
     expect(res.statusCode).toBe(405);
   });
 
-  it("degrades gracefully (ok:false, no brain write) when Brain env is unset", async () => {
+  it("no legacy write when Brain env is unset (kernel bridge is the primary path)", async () => {
     delete process.env.BRAIN_SUPABASE_URL;
     const res = mockRes();
     await handler({ method: "POST", headers: {}, __internalUserId: "u1", body: { courses: [{ id: 1, name: "x" }] } }, res);
     expect(res.statusCode).toBe(200);
-    expect(res.body.ok).toBe(false);
-    expect(calls.some((c) => c.url.includes("fschool_"))).toBe(false);
+    expect(res.body.ok).toBe(true);                                    // kernel-only path still succeeds
+    expect(calls.some((c) => c.url.includes("fschool_"))).toBe(false); // never touches the legacy DB
   });
 
   it("writes under the SERVER-derived person_id and ignores a body-supplied person_id", async () => {
@@ -78,7 +78,7 @@ describe("api/brain-sync (F-5)", () => {
         : ({ ok: true, json: async () => [] } as any)) as any;
     const res = mockRes();
     await handler({ method: "POST", headers: {}, __internalUserId: "u1", body: { courses: [{ id: 1, name: "x" }] } }, res);
-    expect(res.body.ok).toBe(false);
+    expect(res.body.ok).toBe(true);                                    // kernel bridge ran; legacy skipped (not linked)
     expect((global.fetch as any).mock.calls.some((c: any[]) => String(c[0]).includes("fschool_"))).toBe(false);
   });
 });

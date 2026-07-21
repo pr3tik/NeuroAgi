@@ -15,6 +15,9 @@
 // the product `users` table), BRAIN_SUPABASE_URL + BRAIN_SUPABASE_KEY (write the Brain DB).
 // Raw fetch only (no @supabase/supabase-js at module load → Node-20 test-runner safe).
 import { requireUserOr401 } from "./_auth.js";
+import { resolveFschoolPerson } from "./_brain/identity.js";
+import { postgrestStore, remember } from "./_brain/kernel.js";
+import { brainConn } from "./_brain/conn.js";
 
 const MAX_COURSES = 200;
 const MAX_ASSIGNMENTS = 100;
@@ -31,13 +34,37 @@ export default async function handler(req: any, res: any): Promise<void> {
   const prodKey  = process.env.SUPABASE_SERVICE_KEY;
   const brainUrl = process.env.BRAIN_SUPABASE_URL;
   const brainKey = process.env.BRAIN_SUPABASE_KEY;
-  // Nothing configured → graceful no-op (mirrors the old fire-and-forget skip). 200, not an error.
-  if (!prodUrl || !prodKey || !brainUrl || !brainKey) {
-    res.status(200).json({ ok: false, reason: "brain not configured" });
-    return;
-  }
+  if (!prodUrl || !prodKey) { res.status(200).json({ ok: false, reason: "not configured" }); return; }
 
-  // Resolve the caller's brain_person_id (server-side, service key). NOT from req.body.
+  const courses     = Array.isArray(req.body?.courses)     ? req.body.courses.slice(0, MAX_COURSES) : [];
+  const assignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
+  const result: any = { ok: true, courses: 0, assignments: 0 };
+
+  // ── Kernel bridge (single source of truth) — record a compact Canvas academic signal in the
+  // person's KERNEL brain, independent of the legacy fschool_* path below. Idempotent per day (a
+  // re-sync updates, not piles up). This is what lets the kernel supersede the legacy brain, so the
+  // legacy fschool_*/context_window writers can eventually be retired without losing Canvas context.
+  try {
+    const kpid = await resolveFschoolPerson({ url: prodUrl, key: prodKey }, userId);
+    const bc = brainConn();
+    if (kpid && bc) {
+      const nowMs = Date.now();
+      const upcoming = assignments.filter((a: any) => a?.dueAt && Date.parse(a.dueAt) > nowMs).length;
+      const missing = assignments.filter((a: any) => a?.submission?.missing).length;
+      await remember(postgrestStore(bc.url, bc.key), {
+        subject: `person:${kpid}`, kind: "signal", source: "fschoolai", salience: 0.5,
+        idem: `canvas:${new Date().toISOString().slice(0, 10)}`,
+        body: { signal_type: "academic", event: "canvas_sync", courses: courses.length, upcoming, missing },
+      });
+      result.kernelBridged = true;
+    }
+  } catch (e: any) { console.error("[brain-sync] kernel bridge failed:", e?.message); }
+
+  // ── Legacy Brain DB (fschool_*) — kept until the legacy system is retired (gated). Skipped when
+  // its env is unset or the caller isn't legacy-linked; the kernel bridge above already ran.
+  if (!brainUrl || !brainKey) { res.status(200).json(result); return; }
+
+  // Resolve the caller's LEGACY brain_person_id (server-side, service key). NOT from req.body.
   let brainPersonId: string | null = null;
   try {
     const r = await fetch(`${prodUrl}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=brain_person_id`, {
@@ -45,10 +72,8 @@ export default async function handler(req: any, res: any): Promise<void> {
     });
     if (r.ok) { const rows = await r.json(); brainPersonId = rows?.[0]?.brain_person_id ?? null; }
   } catch { /* fall through to not-linked no-op */ }
-  if (!brainPersonId) { res.status(200).json({ ok: false, reason: "not linked" }); return; }
+  if (!brainPersonId) { res.status(200).json(result); return; }
 
-  const courses     = Array.isArray(req.body?.courses)     ? req.body.courses.slice(0, MAX_COURSES) : [];
-  const assignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
   const now = new Date().toISOString(); // server-stamped, not client-supplied
   const brainHeaders = {
     apikey: brainKey,
@@ -56,8 +81,6 @@ export default async function handler(req: any, res: any): Promise<void> {
     "Content-Type": "application/json",
     Prefer: "resolution=merge-duplicates,return=minimal",
   };
-
-  const result: any = { ok: true, courses: 0, assignments: 0 };
 
   if (courses.length) {
     const courseRows = courses.map((c: any) => ({
