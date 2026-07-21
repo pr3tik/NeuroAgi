@@ -3539,9 +3539,17 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
               )}
               {loading && !streamingMsg && (
                 <div style={{ alignSelf: "flex-start", padding: "10px 14px", background: "rgba(255,255,255,0.04)", borderRadius: "16px 16px 16px 4px", border: "1px solid rgba(255,255,255,0.07)", display: "flex", gap: "5px", alignItems: "center" }}>
-                  <span className="nr-dot" />
-                  <span className="nr-dot" />
-                  <span className="nr-dot" />
+                  {/* Tool calls all run BEFORE the first token streams, so the live
+                      activity timeline must show HERE — by the time the streaming
+                      bubble exists, retrieval is already over. Bare dots only until
+                      the first tool_call frame lands. */}
+                  {liveActivity.length > 0 ? (
+                    <ActivityDropdown steps={liveActivity} live />
+                  ) : (<>
+                    <span className="nr-dot" />
+                    <span className="nr-dot" />
+                    <span className="nr-dot" />
+                  </>)}
                 </div>
               )}
               {streamingMsg ? (
