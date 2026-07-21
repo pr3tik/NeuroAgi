@@ -1276,10 +1276,18 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     if (isHost) subscribeRequests();
     wbChRef.current = subscribeWhiteboard();
     const timer = setInterval(() => setTick(n => n + 1), 1000);
+    // Liveness heartbeat: bump last_active every 5 min while inside, so the server's
+    // stale-room sweep (room-triggers) never closes an occupied room — even one where
+    // nobody joins or leaves for hours. Join-time bump alone can't cover marathons.
+    const heartbeat = setInterval(() => {
+      supabase.from("study_rooms")
+        .update({ last_active: new Date().toISOString() }).eq("id", room.id).then(() => {});
+    }, 5 * 60_000);
     const handleUnload = () => void endSession();
     window.addEventListener("beforeunload", handleUnload);
     return () => {
       clearInterval(timer);
+      clearInterval(heartbeat);
       clearTimeout(workingOnDebounce.current);
       window.removeEventListener("beforeunload", handleUnload);
       yjsProviderRef.current?.destroy();
