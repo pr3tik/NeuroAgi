@@ -105,6 +105,11 @@ function ConnectCanvas({
   const [token,  setToken]  = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Connected = table stakes, not a headline. The hero only earns its space as the
+  // onboarding form; once a token exists the page leads with actual content and the
+  // sync status lives in the Course Library header instead.
+  if (canvasToken) return null;
+
   async function handleSave() {
     if (!url.trim() || !token.trim() || saving) return;
     setSaving(true);
@@ -148,35 +153,8 @@ function ConnectCanvas({
         </span>
       </div>
 
-      {canvasToken ? (
-        /* ── Connected state ── */
-        <>
-          <p style={{
-            fontFamily: "'Funnel Display', sans-serif", fontWeight: 400,
-            fontSize: "32px", lineHeight: "40px", letterSpacing: "-0.32px",
-            color: "#E3E2E2", margin: "0 0 16px",
-          }}>
-            Canvas LMS Connected
-          </p>
-          <p style={{
-            fontFamily: "var(--font-sans)", fontSize: "16px", lineHeight: "26px",
-            color: "#C8C5CB", maxWidth: "500px", margin: "0 auto 32px",
-          }}>
-            Your academic infrastructure is synced and updating automatically in the background.
-          </p>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "center", marginBottom: "16px" }}>
-            <SyncBadge status={syncStatus} />
-            <RefreshButton syncStatus={syncStatus} onClick={onRefresh} />
-          </div>
-          {syncStatus === "cors-error" && (
-            <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(255,100,90,0.85)", marginTop: "12px" }}>
-              Canvas blocked the last request (CORS). Cached data is displayed.
-            </p>
-          )}
-        </>
-      ) : (
-        /* ── Not-connected state ── */
-        <>
+      {/* ── Not-connected state (the only state that renders — see early return) ── */}
+      <>
           <p style={{
             fontFamily: "'Funnel Display', sans-serif", fontWeight: 400,
             fontSize: "32px", lineHeight: "40px", letterSpacing: "-0.32px",
@@ -302,8 +280,7 @@ function ConnectCanvas({
           >
             Add a course manually instead
           </p>
-        </>
-      )}
+      </>
     </div>
   );
 }
@@ -786,15 +763,23 @@ export default function Canvas() {
         onRefresh={refreshFromSupabase}
       />
 
-      {/* Course Library */}
-      <div style={{ marginTop: "80px" }}>
+      {/* Course Library — when connected there's no hero above, so the section moves up
+          and carries the sync status itself (badge + refresh in the header's right slot). */}
+      <div style={{ marginTop: canvasToken ? 0 : "80px" }}>
 
         {/* Section header (uikit contract) */}
         <SectionHeader
           title="Course Library"
           desc={`${courses.length} active course${courses.length !== 1 ? "s" : ""} this semester`}
           style={{ marginBottom: "32px" }}
-          right={<div style={{ display: "flex", gap: "8px" }}>
+          right={<div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {canvasToken && (
+              <>
+                {/* While syncing the button already says "Syncing…" — one voice is enough */}
+                {syncStatus !== "syncing" && <SyncBadge status={syncStatus} />}
+                <RefreshButton syncStatus={syncStatus} onClick={refreshFromSupabase} style={{ height: "36px", borderRadius: "8px" }} />
+              </>
+            )}
             <button
               onClick={() => setGridView(true)}
               style={{
@@ -827,6 +812,12 @@ export default function Canvas() {
             </button>
           </div>}
         />
+
+        {syncStatus === "cors-error" && (
+          <p style={{ fontFamily: "var(--font-sans)", fontSize: "13px", color: "rgba(255,100,90,0.85)", margin: "-20px 0 24px" }}>
+            Canvas blocked the last request (CORS). Cached data is displayed.
+          </p>
+        )}
 
         {/* Course grid */}
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: "20px", width: "100%" }}>
