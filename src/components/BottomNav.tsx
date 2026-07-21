@@ -140,6 +140,13 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
   const hoverOpen  = () => { if (hoverCloseTimer.current) { clearTimeout(hoverCloseTimer.current); hoverCloseTimer.current = null; } setHover(true); };
   const hoverClose = () => { if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current); hoverCloseTimer.current = setTimeout(() => setHover(false), 320); };
   useEffect(() => () => { if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current); }, []);
+
+  // Broadcast hover-expansion so the shell can react. Most pages keep the overlay
+  // behavior (no reflow on hover), but viewport-locked workspaces (Reggie) shift
+  // their content aside instead — the rail must not cover the conversation rail.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("fschool:nav-hover", { detail: collapsed && hover }));
+  }, [collapsed, hover]);
   const go = (key) => { setMoreOpen(false); onNavigate(key); };
 
   // ── Web: collapsible left sidebar with every page ──────────────────────────
