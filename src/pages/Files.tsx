@@ -11,7 +11,8 @@ import { supabase }  from "../api/supabase";
 import DocReader     from "../components/DocReader";
 import ContentConnector from "../components/ContentConnector";
 import { SectionHeader } from "../components/uikit";
-import { FileText, Presentation, Music, Film, Play, Image as ImageIcon, StickyNote, Paperclip, BookOpen, Check } from "lucide-react";
+import { bucketFileType, bucketFileStatus, fileMatchesQuery } from "../lib/fileDiscovery";
+import { FileText, Presentation, Music, Film, Play, Image as ImageIcon, StickyNote, Paperclip, BookOpen, Check, Search, X, Sparkles, ArrowDownAZ } from "lucide-react";
 
 // ── Design tokens ─────────────────────────────────────────────────────────
 
@@ -25,6 +26,20 @@ const surface = {
 const PALETTE = ["#64b4ff","#64dc9b","#ffc364","#be82ff","#ff8080","#4ecdc4","#ffe66d","#a8e6cf"];
 const colorFor = (i: number) => PALETTE[i % PALETTE.length];
 const EASE: [number,number,number,number] = [0.25,0.46,0.45,0.94];
+
+// Discovery-bar filter controls. colorScheme dark: native option popups otherwise
+// render white-on-white (same constraint as the upload card's course picker).
+const filterSelect: React.CSSProperties = {
+  background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.09)",
+  borderRadius:"var(--radius-btn)", padding:"6px 10px",
+  color:"var(--text-secondary)", fontSize:12, outline:"none",
+  fontFamily:"inherit", cursor:"pointer", colorScheme:"dark",
+};
+const filterSelectActive: React.CSSProperties = {
+  border:"1px solid rgba(var(--teal-rgb), 0.45)", color:"rgb(var(--teal-rgb))",
+  background:"rgba(var(--teal-rgb), 0.07)",
+};
+const filterOption: React.CSSProperties = { background:"#1a1a1e", color:"#f5f5f5" };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -79,6 +94,14 @@ async function openExternalFile(file: any) {
     } catch {}
   }
   if (file.sourceUrl) window.open(file.sourceUrl,"_blank","noopener,noreferrer");
+}
+
+// Hands a file to the floating Reggie orb. NeuralRing owns the chat, so this page
+// never holds a ref into it — the orb listens for this event and opens itself.
+function askReggieAbout(file: any) {
+  window.dispatchEvent(new CustomEvent("fschool:reggie-ask", {
+    detail: { message: `Walk me through "${file.name}" — what are the key ideas I need to know?` },
+  }));
 }
 
 // ── processUpload — file → public.files (YouLearn pipeline) ──────────────
@@ -599,20 +622,40 @@ function DocCard({ file, color, onOpen, userId }: {
             {ago && (
               <span style={{ fontSize:10, color:"var(--text-dim)" }}>{ago}</span>
             )}
-            {/* Add-to-Space button */}
-            <button
-              onClick={e => { e.stopPropagation(); setShowSpaceModal(true); }}
-              style={{
-                fontSize:10, fontWeight:600, padding:"3px 8px", borderRadius:6,
-                background:"rgba(var(--gold-rgb), 0.08)", border:"1px solid rgba(var(--gold-rgb), 0.2)",
-                color:"rgba(var(--gold-rgb), 0.8)", cursor:"pointer", fontFamily:"inherit",
-                transition:"all 0.12s", marginLeft:"auto",
-              }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--gold-rgb), 0.15)"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--gold-rgb), 0.08)"; }}
-            >
-              + Space
-            </button>
+            <div style={{ display:"flex", alignItems:"center", gap:6, marginLeft:"auto" }}>
+              {/* Ask Reggie — readable docs only (the orb grounds in the doc's text/RAG) */}
+              {hasReader && (
+                <button
+                  onClick={e => { e.stopPropagation(); askReggieAbout(file); }}
+                  title="Ask Reggie about this file"
+                  style={{
+                    display:"inline-flex", alignItems:"center", gap:4,
+                    fontSize:10, fontWeight:600, padding:"3px 8px", borderRadius:6,
+                    background:"rgba(var(--teal-rgb), 0.08)", border:"1px solid rgba(var(--teal-rgb), 0.25)",
+                    color:"rgb(var(--teal-rgb))", cursor:"pointer", fontFamily:"inherit",
+                    transition:"all 0.12s",
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--teal-rgb), 0.16)"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--teal-rgb), 0.08)"; }}
+                >
+                  <Sparkles size={10} /> Ask
+                </button>
+              )}
+              {/* Add-to-Space button */}
+              <button
+                onClick={e => { e.stopPropagation(); setShowSpaceModal(true); }}
+                style={{
+                  fontSize:10, fontWeight:600, padding:"3px 8px", borderRadius:6,
+                  background:"rgba(var(--gold-rgb), 0.08)", border:"1px solid rgba(var(--gold-rgb), 0.2)",
+                  color:"rgba(var(--gold-rgb), 0.8)", cursor:"pointer", fontFamily:"inherit",
+                  transition:"all 0.12s",
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--gold-rgb), 0.15)"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--gold-rgb), 0.08)"; }}
+              >
+                + Space
+              </button>
+            </div>
           </div>
         </div>
       </motion.div>
@@ -671,6 +714,24 @@ function FileRow({ file, color, onOpenReader }: { file:any; color:string; onOpen
           {[file.folder, size].filter(Boolean).join(" · ") || "—"}
         </p>
       </div>
+      {/* Ask Reggie — readable rows only (processed or RAG-indexed, same gate as the reader) */}
+      {hasReader && (
+        <button
+          onClick={e => { e.stopPropagation(); askReggieAbout(file); }}
+          title="Ask Reggie about this file"
+          style={{
+            display:"flex", alignItems:"center", gap:5, flexShrink:0,
+            fontSize:11, fontWeight:600, padding:"5px 10px", borderRadius:"var(--radius-btn)",
+            background:"rgba(var(--teal-rgb), 0.08)", border:"1px solid rgba(var(--teal-rgb), 0.25)",
+            color:"rgb(var(--teal-rgb))", cursor:"pointer", fontFamily:"inherit",
+            transition:"background 0.12s",
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--teal-rgb), 0.16)"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background="rgba(var(--teal-rgb), 0.08)"; }}
+        >
+          <Sparkles size={12} /> Ask Reggie
+        </button>
+      )}
       {file.fileType && (
         <span style={{ fontSize:10, fontWeight:700, letterSpacing:"0.5px",
           textTransform:"uppercase", color, flexShrink:0 }}>{file.fileType}</span>
@@ -755,6 +816,56 @@ export default function Files() {
     return [...savedDocs, ...files.filter((f: any) => !seen.has(f.id))];
   }, [files, savedDocs]);
 
+  // ── Discovery layer — search + filters + sort, all client-side ────────────
+  const [query,        setQuery]        = useState("");
+  const [courseFilter, setCourseFilter] = useState("all");  // "all" | "none" (unlinked) | course dbId
+  const [typeFilter,   setTypeFilter]   = useState("all");  // "all" | FileTypeBucket
+  const [statusFilter, setStatusFilter] = useState("all");  // "all" | FileStatusBucket
+  const [sortByName,   setSortByName]   = useState(false);  // default keeps the query's recency order
+
+  // course_id → display name, from context AND the DB courses fallback (same dual
+  // source as `groups` below — context can predate dbId).
+  const courseNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    courses.forEach((c: any) => {
+      if (c?.dbId != null) m.set(String(c.dbId), c.courseCode ? `${c.courseCode} — ${c.name}` : (c.name ?? ""));
+    });
+    dbCourses.forEach((c: any) => {
+      const k = String(c.id);
+      if (!m.has(k)) m.set(k, c.course_code ? `${c.course_code} — ${c.name}` : (c.name ?? ""));
+    });
+    return m;
+  }, [courses, dbCourses]);
+
+  // Course dropdown only offers courses that actually have files (plus unlinked docs).
+  const courseOptions = useMemo(() => {
+    const present = new Set(allFiles.map((f: any) => f.courseDbId != null ? String(f.courseDbId) : "none"));
+    const opts: { value: string; label: string }[] = [];
+    if (present.has("none")) opts.push({ value:"none", label:"My Documents" });
+    courseNameById.forEach((label, id) => { if (present.has(id)) opts.push({ value:id, label }); });
+    return opts;
+  }, [allFiles, courseNameById]);
+
+  const q = query.trim().toLowerCase();
+  const discoveryActive = !!q || courseFilter !== "all" || typeFilter !== "all" || statusFilter !== "all";
+
+  const filteredFiles = useMemo(() => {
+    const out = allFiles.filter((f: any) => {
+      if (courseFilter === "none") { if (f.courseDbId != null) return false; }
+      else if (courseFilter !== "all" && String(f.courseDbId) !== courseFilter) return false;
+      if (typeFilter   !== "all" && bucketFileType(f.fileType) !== typeFilter)   return false;
+      if (statusFilter !== "all" && bucketFileStatus(f)        !== statusFilter) return false;
+      return fileMatchesQuery(f, q, f.courseDbId != null ? courseNameById.get(String(f.courseDbId)) ?? "" : "");
+    });
+    return sortByName
+      ? [...out].sort((a: any, b: any) => String(a.name ?? "").localeCompare(String(b.name ?? "")))
+      : out;
+  }, [allFiles, q, courseFilter, typeFilter, statusFilter, sortByName, courseNameById]);
+
+  function clearDiscovery() {
+    setQuery(""); setCourseFilter("all"); setTypeFilter("all"); setStatusFilter("all");
+  }
+
   // Group by course
   const groups = useMemo(() => {
     const byDbId = new Map();
@@ -774,14 +885,14 @@ export default function Files() {
       });
     });
     const myDocs = { course:null, color:"var(--text-dim)", files:[] as any[] };
-    for (const f of allFiles) {
+    for (const f of filteredFiles) {
       const g = (f.courseDbId != null && byDbId.get(String(f.courseDbId))) || myDocs;
       g.files.push(f);
     }
     const ordered = [...byDbId.values()].filter(g => g.files.length);
     if (myDocs.files.length) ordered.push(myDocs);
     return ordered;
-  }, [allFiles, courses, dbCourses]);
+  }, [filteredFiles, courses, dbCourses]);
 
   if (viewingFile) {
     return (
@@ -830,6 +941,125 @@ export default function Files() {
         </motion.div>
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:28 }}>
+
+          {/* Discovery bar — search + filters over the whole library. Applied to
+              allFiles BEFORE grouping, so course sections and the grid stay in sync. */}
+          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:-8 }}>
+            <div style={{ position:"relative" }}>
+              <Search size={14} style={{
+                position:"absolute", left:12, top:"50%", transform:"translateY(-50%)",
+                color:"var(--text-dim)", pointerEvents:"none",
+              }} />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search files, folders, courses…"
+                aria-label="Search files"
+                style={{
+                  width:"100%", boxSizing:"border-box",
+                  background:"rgba(255,255,255,0.05)",
+                  border:"1px solid rgba(255,255,255,0.09)",
+                  borderRadius:"var(--radius-btn)", padding:"9px 34px",
+                  color:"var(--text-primary)", fontSize:13,
+                  outline:"none", fontFamily:"inherit", transition:"border-color 0.15s",
+                }}
+                onFocus={e => (e.target.style.borderColor = "rgba(var(--teal-rgb), 0.4)")}
+                onBlur={e  => (e.target.style.borderColor = "rgba(255,255,255,0.09)")}
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery("")}
+                  title="Clear search" aria-label="Clear search"
+                  style={{
+                    position:"absolute", right:6, top:"50%", transform:"translateY(-50%)",
+                    background:"none", border:"none", color:"var(--text-dim)",
+                    cursor:"pointer", padding:6, display:"flex", alignItems:"center",
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+              <select
+                value={courseFilter} onChange={e => setCourseFilter(e.target.value)}
+                aria-label="Filter by course"
+                style={{ ...filterSelect, ...(courseFilter !== "all" ? filterSelectActive : null), maxWidth:200 }}
+              >
+                <option value="all" style={filterOption}>All courses</option>
+                {courseOptions.map(o => (
+                  <option key={o.value} value={o.value} style={filterOption}>{o.label}</option>
+                ))}
+              </select>
+              <select
+                value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+                aria-label="Filter by type"
+                style={{ ...filterSelect, ...(typeFilter !== "all" ? filterSelectActive : null) }}
+              >
+                <option value="all"    style={filterOption}>All types</option>
+                <option value="pdf"    style={filterOption}>PDF</option>
+                <option value="slides" style={filterOption}>Slides</option>
+                <option value="docs"   style={filterOption}>Docs</option>
+                <option value="media"  style={filterOption}>Media</option>
+              </select>
+              <select
+                value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                aria-label="Filter by status"
+                style={{ ...filterSelect, ...(statusFilter !== "all" ? filterSelectActive : null) }}
+              >
+                <option value="all"        style={filterOption}>Any status</option>
+                <option value="indexed"    style={filterOption}>Indexed</option>
+                <option value="processing" style={filterOption}>Processing</option>
+                <option value="failed"     style={filterOption}>Failed</option>
+              </select>
+              <button
+                onClick={() => setSortByName(s => !s)}
+                title={sortByName ? "Sorted A→Z — click for recent first" : "Sort by name"}
+                style={{
+                  display:"flex", alignItems:"center", gap:5, padding:"6px 10px",
+                  borderRadius:"var(--radius-btn)", fontSize:12, fontWeight:500,
+                  fontFamily:"inherit", cursor:"pointer", transition:"all 0.12s",
+                  background: sortByName ? "rgba(var(--teal-rgb), 0.1)" : "rgba(255,255,255,0.05)",
+                  border: `1px solid ${sortByName ? "rgba(var(--teal-rgb), 0.45)" : "rgba(255,255,255,0.09)"}`,
+                  color: sortByName ? "rgb(var(--teal-rgb))" : "var(--text-secondary)",
+                }}
+              >
+                <ArrowDownAZ size={13} /> Name
+              </button>
+              {discoveryActive && (
+                <span style={{
+                  fontSize:11, color:"var(--text-dim)",
+                  fontFamily:"var(--font-mono)", marginLeft:"auto", whiteSpace:"nowrap",
+                }}>
+                  {filteredFiles.length} of {allFiles.length} files
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Everything filtered out — offer the way back, never a silent blank page */}
+          {discoveryActive && filteredFiles.length === 0 && (
+            <div style={{ ...surface, padding:"26px 20px", textAlign:"center" }}>
+              <p style={{ color:"var(--text-secondary)", fontSize:13, fontWeight:600, marginBottom:4 }}>
+                No files match
+              </p>
+              <p style={{ color:"var(--text-dim)", fontSize:12, marginBottom:12 }}>
+                {q ? `Nothing found for "${query.trim()}"` : "No files match the current filters"}
+              </p>
+              <button
+                onClick={clearDiscovery}
+                style={{
+                  padding:"7px 14px", borderRadius:"var(--radius-btn)",
+                  background:"rgba(var(--teal-rgb), 0.1)", border:"1px solid rgba(var(--teal-rgb), 0.35)",
+                  color:"rgb(var(--teal-rgb))", fontSize:12, fontWeight:600,
+                  cursor:"pointer", fontFamily:"inherit",
+                }}
+              >
+                Clear search & filters
+              </button>
+            </div>
+          )}
 
           {/* My Documents — premium card grid (Part B) */}
           {myDocsGroup && myDocsGroup.files.length > 0 && (

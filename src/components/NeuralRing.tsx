@@ -2961,6 +2961,25 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     }
   };
 
+  // ── "fschool:reggie-ask" — a page hands the orb a prompt (Files' per-file Ask
+  // Reggie buttons). Same open-then-send shape as the tutorSeed path above. The ref
+  // carries the latest closures: the listener registers once, but sendMessage is
+  // rebuilt every render (it closes over input/loading/messages).
+  const reggieAskRef = useRef({ send: (_t?: string) => {}, loading: false });
+  reggieAskRef.current = { send: sendMessage, loading };
+  useEffect(() => {
+    const onAsk = (e: any) => {
+      const msg = e?.detail?.message;
+      if (typeof msg !== "string" || !msg.trim()) return;
+      setChatOpen(true);
+      // Mid-response: open the chat only — auto-sending would interrupt the stream.
+      if (reggieAskRef.current.loading) return;
+      reggieAskRef.current.send(msg);
+    };
+    window.addEventListener("fschool:reggie-ask", onAsk);
+    return () => window.removeEventListener("fschool:reggie-ask", onAsk);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Render ──────────────────────────────────────────────────────────────────
   // On the dedicated Reggie page itself, the launcher/sidebar has nothing to add —
   // the student is already in the full Reggie experience. Guard placed after all
