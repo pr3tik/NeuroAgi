@@ -13,7 +13,7 @@
 import { randomUUID } from "crypto";
 import { loadSessionParticipation } from "./_participation.js";
 import { evaluateTriggers, BLOCK_MS } from "./_triggers.js";
-import type { TriggerSession, TriggerContext } from "./_triggers.js";
+import type { TriggerSession, TriggerContext, TriggerDecision } from "./_triggers.js";
 import { PERSONA_IDS } from "./_contracts.js";
 import type { PersonaId, InterventionIntensity } from "./_contracts.js";
 
@@ -136,6 +136,46 @@ export async function recordDecision(d: ReturnType<typeof db>, sessionId: string
   return messageId;
 }
 
+/** The room-channel broadcast for a decision — null unless it actually SENT (so only real nudges
+ *  reach clients; suppressed/no-op decisions are audit-only). Pure/testable; the impure send is
+ *  broadcastToRoom below. */
+export function interventionBroadcast(
+  roomId: string,
+  decision: TriggerDecision,
+  messageId: string | null,
+): { topic: string; event: "intervention"; payload: Record<string, any> } | null {
+  if (decision.decision !== "sent" || !decision.message) return null;
+  return {
+    topic: `room:${roomId}`,
+    event: "intervention",
+    payload: {
+      messageId,
+      rule: decision.rule,
+      message: decision.message,
+      persona: decision.state?.persona ?? null,
+      milestone: decision.milestone ?? null,
+    },
+  };
+}
+
+/** Fire a broadcast on a room's realtime topic via the Supabase Realtime REST endpoint. The room
+ *  channel is public (clients subscribe to "room:<id>"), so a server-side send reaches everyone in
+ *  the room. Best-effort — a failed broadcast never fails the tick; the audit row is already written. */
+async function broadcastToRoom(msg: { topic: string; event: string; payload: any }): Promise<void> {
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) return;
+  try {
+    const r = await fetch(`${url}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [msg] }),
+    });
+    if (!r.ok) console.warn("[room-triggers] broadcast non-OK:", r.status);
+  } catch (e) {
+    console.warn("[room-triggers] broadcast failed:", (e as Error).message);
+  }
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -160,7 +200,11 @@ export default async function handler(req: any, res: any) {
         const { decision } = await buildContextAndEvaluate(d, s, nowMs);
         if (!decision) { results.push({ session: s.id, decision: "no_op" }); continue; }
         const messageId = await recordDecision(d, s.id, decision);
-        results.push({ session: s.id, rule: decision.rule, decision: decision.decision, target: decision.targetUserId, message_id: messageId });
+        // Delivery seam: a SENT decision is broadcast to the room's realtime channel so clients
+        // render the intervention card. Decide-and-audit stays above; this is the actual send.
+        const bc = interventionBroadcast(s.room_id, decision, messageId);
+        if (bc) await broadcastToRoom(bc);
+        results.push({ session: s.id, rule: decision.rule, decision: decision.decision, target: decision.targetUserId, message_id: messageId, delivered: !!bc });
       } catch (err: any) {
         // One bad session must not abort the tick for the rest.
         console.error(`[room-triggers] session ${s.id} failed:`, err?.message ?? err);

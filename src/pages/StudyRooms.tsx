@@ -37,6 +37,7 @@ import VoiceRoom from "../components/VoiceRoom";
 import RoomGroundingChips from "../components/RoomGroundingChips";
 import type { GroundingRef } from "../lib/roomGrounding";
 import { MUSIC_PRESETS, stopAudio, cycleIndex } from "../lib/focusMusic";
+import { interventionReason, shouldShowIntervention, type InterventionPayload } from "../lib/roomIntervention";
 import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
   MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
@@ -1535,6 +1536,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         setTimeout(() => setLaserPositions(prev => { const n = { ...prev }; delete n[payload.userId]; return n; }), 1200);
       }
     })
+    // Proactive nudge from the trigger engine (server broadcasts on a SENT decision).
+    .on("broadcast", { event: "intervention" }, ({ payload }) => {
+      if (!shouldShowIntervention(payload as InterventionPayload, { paused: interventionsPausedRef.current, lastId: lastInterventionIdRef.current })) return;
+      lastInterventionIdRef.current = (payload as any)?.messageId ?? null;
+      setInterventionCard(payload as InterventionPayload);
+    })
     .subscribe(async (status) => {
       if (status === "SUBSCRIBED") await ch.track(presencePayload());
     });
@@ -2042,6 +2049,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const musicAudioRef = useRef<HTMLAudioElement | null>(null);
   const [musicTracks,  setMusicTracks]  = useState<{ title: string; artist: string; previewUrl: string; artwork: string }[]>([]);
   const [musicPreset,  setMusicPreset]  = useState(MUSIC_PRESETS[0].query);
+  // Proactive intervention card (silence / time-milestone / uneven nudges from the trigger engine,
+  // delivered over the room channel). Refs (not state) back the realtime handler so it reads live
+  // values — the handler closes over its setup-time scope.
+  const [interventionCard, setInterventionCard] = useState<InterventionPayload | null>(null);
+  const interventionsPausedRef = useRef(false);
+  const lastInterventionIdRef = useRef<string | null>(null);
   const [musicIdx,     setMusicIdx]     = useState(0);
   const [musicPlaying, setMusicPlaying] = useState(false);
   const [musicOpen,    setMusicOpen]    = useState(false);
@@ -3060,6 +3073,23 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               </div>
               <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "9px 0 0", textAlign: "center" }}>30-second previews · Apple Music</p>
             </>)}
+          </div>
+        </div>
+      )}
+
+      {/* Proactive intervention card — silence / time-milestone / uneven nudge from a REAL trigger
+          event (server broadcast), with reason + dismiss + pause. */}
+      {interventionCard && (
+        <div role="status" style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", width: 380, maxWidth: "calc(100vw - 32px)", background: "var(--card, #16151c)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 14, boxShadow: "0 12px 40px rgba(0,0,0,0.45)", zIndex: 70, padding: "13px 15px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 15 }} aria-hidden>💡</span>
+            <span style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>{interventionReason(interventionCard.rule, interventionCard.milestone)}</span>
+            <button onClick={() => setInterventionCard(null)} aria-label="Dismiss" style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", display: "inline-flex" }}><X size={15} /></button>
+          </div>
+          <div style={{ fontSize: 13, lineHeight: 1.5, color: "var(--text, #ECEBF0)" }}><GsRichText text={interventionCard.message} /></div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={() => setInterventionCard(null)} style={{ flex: 1, background: "rgba(var(--teal-rgb),0.18)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 9, padding: "7px", fontSize: 12.5, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>Got it</button>
+            <button onClick={() => { interventionsPausedRef.current = true; setInterventionCard(null); }} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Pause nudges</button>
           </div>
         </div>
       )}
