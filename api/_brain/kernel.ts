@@ -52,6 +52,7 @@ export interface Store {
   touch(ids: string[], now: string): Promise<void>;   // reinforce: bump last_seen_at
   forget(ids: string[], now: string): Promise<void>;  // soft-forget
   reinforce(id: string, now: string, boost?: number): Promise<void>;
+  sweepDue(subjects: string[], now: string): Promise<string[]>;  // set-based decay sweep → forgotten ids
   // Sharing/membership: a shared "space" scope (course:/room:/prof:) has explicit members; a
   // personal 'person:<id>' scope needs none — its sole owner is the subject itself.
   addMember(space: string, subject: string, role: Role, now: string): Promise<void>;
@@ -164,10 +165,9 @@ export async function reinforce(store: Store, id: string, nowMs = Date.now(), bo
  */
 export async function tickDecay(store: Store, scopes: string[], nowMs = Date.now()): Promise<string[]> {
   scopes.forEach((s) => assertIdent(s, "subject"));
-  const rows = await store.bySubjects(scopes);
-  const dead = rows.filter((m) => effective(m, nowMs) < FORGET_THRESHOLD).map((m) => m.id);
-  if (dead.length) await store.forget(dead, new Date(nowMs).toISOString());
-  return dead;
+  if (!scopes.length) return [];
+  // One set-based sweep (SQL in prod) — no fetch-and-score in app; scales to large shared scopes.
+  return store.sweepDue(scopes, new Date(nowMs).toISOString());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -251,6 +251,13 @@ export class InMemoryStore implements Store {
     const m = this.rows.find((x) => x.id === id);
     if (m) { m.last_seen_at = now; m.salience = clamp01(m.salience + boost); }
   }
+  async sweepDue(subjects: string[], now: string): Promise<string[]> {
+    const s = new Set(subjects), nowMs = Date.parse(now), dead: string[] = [];
+    for (const m of this.rows) {
+      if (!m.forgotten_at && s.has(m.subject) && effective(m, nowMs) < FORGET_THRESHOLD) { m.forgotten_at = now; dead.push(m.id); }
+    }
+    return dead;
+  }
   async addMember(space: string, subject: string, role: Role): Promise<void> {
     const ex = this.members.find((x) => x.space === space && x.subject === subject);
     if (ex) ex.role = role; else this.members.push({ space, subject, role });
@@ -274,6 +281,7 @@ export class InMemoryStore implements Store {
 export function postgrestStore(url: string, key: string): Store {
   const base = `${url.replace(/\/+$/, "")}/rest/v1/neuro_memory`;
   const memberBase = `${url.replace(/\/+$/, "")}/rest/v1/neuro_membership`;
+  const rpcBase = `${url.replace(/\/+$/, "")}/rest/v1/rpc`;
   const headers = (extra?: Record<string, string>) => ({
     apikey: key,
     Authorization: `Bearer ${key}`,
@@ -350,6 +358,16 @@ export function postgrestStore(url: string, key: string): Store {
       const rows = await res.json();
       const cur = Array.isArray(rows) && rows[0] ? Number(rows[0].salience) : 1;
       await patchIds([id], { last_seen_at: now, salience: clamp01(cur + boost) });
+    },
+    async sweepDue(subjects, now) {
+      if (!subjects.length) return [];
+      const res = await fetch(`${rpcBase}/neuro_sweep_due`, {
+        method: "POST", headers: headers(),
+        body: JSON.stringify({ p_subjects: subjects, p_now: now }),
+      });
+      if (!res.ok) throw new Error(`neuro sweepDue ${res.status}: ${await res.text().catch(() => "")}`);
+      const rows = await res.json();
+      return (Array.isArray(rows) ? rows : []).map((r: any) => (typeof r === "string" ? r : r?.id ?? r?.neuro_sweep_due)).filter(Boolean);
     },
     async addMember(space, subject, role, now) {
       const res = await fetch(memberBase, {
