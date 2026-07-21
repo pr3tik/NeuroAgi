@@ -1,20 +1,61 @@
-// api/stt.js — Speech-to-text via Groq Whisper (fast, cheap, accurate)
-// POST /api/stt
+// api/stt.js — Speech-to-text.
+//
+// POST ?action=token  → mint a single-use ElevenLabs token for realtime Scribe (VOICE-1)
+// POST (no action)    → batch transcription via Groq Whisper
 //   Body option A: { audio: "<base64>", mimeType: "audio/webm" } (JSON)
 //   Body option B: raw audio bytes with matching Content-Type header
-// Returns: { text }
-// Cap: 25 MB / ~60 s. Returns { text: "" } for silent/empty audio.
+//   Returns: { text }.  Cap: 25 MB / ~60 s. Returns { text: "" } for silent audio.
+//
+// The batch path stays for the chat-input mic button (src/lib/dictation.ts), which has
+// its own Web Speech fast path and does not stream. The orb's voice loop uses the token
+// action instead — see VOICE-STREAMING-SPEC.md.
 
 export const config = { api: { bodyParser: false } };
 
 import { rateLimit } from "./_ratelimit.js";
+import { requireUserOr401 } from "./_auth.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  const { action } = req.query ?? {};
+
+  // ── POST ?action=token — single-use realtime Scribe credential ──────────────
+  // The browser cannot hold ELEVENLABS_API_KEY, so it opens the Scribe WebSocket with
+  // a short-lived token minted here instead. Tokens are single-use and expire after
+  // 15 minutes, so one is minted per socket connection.
+  //
+  // Unlike the batch path below, this is auth-gated: a token spends real STT quota, so
+  // it must be attributable to a signed-in user. Handled before the raw-body read —
+  // bodyParser is off for the audio path and this action carries no body.
+  if (action === "token") {
+    const userId = await requireUserOr401(req, res);
+    if (!userId) return;
+    if (!(await rateLimit(req, res, "stt-token", { anonMax: 0, authMax: 60 }))) return;
+
+    const elevenKey = process.env.ELEVENLABS_API_KEY;
+    if (!elevenKey) return res.status(503).json({ error: "voice_not_configured" });
+
+    const tokenRes = await fetch(
+      "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
+      { method: "POST", headers: { "xi-api-key": elevenKey } },
+    );
+
+    if (!tokenRes.ok) {
+      const detail = await tokenRes.text().catch(() => "");
+      console.error("[stt/token] ElevenLabs error", tokenRes.status, detail.slice(0, 200));
+      return res.status(502).json({ error: `Scribe token ${tokenRes.status}` });
+    }
+
+    const { token } = await tokenRes.json();
+    if (!token) return res.status(502).json({ error: "Scribe token missing from response" });
+    return res.status(200).json({ token });
+  }
+
   if (!(await rateLimit(req, res, "stt", { anonMax: 30, authMax: 120 }))) return;
 
   const groqKey = process.env.GROQ_KEY;

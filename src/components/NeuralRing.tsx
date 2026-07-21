@@ -23,6 +23,7 @@ import { replaceFlashcardDeck } from "../lib/flashcardsSave";
 import { ensureTutorReply } from "../lib/tutorReply";
 import { parseVoiceTags, stripAgentJSON } from "../lib/voiceTags";
 import { createSentenceChunker } from "../lib/ttsChunker";
+import { startScribeSession, isStreamingSTT } from "../lib/scribeStream";
 import { streamReggie } from "../lib/reggieStream";
 import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play, Mic } from "lucide-react";
 import { createDictation } from "../lib/dictation";
@@ -865,6 +866,9 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   // Voice mode state
   const [voiceMode,        setVoiceMode]        = useState(false);
   const [isRecording,      setIsRecording]      = useState(false);
+  // True between opening the mic and the Scribe socket actually accepting audio. Drives
+  // the "connecting" label so the orb never says "listening" over a socket that isn't up.
+  const [voiceConnecting,  setVoiceConnecting]  = useState(false);
   const [micDenied,        setMicDenied]        = useState(false);
   const [availableVoices,  setAvailableVoices]  = useState([]);
   const mediaRecorderRef   = useRef(null);
@@ -886,6 +890,13 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   const streamingMsgRef    = useRef("");     // mirrors streamingMsg for stopResponse capture
   const voiceQuizRef       = useRef(null);   // { questions:[{q,a}], idx, score } | null
   const voiceTTSAbortRef   = useRef(false);  // true = skip remaining queued TTS sentences
+  const scribeRef          = useRef<any>(null); // live ScribeSession, streaming STT path only
+  const voicePartialRef    = useRef("");     // latest partial transcript (UI wiring: P2-6)
+  const sttFailStreakRef   = useRef(0);      // consecutive transcript failures -> bail out
+  // Mirrors `muted` for the async voice paths. sendMessage/runReggieTurn read this many
+  // ticks after they start, and entering voice mode auto-unmutes — reading the state
+  // directly there caught the pre-unmute value and silently produced a mute turn.
+  const mutedRef           = useRef(false);
 
   const canvasRef      = useRef(null);
   const rafRef         = useRef(null);
@@ -940,6 +951,10 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   const [voiceQuizProgress,  setVoiceQuizProgress]  = useState(null); // {current, total} | null
   const [leaderboardRank,    setLeaderboardRank]     = useState(null); // {rank,points,tier,above}
 
+  // Surfaced in the header whenever voice is degraded. Exists so the orb can never look
+  // like it is listening or speaking while the underlying pipeline is dead — a silent
+  // failure reads as "the AI ignored me", which is worse than an error.
+  const [voiceError,   setVoiceError]   = useState<string | null>(null);
   const [muted,        setMuted]        = useState(() => {
     try { return localStorage.getItem("fschool_muted") === "1"; } catch { return false; }
   });
@@ -1141,10 +1156,15 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   const toggleMute = useCallback(() => {
     setMuted(m => {
       const next = !m;
+      mutedRef.current = next;
       try { localStorage.setItem("fschool_muted", next ? "1" : "0"); } catch {}
       return next;
     });
   }, []);
+
+  // Keep the ref honest regardless of who changed the state (toggle, voice-mode entry,
+  // or the initial localStorage read).
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
 
   // ── Inject keyframes once ──────────────────────────────────────────────────
   useEffect(() => {
@@ -1708,7 +1728,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     const plain = text.replace(/<[^>]+>/g, "").trim();
     if (!plain) return;
 
-    if (muted) {
+    if (mutedRef.current) {
       await typewrite(plain, 3); // ~3s default when no voice
       return;
     }
@@ -1762,6 +1782,109 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     identity:    "your profile",
   };
 
+  // ── Streaming STT capture (VITE_VOICE_STREAMING=1) ──────────────────────────
+  // Opens a Scribe WebSocket over an already-running mic stream. Differs from the
+  // MediaRecorder path in who decides the turn is over: there, a local RMS timer stops
+  // the recorder; here, the provider's VAD commits segments and scribeStream assembles
+  // them into a turn.
+  //
+  // The mic stream is NOT stopped when a turn dispatches — it stays open so barge-in
+  // can interrupt the reply, exactly as the batch path keeps it alive after mr.onstop.
+  // The socket does close per turn (and after 5s with no transcripts), because
+  // ElevenLabs bills connected time and auto-listen re-arms after every turn.
+  async function _startScribeCapture(stream, analyser) {
+    setIsRecording(true);
+    // "connecting", NOT "listening". The token mint plus WebSocket handshake is a real
+    // round-trip; showing a listening state through it tells the user to start talking
+    // into a socket that isn't open yet, and those words are lost. Flipped to
+    // "listening" from onReady below, once the socket is actually accepting audio.
+    sphereStateRef.current = "connecting";
+    setVoiceConnecting(true);
+
+    // Local RMS loop: drives the sphere's voice reactivity and owns barge-in. Kept on
+    // the local signal rather than provider frames — an interruption has to feel
+    // instant, and a network round-trip does not.
+    const data = new Float32Array(analyser.fftSize);
+    const BARGE_THRESH = 0.012 * 2.5;
+    const BARGE_FRAMES = 10;   // ~150-200ms sustained, so the tutor's own audio leaking
+                               // into the mic can't cut its answer off mid-sentence.
+    let bargeCount = 0;
+    function tick() {
+      if (!analyserRef.current) return;  // stream closed
+      analyser.getFloatTimeDomainData(data);
+      const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length);
+      voiceRmsRef.current = Math.min(rms * 14, 1);
+      if (speakingRef.current && rms > BARGE_THRESH) {
+        if (++bargeCount >= BARGE_FRAMES) { stopResponse(); return; }
+      } else {
+        bargeCount = 0;
+      }
+      silenceRafRef.current = requestAnimationFrame(tick);
+    }
+    tick();
+
+    function endCapture() {
+      cancelAnimationFrame(silenceRafRef.current);
+      voiceRmsRef.current = 0;
+      setVoiceConnecting(false);
+      setIsRecording(false);   // lets the next startAutoListen() past its re-entry guard
+      scribeRef.current?.stop();
+      scribeRef.current = null;
+    }
+
+    try {
+      scribeRef.current = await startScribeSession({
+        stream,
+        onReady: () => {
+          // Socket open and accepting audio — safe to invite the user to speak.
+          setVoiceConnecting(false);
+          if (voiceModeRef.current) sphereStateRef.current = "listening";
+        },
+        // Provisional text, replaced on every frame. Rendering it is P2-6; holding it
+        // in a ref keeps this path from re-rendering the orb on every partial.
+        onPartial: (t) => { voicePartialRef.current = t; },
+        onTurn: async (t) => {
+          voicePartialRef.current = "";
+          endCapture();
+          await _handleTranscript(t);
+        },
+        onError: (kind, detail) => {
+          console.warn("[voice] scribe error:", kind, detail ?? "");
+          // Terminal failures must never leave voice mode showing active over a dead
+          // socket. Each one gets a reason the user can act on rather than silence.
+          const fatal = {
+            auth_error: "Voice session expired — tap the mic to restart.",
+            quota_exceeded: "Voice transcription quota reached.",
+            not_configured: "Voice transcription isn't configured on the server.",
+            session_time_limit_exceeded: "Voice session timed out — tap the mic to restart.",
+            transcriber_error: "Voice transcription failed — tap the mic to retry.",
+          }[kind];
+          if (fatal) {
+            setVoiceError(fatal);
+            endCapture();
+            sphereStateRef.current = "idle";
+            exitVoiceMode();
+          }
+        },
+        onClose: () => {
+          // Idle timeout or provider close with nothing buffered. Drop back to idle
+          // rather than sitting armed against a socket that no longer exists.
+          if (!scribeRef.current) return;   // already torn down by endCapture
+          endCapture();
+          sphereStateRef.current = "idle";
+        },
+      });
+    } catch (err) {
+      // Session never opened (token mint refused, socket blocked). Voice mode cannot
+      // work at all, so say so rather than sitting in a listening state that isn't.
+      console.warn("[voice] scribe session failed:", err?.message);
+      endCapture();
+      sphereStateRef.current = "idle";
+      setVoiceError("Couldn't start voice input — tap the mic to retry.");
+      exitVoiceMode();
+    }
+  }
+
   // ── Voice mode: auto-listen + silence detection + barge-in ──────────────────
   async function startAutoListen() {
     if (isRecording || micDenied) return;
@@ -1785,6 +1908,22 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       const src = audCtx.createMediaStreamSource(stream);
       src.connect(analyser);
       analyserRef.current = analyser;
+
+      // ── Streaming STT switch ────────────────────────────────────────────────
+      // VITE_VOICE_STREAMING=1 sends audio to ElevenLabs Scribe over a WebSocket and
+      // lets the provider's VAD decide when the speaker is done. Unset/"0" keeps the
+      // MediaRecorder path below (record whole utterance -> blob -> POST /api/stt).
+      //
+      // Both paths are kept on purpose so a bad turn in front of users is one env var
+      // from a rollback. See src/lib/scribeStream.ts for the full rationale.
+      //
+      // The analyser above is wired before this branch because BOTH paths need it:
+      // barge-in runs on local RMS, which is instant, where provider frames carry
+      // network latency.
+      if (isStreamingSTT()) {
+        await _startScribeCapture(stream, analyser);
+        return;
+      }
 
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus" : "audio/webm";
@@ -1883,10 +2022,20 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       silenceTick();
 
     } catch (err) {
+      // Every branch here used to leave voice mode switched on with no working mic:
+      // a denial only set micDenied, and any other failure (device busy, no input
+      // device, hardware error) was logged and otherwise ignored.
+      console.warn("[voice] mic error:", err?.name, err?.message);
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         setMicDenied(true);
+        setVoiceError("Microphone permission denied — allow it in your browser to use voice.");
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        setVoiceError("No microphone found.");
+      } else {
+        setVoiceError("Microphone unavailable — it may be in use by another app.");
       }
-      console.warn("[voice] mic error:", err.message);
+      sphereStateRef.current = "idle";
+      exitVoiceMode();
     }
   }
 
@@ -1895,6 +2044,11 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     // without waiting for the useEffect to run after paint.
     voiceModeRef.current = false;
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+    // Streaming path: close the socket explicitly. ElevenLabs bills connected time, so
+    // an orphaned session left open after the user exits voice mode costs real money.
+    scribeRef.current?.stop();
+    scribeRef.current = null;
+    voicePartialRef.current = "";
     micStreamRef.current?.getTracks().forEach(t => t.stop());
     micStreamRef.current = null;
     analyserRef.current  = null;
@@ -1903,6 +2057,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     cancelAnimationFrame(voiceRafRef.current);
     voiceRmsRef.current = 0;
     setIsRecording(false);
+    setVoiceConnecting(false);
     setVoiceMode(false);
     setMicDenied(false);
     sphereStateRef.current = "idle";
@@ -1988,9 +2143,24 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       });
       if (!sttRes.ok) throw new Error(`STT ${sttRes.status}`);
       const { text } = await sttRes.json();
+      await _handleTranscript(text);
+    } catch (err) {
+      console.warn("[voice] STT error:", err.message);
+      sphereStateRef.current = "idle";
+    }
+  }
+
+  // Post-transcript dispatch, shared by both STT paths (batch blob and streaming
+  // Scribe). Everything from the silence guard through command handling to sendMessage
+  // is identical regardless of how the words arrived — only the capture differs.
+  async function _handleTranscript(text) {
+    if (!voiceModeRef.current) return;
+    sphereStateRef.current = "thinking";
+    try {
       // Whisper HALLUCINATES on silence: ".", "...", "Thank you.", "you" are its classic
       // quiet-room artifacts. Treating them as real speech created the "keeps saying
       // dots" loop: silence -> "." sent as a message -> reply -> re-listen -> repeat.
+      // Scribe is far less prone to this, but the guard is cheap and path-agnostic.
       const t = (text ?? "").trim();
       const silenceArtifact =
         /^[.,!?;:…\s]*$/.test(t) ||
@@ -2004,9 +2174,13 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       const trimmed = t;
 
       // ── Stop-word detection — halt without sending to Claude ─────────────
+      // "stop"/"wait"/"hold on" mean stop TALKING, not leave voice mode. This used to
+      // return without re-arming, so the orb kept showing voice mode as active over a
+      // mic that was no longer listening — the user's next sentence went nowhere.
       if (VOICE_STOP_WORDS.test(trimmed)) {
         interruptedTextRef.current = null;
         sphereStateRef.current = "idle";
+        if (voiceModeRef.current && !micDenied) await startAutoListen();
         return;
       }
 
@@ -2047,10 +2221,21 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       }
 
       // ── Normal message ─────────────────────────────────────────────────
+      sttFailStreakRef.current = 0;
       await sendMessage(trimmed);
     } catch (err) {
-      console.warn("[voice] STT error:", err.message);
+      // Previously this left voice mode visually active with a dead mic on ANY error —
+      // one dropped request ended the conversation with no explanation. Retry once, then
+      // stop pretending: a third failure exits voice mode with a visible reason.
+      console.warn("[voice] transcript dispatch error:", err?.message);
       sphereStateRef.current = "idle";
+      sttFailStreakRef.current += 1;
+      if (sttFailStreakRef.current >= 2) {
+        setVoiceError("Voice input failed repeatedly — voice mode off. You can still type.");
+        exitVoiceMode();
+        return;
+      }
+      if (voiceModeRef.current && !micDenied) await startAutoListen();
     }
   }
 
@@ -2195,7 +2380,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     // classic path consumes it; Reggie mode clears it).
     interruptedTextRef.current = null;
     const voice = voiceModeRef.current;
-    const speakLive = voice && !muted;                 // sentence-chunked TTS while streaming
+    const speakLive = voice && !mutedRef.current;      // sentence-chunked TTS while streaming
     let streamed = "", toolNote = "", finalOut = "", errMsg = null;
     let activity = []; setLiveActivity([]);
     let widgets: Array<{ type: string; data: any }> = [];
@@ -2234,7 +2419,13 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
         try {
           const { play } = await audioP;
           await play(src => { audioSourceRef.current = src; });
-        } catch (e) { console.warn("[reggie voice chunk]", e?.message); }
+        } catch (e) {
+          // Do NOT swallow this. The sphere is showing "speaking" right now; if audio
+          // failed, the user is staring at a talking orb in silence with no explanation.
+          // Surface it once per turn and let the text carry the reply.
+          console.warn("[reggie voice chunk]", e?.message);
+          setVoiceError("Voice output failed — showing text instead.");
+        }
       });
     };
     const chunker = createSentenceChunker(enqueueTTS);
@@ -2464,7 +2655,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
         // speakAndType would commit a duplicate bubble — setMessages above already did.)
         if (voiceModeRef.current) {
           lastSpokenTextRef.current = displayText;
-          if (!muted) {
+          if (!mutedRef.current) {
             try {
               const tone = TONE_PRESETS[toneRef.current] ?? TONE_PRESETS.neutral;
               setSpeaking(true); speakingRef.current = true; sphereStateRef.current = "speaking";
@@ -2561,7 +2752,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
 
       let voiceTTSDone = null; // resolves when all sentence-chunked TTS finishes
 
-      if (voiceModeRef.current && !muted) {
+      if (voiceModeRef.current && !mutedRef.current) {
         // ── Streaming voice: sentence-chunked TTS pipeline ───────────────────
         // Each sentence is sent to TTS the moment Claude generates it,
         // so audio starts before the full response arrives.
@@ -2972,6 +3163,23 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                 {/* Voice toggle */}
                 <VoiceToggle muted={muted} onClick={toggleMute} speaking={speaking} />
 
+                {/* Voice failure banner. Every voice failure path routes here rather than
+                    to console.warn alone — an unreported failure is indistinguishable
+                    from the tutor ignoring the user. Click to dismiss. */}
+                {voiceError && (
+                  <button
+                    onClick={() => setVoiceError(null)}
+                    title="Dismiss"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 5, height: 32, flexShrink: 1,
+                      minWidth: 0, padding: "0 10px", borderRadius: 20, cursor: "pointer",
+                      background: "rgba(239,68,68,0.14)", border: "1px solid rgba(239,68,68,0.32)",
+                      color: "#fca5a5", fontSize: 11.5, fontWeight: 500, fontFamily: "inherit",
+                      outline: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    }}
+                  >{voiceError}</button>
+                )}
+
                 {/* Maximize / restore — expand to cover the screen and back */}
                 <button
                   onClick={() => setMaximized(m => !m)}
@@ -3351,7 +3559,22 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                 ><Plus size={20} strokeWidth={2.2} /></button>
                 {/* Subtle waveform glyph — enters voice mode */}
                 <button
-                  onClick={() => { getAudioContext(); voiceModeRef.current = true; setVoiceMode(true); startAutoListen(); }}
+                  onClick={() => {
+                    getAudioContext();
+                    voiceModeRef.current = true;
+                    setVoiceMode(true);
+                    // Entering voice mode implies wanting to HEAR the replies. `muted`
+                    // persists across sessions, so without this a user who muted during
+                    // text chat gets a voice mode that listens but never speaks back —
+                    // it looks like the tutor is ignoring them. Ref is set synchronously
+                    // because the first turn can start before the re-render lands.
+                    mutedRef.current = false;
+                    setMuted(false);
+                    try { localStorage.setItem("fschool_muted", "0"); } catch {}
+                    setVoiceError(null);
+                    sttFailStreakRef.current = 0;
+                    startAutoListen();
+                  }}
                   title="Voice mode"
                   style={{
                     background: "none", border: "none", padding: "8px 6px",
@@ -3499,12 +3722,16 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                   minHeight: "1em",
                   color: micDenied ? "rgba(255,100,90,0.5)" : "rgba(var(--cream-rgb),0.22)",
                   transition: "opacity 0.35s ease, color 0.35s ease",
-                  opacity: (micDenied || speaking || loading || isRecording) ? 1 : 0,
+                  opacity: (micDenied || speaking || loading || isRecording || voiceConnecting) ? 1 : 0,
                 }}>
-                  {micDenied    ? "allow microphone access"
-                  : speaking    ? "speaking"
-                  : loading     ? "thinking"
-                  : isRecording ? "listening"
+                  {micDenied       ? "allow microphone access"
+                  : speaking       ? "speaking"
+                  : loading        ? "thinking"
+                  // Ahead of isRecording: the mic opens first, but audio goes nowhere
+                  // until the socket is up. Saying "listening" here would invite the
+                  // user to talk into a dropped stream.
+                  : voiceConnecting ? "connecting"
+                  : isRecording    ? "listening"
                   : ""}
                 </p>
 

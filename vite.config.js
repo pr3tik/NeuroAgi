@@ -118,6 +118,15 @@ const sttProxyPlugin = {
   configureServer(server) {
     server.middlewares.use("/api/stt", async (req, res) => {
       injectEnv("GROQ_KEY");
+      // ?action=token mints a realtime Scribe credential — needs the ElevenLabs key, plus
+      // Supabase for requireUserOr401's JWT verification. The audio path needs neither.
+      injectEnv("ELEVENLABS_API_KEY");
+      injectEnv("SUPABASE_URL");
+      injectEnv("SUPABASE_SERVICE_KEY");
+      // Connect gives us no parsed query, unlike handlerProxy — without this the handler
+      // never sees ?action=token and falls through to the Groq batch path. The request
+      // stream is deliberately left untouched: the audio path reads it raw.
+      req.query = Object.fromEntries(new URL(req.url, "http://localhost").searchParams.entries());
       res.status = (code) => { res.statusCode = code; return res; };
       res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
       try {

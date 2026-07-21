@@ -106,7 +106,18 @@ dashboard **SQL Editor**. Run `supabase-rag-migration.sql` **before** `supabase-
 
 ## Env vars
 
-Client (bundled, `VITE_` prefix): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
+Client (bundled, `VITE_` prefix): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
+`VITE_VOICE_STREAMING`.
+
+**`VITE_VOICE_STREAMING`** — feature switch for the orb tutor's speech-to-text.
+Unset/`0` (default) uses the batch path: `MediaRecorder` captures a whole utterance to a
+webm/opus blob → `POST /api/stt` → Groq Whisper. `1` streams PCM to ElevenLabs Scribe v2
+over a WebSocket, using the provider's VAD for end-of-speech and returning live partial
+transcripts (`src/lib/scribeStream.ts`, credential from `POST /api/stt?action=token`).
+Both paths are wired on purpose — the switch is the rollback. Requires
+`ELEVENLABS_API_KEY` server-side; without it the token action returns 503
+`voice_not_configured`. The chat-input mic button (`src/lib/dictation.ts`) is a separate
+feature and always uses the batch path.
 Server (never `VITE_`): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `ANTHROPIC_API_KEY` (+ optional
 `ANTHROPIC_MODEL`), `GROQ_KEY` (chat + Whisper STT), `OPENAI_API_KEY` (RAG embeddings + OCR),
 `ELEVENLABS_API_KEY` (TTS + Scribe transcription), `RESEND_API_KEY` (email/nudges).

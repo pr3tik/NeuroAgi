@@ -2,9 +2,14 @@
 // Dictation engine tests (src/lib/dictation.ts): engine selection, Web Speech
 // interim/final routing + error filtering, and the server-STT fallback (record →
 // /api/stt → text or friendly failure). All browser APIs stubbed.
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+// Engine selection reads VITE_VOICE_STREAMING. Pin it OFF by default so these tests
+// describe the Web Speech / server engines deterministically — without this they'd
+// silently change meaning depending on whether a developer has the flag in .env.local.
+// The Scribe engine block below opts back in explicitly.
+beforeEach(() => { vi.stubEnv("VITE_VOICE_STREAMING", "0"); });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resetModules(); });
 
 async function lib() { return await import("../src/lib/dictation"); }
 
@@ -129,5 +134,71 @@ describe("server fallback engine", () => {
     expect(errors).toEqual(["Microphone permission denied."]);
     expect(ended).toBe(true);
     expect(d.listening).toBe(false);
+  });
+});
+
+// ── Engine 3: ElevenLabs Scribe ──────────────────────────────────────────────
+describe("scribe engine", () => {
+  let sessions: any[];
+
+  beforeEach(() => {
+    sessions = [];
+    vi.stubEnv("VITE_VOICE_STREAMING", "1");
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } });
+    vi.doMock("../src/lib/scribeStream", () => ({
+      isStreamingSTT: () => true,
+      startScribeSession: async (opts: any) => {
+        const s = { opts, stopped: false, stop() { this.stopped = true; }, isActive: () => !s.stopped };
+        sessions.push(s);
+        return s;
+      },
+    }));
+  });
+
+  it("is selected over Web Speech when the switch is on", async () => {
+    vi.stubGlobal("SpeechRecognition", class {});
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } });
+    const d = (await lib()).createDictation({ onFinal: () => {} });
+    expect(d.engine).toBe("scribe");
+  });
+
+  it("routes partials to onInterim and committed segments to onFinal", async () => {
+    const finals: string[] = []; const interims: string[] = [];
+    const d = (await lib()).createDictation({ onFinal: t => finals.push(t), onInterim: t => interims.push(t) });
+    await d.start();
+    const { onPartial, onSegment } = sessions[0].opts;
+    onPartial("what is");
+    onSegment("What is a heap?");
+    expect(interims).toEqual(["what is"]);
+    expect(finals).toEqual(["What is a heap?"]);
+  });
+
+  // The defining difference from the orb: dictation fills an input box and the USER
+  // decides when the thought is done. Consuming assembled turns here would make the
+  // mic button behave like a voice agent.
+  it("uses onSegment and never subscribes to assembled turns", async () => {
+    const d = (await lib()).createDictation({ onFinal: () => {} });
+    await d.start();
+    expect(sessions[0].opts.onSegment).toBeTypeOf("function");
+    expect(sessions[0].opts.onTurn).toBeUndefined();
+  });
+
+  it("stop() closes the session and reports end exactly once", async () => {
+    let ends = 0;
+    const d = (await lib()).createDictation({ onFinal: () => {}, onEnd: () => ends++ });
+    await d.start();
+    d.stop();
+    d.stop();
+    expect(sessions[0].stopped).toBe(true);
+    expect(ends).toBe(1);
+    expect(d.listening).toBe(false);
+  });
+
+  it("surfaces a terminal provider error to the user", async () => {
+    const errors: string[] = [];
+    const d = (await lib()).createDictation({ onFinal: () => {}, onError: e => errors.push(e) });
+    await d.start();
+    sessions[0].opts.onError("quota_exceeded");
+    expect(errors[0]).toMatch(/quota/i);
   });
 });
