@@ -158,3 +158,66 @@ describe("orchestration", () => {
     expect(res.body.results.find((r: any) => r.session === SESSION).decision).toBe("sent");
   });
 });
+
+describe("stale-room sweep (auto-close)", () => {
+  const ROOM_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const ROOM_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+  function sweepRoutes({ stale = [] as any[], freshSessions = [] as any[] } = {}) {
+    return stubDb((u, method) => {
+      if (u.includes("room_ai_sessions?state=eq.active")) return R([]);   // no trigger work this tick
+      if (u.includes("study_rooms?is_active=eq.true") && method === "GET") return R(stale);
+      if (u.includes("room_sessions?room_id=in.") && method === "GET") return R(freshSessions);
+      if (method === "PATCH") return R(null);
+      return undefined;
+    });
+  }
+
+  it("closes an idle room and stamps left_at on its dangling sessions", async () => {
+    const calls = sweepRoutes({ stale: [{ id: ROOM_A }] });
+    const res = makeRes();
+    await mod.default(tick({ authorization: "Bearer test-secret" }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.sweep).toMatchObject({ closed: 1, roomIds: [ROOM_A] });
+    const patches = calls.filter(c => c.method === "PATCH");
+    const roomPatch = patches.find(c => c.url.includes("study_rooms?id=in."));
+    expect(roomPatch?.url).toContain(ROOM_A);
+    expect(roomPatch?.body).toEqual({ is_active: false });
+    const sessPatch = patches.find(c => c.url.includes("room_sessions?room_id=in."));
+    expect(sessPatch?.url).toContain("left_at=is.null");
+    expect(typeof sessPatch?.body?.left_at).toBe("string");
+  });
+
+  it("spares a room with an open session that started inside the idle window", async () => {
+    const calls = sweepRoutes({
+      stale: [{ id: ROOM_A }, { id: ROOM_B }],
+      freshSessions: [{ room_id: ROOM_A }],   // someone just joined A; heartbeat hasn't fired yet
+    });
+    const res = makeRes();
+    await mod.default(tick({ authorization: "Bearer test-secret" }), res);
+    expect(res.body.sweep).toMatchObject({ closed: 1, roomIds: [ROOM_B] });
+    const roomPatch = calls.find(c => c.method === "PATCH" && c.url.includes("study_rooms?id=in."));
+    expect(roomPatch?.url).toContain(ROOM_B);
+    expect(roomPatch?.url).not.toContain(ROOM_A);
+  });
+
+  it("no stale rooms → no writes at all", async () => {
+    const calls = sweepRoutes({ stale: [] });
+    const res = makeRes();
+    await mod.default(tick({ authorization: "Bearer test-secret" }), res);
+    expect(res.body.sweep).toMatchObject({ closed: 0 });
+    expect(calls.filter(c => c.method === "PATCH")).toHaveLength(0);
+  });
+
+  it("a sweep failure does not fail trigger delivery", async () => {
+    stubDb((u, method) => {
+      if (u.includes("room_ai_sessions?state=eq.active")) return R([]);
+      if (u.includes("study_rooms?is_active=eq.true")) return { ok: false, status: 500, json: async () => ({}), text: async () => "boom" } as any;
+      return undefined;
+    });
+    const res = makeRes();
+    await mod.default(tick({ authorization: "Bearer test-secret" }), res);
+    expect(res.statusCode).toBe(200);   // tick still succeeds
+    expect(res.body.sweep?.error).toBeTruthy();
+  });
+});

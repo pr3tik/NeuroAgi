@@ -34,10 +34,41 @@ function db() {
       const r = await fetch(`${url}/rest/v1/${table}`, { method: "POST", headers, body: JSON.stringify(body) });
       if (!r.ok) throw new Error(`insert ${table} failed (${r.status}): ${(await r.text()).slice(0, 200)}`);
     },
+    async patch(path: string, body: any) {
+      const r = await fetch(`${url}/rest/v1/${path}`, { method: "PATCH", headers: { ...headers, Prefer: "return=minimal" }, body: JSON.stringify(body) });
+      if (!r.ok) throw new Error(`patch ${path.split("?")[0]} failed (${r.status}): ${(await r.text()).slice(0, 200)}`);
+    },
   };
 }
 
 const ms = (t: any) => (t ? new Date(t).getTime() : null);
+
+/** Rooms auto-close after this long without a liveness signal, so the lobby doesn't
+ *  accumulate dead rooms forever (nothing closed them before — deactivation only ever
+ *  ran as failed-create rollback). The client bumps study_rooms.last_active on join AND
+ *  on a 5-minute heartbeat while inside, so an occupied room can't age past the window;
+ *  only rooms whose every occupant left (or closed the tab) go stale. */
+const ROOM_IDLE_CLOSE_MS = Number(process.env.ROOM_IDLE_CLOSE_MS || 45 * 60_000);
+
+/** Close rooms idle past ROOM_IDLE_CLOSE_MS. Exported for the unit test.
+ *  Belt-and-suspenders: a room is spared if any open session STARTED inside the window
+ *  (a just-joined user whose first heartbeat hasn't fired must not lose the room).
+ *  Closing a room also stamps left_at on its dangling sessions — tab-closes never write
+ *  one, and rows open forever would poison the time-tracking stats. */
+export async function sweepStaleRooms(d: ReturnType<typeof db>, nowMs = Date.now()) {
+  const cutoff = encodeURIComponent(new Date(nowMs - ROOM_IDLE_CLOSE_MS).toISOString());
+  const stale = await d.select(`study_rooms?is_active=eq.true&last_active=lt.${cutoff}&select=id&limit=100`);
+  if (!stale.length) return { closed: 0, roomIds: [] as string[] };
+  const ids = stale.map((r) => r.id);
+  const fresh = await d.select(`room_sessions?room_id=in.(${ids.join(",")})&left_at=is.null&joined_at=gt.${cutoff}&select=room_id`);
+  const freshSet = new Set(fresh.map((r) => r.room_id));
+  const toClose = ids.filter((id) => !freshSet.has(id));
+  if (!toClose.length) return { closed: 0, roomIds: [] as string[] };
+  const inList = `in.(${toClose.join(",")})`;
+  await d.patch(`study_rooms?id=${inList}`, { is_active: false });
+  await d.patch(`room_sessions?room_id=${inList}&left_at=is.null`, { left_at: new Date(nowMs).toISOString() });
+  return { closed: toClose.length, roomIds: toClose };
+}
 
 /** Assemble the pure engine's context for one session from the DB. Exported so the live
  *  test and any event-driven caller can reuse the exact same gathering. */
@@ -137,7 +168,16 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    return res.status(200).json({ ok: true, sessions: sessions.length, results });
+    // Stale-room sweep rides the same tick. Its failure must not fail trigger delivery.
+    let sweep: any = null;
+    try {
+      sweep = await sweepStaleRooms(d, nowMs);
+    } catch (err: any) {
+      console.error("[room-triggers] sweep failed:", err?.message ?? err);
+      sweep = { error: String(err?.message ?? err).slice(0, 120) };
+    }
+
+    return res.status(200).json({ ok: true, sessions: sessions.length, results, sweep });
   } catch (err: any) {
     console.error("[room-triggers] error:", err?.message ?? err);
     return res.status(502).json({ error: err?.message ?? "trigger error" });
