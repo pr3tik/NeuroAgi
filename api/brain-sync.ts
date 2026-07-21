@@ -1,26 +1,21 @@
-// api/brain-sync.ts — server-side Canvas → Brain-DB sync (F-5 fix).
+// api/brain-sync.ts — server-side Canvas → KERNEL sync (F-5 fix + legacy retirement).
 //
-// BEFORE: src/api/canvasSync.ts syncToBrainDB() ran IN THE BROWSER and used
-// VITE_BRAIN_SUPABASE_KEY — a VITE_ var, so its value was inlined into the public JS bundle — to
-// write person-scoped rows straight into the Brain DB. If that value was the Brain DB service_role
-// key, it shipped to every visitor's browser (full Brain-DB r/w, RLS bypassed).
+// The browser POSTs its freshly-synced Canvas data here (installApiAuth attaches the user's JWT).
+// The server authenticates the caller and records a compact `canvas_sync` academic signal in the
+// caller's KERNEL brain (subject `person:<id>`), person resolved from the verified caller — never
+// the request body — so it can only ever write the caller's own brain. Fixes F-5 (the old browser
+// path used a VITE_-inlined Brain-DB key) AND retires the legacy fschool_* Brain-DB writes: the
+// kernel is the single source of truth now.
 //
-// NOW: the browser POSTs its freshly-synced Canvas data here (installApiAuth attaches the user's
-// JWT). The server authenticates the caller, resolves THEIR brain_person_id from the product users
-// table, and writes fschool_courses / fschool_assignments with the server-only BRAIN_SUPABASE_KEY.
-// The Brain service key never touches the client, and person_id is derived from the verified caller
-// (never the request body) — so this endpoint can only ever write the caller's own brain.
-//
-// ENV (server-only, never VITE_): SUPABASE_URL + SUPABASE_SERVICE_KEY (resolve brain_person_id from
-// the product `users` table), BRAIN_SUPABASE_URL + BRAIN_SUPABASE_KEY (write the Brain DB).
-// Raw fetch only (no @supabase/supabase-js at module load → Node-20 test-runner safe).
+// ENV (server-only, never VITE_): SUPABASE_URL + SUPABASE_SERVICE_KEY (identity resolution),
+// NEURO_SUPABASE_* (kernel store via brainConn, falls back to product). Raw fetch / kernel store
+// only (no @supabase/supabase-js at module load → Node-20 test-runner safe).
 import { requireUserOr401 } from "./_auth.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
 import { postgrestStore, remember } from "./_brain/kernel.js";
 import { brainConn } from "./_brain/conn.js";
 
 const MAX_COURSES = 200;
-const MAX_ASSIGNMENTS = 100;
 
 export default async function handler(req: any, res: any): Promise<void> {
   if (req.method !== "POST") { res.status(405).json({ error: "POST only" }); return; }
@@ -32,8 +27,6 @@ export default async function handler(req: any, res: any): Promise<void> {
 
   const prodUrl  = process.env.SUPABASE_URL;
   const prodKey  = process.env.SUPABASE_SERVICE_KEY;
-  const brainUrl = process.env.BRAIN_SUPABASE_URL;
-  const brainKey = process.env.BRAIN_SUPABASE_KEY;
   if (!prodUrl || !prodKey) { res.status(200).json({ ok: false, reason: "not configured" }); return; }
 
   const courses     = Array.isArray(req.body?.courses)     ? req.body.courses.slice(0, MAX_COURSES) : [];
@@ -60,68 +53,7 @@ export default async function handler(req: any, res: any): Promise<void> {
     }
   } catch (e: any) { console.error("[brain-sync] kernel bridge failed:", e?.message); }
 
-  // ── Legacy Brain DB (fschool_*) — kept until the legacy system is retired (gated). Skipped when
-  // its env is unset or the caller isn't legacy-linked; the kernel bridge above already ran.
-  if (!brainUrl || !brainKey) { res.status(200).json(result); return; }
-
-  // Resolve the caller's LEGACY brain_person_id (server-side, service key). NOT from req.body.
-  let brainPersonId: string | null = null;
-  try {
-    const r = await fetch(`${prodUrl}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=brain_person_id`, {
-      headers: { apikey: prodKey, Authorization: `Bearer ${prodKey}` },
-    });
-    if (r.ok) { const rows = await r.json(); brainPersonId = rows?.[0]?.brain_person_id ?? null; }
-  } catch { /* fall through to not-linked no-op */ }
-  if (!brainPersonId) { res.status(200).json(result); return; }
-
-  const now = new Date().toISOString(); // server-stamped, not client-supplied
-  const brainHeaders = {
-    apikey: brainKey,
-    Authorization: `Bearer ${brainKey}`,
-    "Content-Type": "application/json",
-    Prefer: "resolution=merge-duplicates,return=minimal",
-  };
-
-  if (courses.length) {
-    const courseRows = courses.map((c: any) => ({
-      person_id:        brainPersonId,   // server-derived — the row is always scoped to the caller
-      canvas_course_id: String(c.id),
-      name:             c.name,
-      course_code:      c.courseCode ?? null,
-      current_score:    c.currentScore ?? null,
-      final_score:      c.finalScore ?? null,
-      synced_at:        now,
-    }));
-    const cr = await fetch(`${brainUrl}/rest/v1/fschool_courses`, {
-      method: "POST", headers: brainHeaders, body: JSON.stringify(courseRows),
-    }).catch(() => null);
-    if (cr && cr.ok) result.courses = courseRows.length;
-    else if (cr) result.courseError = cr.status;
-  }
-
-  const recent = assignments
-    .filter((a: any) => a?.dueAt)
-    .sort((a: any, b: any) => +new Date(b.dueAt) - +new Date(a.dueAt))
-    .slice(0, MAX_ASSIGNMENTS);
-  if (recent.length) {
-    const assignRows = recent.map((a: any) => ({
-      person_id:            brainPersonId,
-      canvas_assignment_id: String(a.id),
-      canvas_course_id:     String(a.courseId),
-      title:                a.name,
-      due_at:               a.dueAt ?? null,
-      score:                a.submission?.score ?? null,
-      points_possible:      a.pointsPossible ?? null,
-      missing:              a.submission?.missing ?? false,
-      late:                 a.submission?.late ?? false,
-      synced_at:            now,
-    }));
-    const ar = await fetch(`${brainUrl}/rest/v1/fschool_assignments`, {
-      method: "POST", headers: brainHeaders, body: JSON.stringify(assignRows),
-    }).catch(() => null);
-    if (ar && ar.ok) result.assignments = assignRows.length;
-    else if (ar) result.assignmentError = ar.status;
-  }
-
+  // (Legacy Brain-DB fschool_* writes retired — the kernel canvas_sync bridge above is now the single
+  // source of truth for the Canvas snapshot.)
   res.status(200).json(result);
 }

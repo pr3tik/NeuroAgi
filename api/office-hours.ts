@@ -96,15 +96,8 @@ async function prep(body, supabaseUrl, supabaseKey, anthropicKey) {
     if (fRes.ok) fileSnippets = await fRes.json();
   } catch { /* non-fatal */ }
 
-  // ── Optional Brain DB knowledge gaps ───────────────────────────────────────
-  let knowledgeGaps = [];
-  const brainUrl = process.env.BRAIN_SUPABASE_URL, brainKey = process.env.BRAIN_SUPABASE_KEY;
-  if (brainUrl && brainKey) {
-    try {
-      const bRes = await fetch(`${brainUrl}/rest/v1/brain_context?user_id=eq.${userId}&select=knowledge_gaps`, { headers: sbHeaders(brainKey) });
-      if (bRes.ok) knowledgeGaps = (await bRes.json())?.[0]?.knowledge_gaps ?? [];
-    } catch { /* Brain DB is optional enrichment — never block prep on it */ }
-  }
+  // (Legacy Brain-DB knowledge_gaps enrichment retired — the kernel is the single brain now.)
+  const knowledgeGaps: any[] = [];
 
   const impressionList = impressions.map(i => `• ${i.impression}`).join("\n") || "None";
   const assignmentList = assignments.map(a =>
@@ -190,15 +183,7 @@ Return ONLY the paragraph, no preamble, no markdown.`;
   });
   if (!upsertRes.ok) return { status: 502, json: { error: `tutor_mind upsert failed: ${(await upsertRes.text()).slice(0, 200)}` } };
 
-  // Best-effort Brain DB signal — never blocks capture on failure.
-  const brainUrl = process.env.BRAIN_SUPABASE_URL, brainKey = process.env.BRAIN_SUPABASE_KEY;
-  if (brainUrl && brainKey && courseId) {
-    fetch(`${brainUrl}/rest/v1/signals`, {
-      method: "POST",
-      headers: { ...sbHeaders(brainKey), "Prefer": "return=minimal" },
-      body: JSON.stringify({ user_id: userId, course_id: courseId, kind: "office_hours_clarified", detail: gapUpdate, created_at: new Date().toISOString() }),
-    }).catch(() => {});
-  }
+  // (Legacy Brain-DB signal write retired — the kernel captures the meaningful academic signals.)
 
   return { status: 200, json: { ok: true, gapUpdate, questionsAsked: Array.isArray(questionIds) ? questionIds.length : 0 } };
 }

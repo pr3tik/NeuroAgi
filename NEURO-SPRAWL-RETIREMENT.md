@@ -41,12 +41,19 @@ remains is one **bake-gated retirement pass** (below), not a project. Doing it *
 rip out the legacy fallback the same hour the kernel-intervention went live (zero prod bake) — bad
 sequencing. Correct order: **bake the intervention migration → then the single retirement pass.**
 
-### The remaining retirement pass (one PR, after the bake)
-Drop `tutor-context`'s `context_window` fallback read; remove the `session-close` legacy
-`brain.signals`/`context_window` block; remove `brain-sync`'s `fschool_*` writes (the kernel
-`canvas_sync` bridge replaces them); migrate `office-hours`' `brain.signals` write to a kernel
-signal; retire the `brain-scheduler` + `brain-scheduler-fast` crons (vercel.json). Then DROP the
-legacy tables (gated, cross-repo).
+### The retirement pass — ✅ EXECUTED
+Done: dropped `tutor-context`'s `context_window` fallback; removed the `session-close` legacy
+`brain.signals`/`context_window` block; removed `brain-sync`'s `fschool_*` writes (the kernel
+`canvas_sync` bridge is the sole source now); removed `office-hours`' legacy `brain.signals` write +
+`brain_context` read; **deleted** the `brain-scheduler` + `brain-scheduler-fast` handlers and their
+crons (vercel.json). **No active code reads or writes the legacy Brain DB anymore** (verified: zero
+`BRAIN_SUPABASE` refs outside comments; full suite 933 green; `src/api/brain.ts` was already dead).
+
+### The ONE thing still open — DROP the tables (gated, cross-repo)
+The legacy `neuroagibrain` tables (`brain.signals`, `brain.context_window`, `fschool_*`) now sit
+**dormant** — nothing writes or reads them. Physically dropping them is irreversible and touches a
+DB owned by another repo (`neuroagi-core`), so it's left for that repo's owner to run once they
+confirm no other product depends on them. Leaving them dormant costs nothing and breaks nothing.
 
 ## ⚠️ Identity ambiguity to resolve FIRST
 `users.brain_person_id` is written by BOTH `resolveFschoolPerson` (the **kernel** neuro_person id) and
