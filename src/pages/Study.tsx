@@ -6,9 +6,11 @@ import { groq }         from "../api/groq";
 import { useApp }        from "../context/AppContext";
 import { supabase }      from "../api/supabase";
 import { awardTokens }   from "../api/tokens";
-import { Check, X, AlertTriangle, Sparkles } from "lucide-react";
+import { Check, X, AlertTriangle, Sparkles, GraduationCap, CalendarClock, Circle, CheckCircle2, Layers, History, Library } from "lucide-react";
 import { groundingToast } from "../lib/studyGrounding";
 import { cardKey, sm2, GRADE } from "../lib/srs";
+import { calendarDaysUntil } from "../lib/dueDate";
+import { SectionHeader } from "../components/uikit";
 
 
 const SYSTEM =
@@ -581,6 +583,270 @@ function MarkdownGuide({ text }) {
   return <div>{elements}</div>;
 }
 
+// ── "Your study plan" — Reggie's proactive exam plans surfaced where studying happens ──
+// Sessions are JSONB written by generatePlanCore (api/exam.ts):
+//   { date: "YYYY-MM-DD", topic, activities: [], materialIds: [], estimatedMinutes }
+// Same exam_plans query as the Home Today panel (Work.tsx) so both surfaces agree on
+// which plan is live. RLS on exam_plans is SELECT-only for clients, so "mark done"
+// persists to localStorage — an UPDATE from the browser would silently no-op.
+
+const planDoneKey = (planId) => `fschool_plan_done:${planId}`;
+function loadPlanDone(planId) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(planDoneKey(planId)) || "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; }
+}
+
+// Plan session dates are date-only strings; anchor at local noon before day math so
+// "YYYY-MM-DD" (which Date parses as UTC midnight) can't land on the wrong calendar
+// day — same trick deriveNextActions uses.
+const planDay = (dateStr) => dateStr ? calendarDaysUntil(dateStr + "T12:00:00") : null;
+const planDateLabel = (dateStr) => {
+  if (!dateStr) return "—";
+  const d = new Date(String(dateStr).includes("T") ? dateStr : dateStr + "T12:00:00");
+  return isNaN(d.getTime()) ? String(dateStr) : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
+const examInLabel = (n) => n == null ? "" : n <= 0 ? "exam today" : n === 1 ? "exam in 1 day" : `exam in ${n} days`;
+
+function StudyPlanSection({ userId, courses }) {
+  const [plans, setPlans] = useState([]);
+  const [featuredId, setFeaturedId] = useState(null);
+  const [, setDoneTick] = useState(0); // bump after localStorage writes so rows re-render
+
+  useEffect(() => {
+    if (!userId) return;
+    let dead = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("exam_plans").select("id, course_id, exam_date, sessions, created_at")
+          .eq("user_id", userId).gte("exam_date", new Date().toISOString().slice(0, 10))
+          .order("exam_date", { ascending: true }).order("created_at", { ascending: false });
+        // Regenerating a plan leaves stale rows behind — keep only the freshest per
+        // course (first in this ordering = nearest exam, newest created_at).
+        const byCourse = {};
+        for (const p of data ?? []) {
+          const k = String(p.course_id);
+          if (Array.isArray(p?.sessions) && p.sessions.length > 0 && !byCourse[k]) byCourse[k] = p;
+        }
+        if (!dead) setPlans(Object.values(byCourse));
+      } catch { /* non-fatal — the section simply doesn't render */ }
+    })();
+    return () => { dead = true; };
+  }, [userId]);
+
+  // No plan → render nothing: the page looks exactly like it does today.
+  if (!plans.length) return null;
+
+  const plan = plans.find((p) => p.id === featuredId) ?? plans[0];
+  const courseLabel = (cid) => {
+    const c = (courses ?? []).find((x) => String(x.dbId ?? x.id) === String(cid));
+    return c?.courseCode || c?.name || String(cid ?? "Course");
+  };
+  const goPage = (k) => () => window.dispatchEvent(new CustomEvent("fschool:navigate", { detail: k }));
+
+  const sessions = [...(Array.isArray(plan.sessions) ? plan.sessions : [])]
+    .sort((a, b) => String(a?.date ?? "").localeCompare(String(b?.date ?? "")));
+  const daysToExam = calendarDaysUntil(plan.exam_date + "T12:00:00");
+  const done = new Set(loadPlanDone(plan.id));
+  const doneCount = sessions.filter((s) => s?.date && done.has(s.date)).length;
+
+  const todaySession = sessions.find((s) => planDay(s?.date) === 0);
+  const nextSession = sessions.filter((s) => (planDay(s?.date) ?? -1) > 0)[0]; // already date-sorted
+  const hero = todaySession ?? nextSession ?? null;
+
+  const toggleDone = (date) => {
+    if (!date) return;
+    const cur = loadPlanDone(plan.id);
+    const next = cur.includes(date) ? cur.filter((d) => d !== date) : [...cur, date];
+    try { localStorage.setItem(planDoneKey(plan.id), JSON.stringify(next)); } catch { /* private mode */ }
+    setDoneTick((t) => t + 1);
+  };
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <SectionHeader
+        title="Your study plan"
+        desc={`${courseLabel(plan.course_id)} · ${doneCount}/${sessions.length} sessions done`}
+        right={daysToExam != null ? (
+          <span style={{
+            fontSize: 11.5, fontWeight: 600, padding: "5px 12px", borderRadius: 20,
+            background: "rgba(var(--teal-rgb),0.12)", color: "rgb(var(--teal-rgb))",
+            whiteSpace: "nowrap",
+          }}>{examInLabel(daysToExam)}</span>
+        ) : undefined}
+      />
+
+      {hero && (
+        <div style={{
+          background: "rgba(255,255,255,0.045)", border: "1px solid rgba(var(--teal-rgb),0.22)",
+          borderRadius: 16, padding: "16px 18px", marginBottom: 10,
+          display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
+        }}>
+          <div style={{
+            width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+            background: "rgba(var(--teal-rgb),0.12)", border: "1px solid rgba(var(--teal-rgb),0.25)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <GraduationCap size={19} color="rgb(var(--teal-rgb))" />
+          </div>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <p style={{
+              fontFamily: "var(--font-mono)", fontSize: 10.5, fontWeight: 600, letterSpacing: "0.08em",
+              textTransform: "uppercase", color: "rgb(var(--teal-rgb))", margin: "0 0 3px",
+            }}>
+              {courseLabel(plan.course_id)} · {hero === todaySession ? "today's session" : `next session · ${planDateLabel(hero.date)}`}
+            </p>
+            <p style={{ fontFamily: "var(--font-sans)", fontSize: 15.5, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
+              {hero.topic || "Study session"}
+            </p>
+            <p style={{ fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--text-dim)", margin: "3px 0 0", fontVariantNumeric: "tabular-nums" }}>
+              {[
+                Array.isArray(hero.activities) && hero.activities.length ? hero.activities.join(" · ") : null,
+                `${Number(hero.estimatedMinutes) || 60} min`,
+                examInLabel(daysToExam),
+              ].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+          <button onClick={goPage("studyAssistant")} style={{
+            flexShrink: 0, background: "rgba(var(--teal-rgb),0.14)",
+            border: "1px solid rgba(var(--teal-rgb),0.3)", color: "rgb(var(--teal-rgb))",
+            borderRadius: 9, padding: "8px 15px", fontSize: 12.5, fontWeight: 600,
+            cursor: "pointer", fontFamily: "inherit",
+          }}>Start with Reggie</button>
+        </div>
+      )}
+
+      <div style={{ background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: "6px 8px" }}>
+        {sessions.map((s, i) => {
+          const d = planDay(s?.date);
+          const isDone = Boolean(s?.date && done.has(s.date));
+          const isToday = d === 0;
+          const isPast = d != null && d < 0;
+          const mins = Number(s?.estimatedMinutes) || null;
+          return (
+            <div key={`${s?.date ?? "?"}:${i}`} style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "10px 12px",
+              borderTop: i > 0 ? "1px solid rgba(255,255,255,0.06)" : "none",
+              background: isToday && !isDone ? "rgba(var(--teal-rgb),0.05)" : "transparent",
+              opacity: isDone || isPast ? 0.55 : 1,
+            }}>
+              <button
+                onClick={() => toggleDone(s?.date)}
+                title={isDone ? "Mark not done" : "Mark done"}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexShrink: 0 }}
+              >
+                {isDone
+                  ? <CheckCircle2 size={17} color="rgb(var(--teal-rgb))" />
+                  : <Circle size={17} color={isToday ? "rgb(var(--teal-rgb))" : "rgba(255,255,255,0.28)"} />}
+              </button>
+              <span style={{
+                fontFamily: "var(--font-mono)", fontSize: 11, width: 46, flexShrink: 0,
+                color: isToday ? "rgb(var(--teal-rgb))" : "var(--text-dim)", fontVariantNumeric: "tabular-nums",
+              }}>
+                {isToday ? "Today" : planDateLabel(s?.date)}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{
+                  margin: 0, fontSize: 13.5, fontWeight: isToday && !isDone ? 600 : 500, color: "var(--text-primary)",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  textDecoration: isDone ? "line-through" : "none",
+                }}>{s?.topic || "Study session"}</p>
+                {Array.isArray(s?.activities) && s.activities.length > 0 && (
+                  <p style={{ margin: "1px 0 0", fontSize: 11.5, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {s.activities.join(" · ")}
+                  </p>
+                )}
+              </div>
+              {mins != null && (
+                <span style={{ fontSize: 11.5, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{mins} min</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {plans.length > 1 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+          {plans.filter((p) => p.id !== plan.id).map((p) => (
+            <button key={p.id} onClick={() => setFeaturedId(p.id)} style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%", boxSizing: "border-box",
+              background: "transparent", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12,
+              padding: "9px 12px", cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+            }}>
+              <CalendarClock size={14} color="var(--text-dim)" style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {courseLabel(p.course_id)} — {Array.isArray(p.sessions) ? p.sessions.length : 0} sessions
+              </span>
+              <span style={{ fontSize: 11.5, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                {examInLabel(calendarDaysUntil(p.exam_date + "T12:00:00"))}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Review-stats strip ────────────────────────────────────────────────────────
+// srs_reviews stores one row per CARD (upsert on user_id,card_key), not a review
+// log — so "reviewed · 7d" counts cards touched in the window, and accuracy uses
+// each card's LATEST grade: the session UI only ever grades good(4)/again(2), and
+// sm2 resets reps to 0 on any grade below "good"'s success bar — so reps > 0 ⟺
+// the last review was good. "Due now" mirrors srs.ts isDue (due_at <= now).
+function ReviewStatsStrip({ userId }) {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    if (!userId) return;
+    let dead = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("srs_reviews").select("due_at, last_reviewed_at, reps")
+          .eq("user_id", userId);
+        if (error || !data || dead) return;
+        const now = Date.now();
+        const weekAgo = now - 7 * 86_400_000;
+        const reviewed7 = data.filter((r) => r.last_reviewed_at && new Date(r.last_reviewed_at).getTime() >= weekAgo);
+        const good7 = reviewed7.filter((r) => (r.reps ?? 0) > 0).length;
+        const dueNow = data.filter((r) => !r.due_at || new Date(r.due_at).getTime() <= now).length;
+        setStats({
+          total: data.length,
+          dueNow,
+          reviewed7: reviewed7.length,
+          accuracy: reviewed7.length ? Math.round((good7 / reviewed7.length) * 100) : null,
+        });
+      } catch { /* strip simply doesn't render */ }
+    })();
+    return () => { dead = true; };
+  }, [userId]);
+
+  if (!stats || stats.total === 0) return null;
+  const chips = [
+    { Icon: Layers, value: String(stats.dueNow), label: "due now" },
+    { Icon: History, value: String(stats.reviewed7), label: "reviewed · 7d" },
+    // No reviews in the window → accuracy is undefined; drop the chip rather than fake it.
+    ...(stats.accuracy != null ? [{ Icon: CheckCircle2, value: `${stats.accuracy}%`, label: "accuracy · 7d" }] : []),
+    { Icon: Library, value: String(stats.total), label: "cards tracked" },
+  ];
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 24 }}>
+      {chips.map(({ Icon, value, label }) => (
+        <div key={label} style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "8px 13px",
+          background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12,
+        }}>
+          <Icon size={14} color="rgb(var(--teal-rgb))" style={{ flexShrink: 0 }} />
+          <span style={{ fontFamily: "var(--font-sans)", fontSize: 14, fontWeight: 650, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{value}</span>
+          <span style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: "var(--text-dim)" }}>{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Main Study component ──────────────────────────────────────────────────────
 export default function Study() {
   const { userId, courses: liveCourses, studyConfig, setStudyConfig, updateUserField, userData } = useApp();
@@ -1114,6 +1380,10 @@ export default function Study() {
       <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "24px", letterSpacing: "-0.3px" }}>
         Study
       </h1>
+
+      {/* Reggie's proactive exam plan + review stats — both render nothing without data */}
+      <StudyPlanSection userId={userId} courses={liveCourses} />
+      <ReviewStatsStrip userId={userId} />
 
       <select
         value={course}
