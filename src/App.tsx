@@ -137,7 +137,19 @@ const SHELL_STYLES = `
     padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   }
   @media (min-width: 768px) {
+    /* Chat pane runs to the TRUE right edge of the viewport (like ChatGPT), so the
+       messages scrollbar sits at the end of the page instead of floating mid-screen
+       at a 1240px content cap. The 800px message column still centers itself. */
+    .nav-tabs.page-locked .app-page-transition {
+      max-width: none;
+      margin-left: 232px;
+      margin-right: 0;
+    }
+    .nav-tabs.page-locked.nav-collapsed .app-page-transition {
+      margin-left: 64px;
+    }
     .nav-tabs.page-locked .app-main {
+      padding-right: 0;
       padding-bottom: 24px;
     }
   }
