@@ -53,3 +53,50 @@ export async function brainHealth(store: Store, subject: string, now = Date.now(
 export async function exportBrain(store: Store, subject: string): Promise<Memory[]> {
   return store.bySubjects([subject], undefined, 100000, false);
 }
+
+export type BrainContext = {
+  stressLevel: number;                 // 0..10 (matches the legacy context_window scale)
+  momentum: "rising" | "steady" | "declining" | "stalled";
+  focus: string | null;                // top promoted focus text
+  recentSummary: string | null;        // living-mind digest summary
+  tone: string | null;                 // dominant recent emotional tone
+  signalCount: number;
+};
+
+/**
+ * Kernel context synthesis — the v2 replacement for brain-scheduler's LLM-synthesized
+ * context_window. A PURE, recomputable fold over the person's own signals/focuses/digest (no cron,
+ * no LLM, no stored row): stress from stressed/confused-tone density, momentum from recent-vs-prior
+ * signal cadence, focus from the top promoted hypothesis, summary from the living-mind digest. This
+ * is what lets the intervention path read the kernel instead of the legacy context_window table.
+ */
+export async function synthesizeContext(store: Store, subject: string, now = Date.now()): Promise<BrainContext> {
+  const live = (await store.bySubjects([subject], undefined, 800, false)).filter((m) => !m.forgotten_at);
+  const signals = live.filter((m) => m.kind === "signal");
+  const WEEK = 7 * 86_400_000;
+  const recent = signals.filter((s) => now - Date.parse(s.last_seen_at) < WEEK);
+  const prior = signals.filter((s) => { const d = now - Date.parse(s.last_seen_at); return d >= WEEK && d < 2 * WEEK; });
+
+  const stressed = recent.filter((s) => s.body?.emotional_tone === "stressed").length;
+  const confused = recent.filter((s) => s.body?.emotional_tone === "confused" || s.body?.event === "confusion").length;
+  const stressLevel = Math.max(0, Math.min(10, stressed * 2 + confused));
+
+  let momentum: BrainContext["momentum"] = "steady";
+  if (recent.length === 0 && prior.length > 0) momentum = "stalled";
+  else if (recent.length < prior.length * 0.5) momentum = "declining";
+  else if (recent.length > prior.length * 1.5 && recent.length >= 3) momentum = "rising";
+
+  const focuses = live.filter((m) => m.kind === "focus").sort((a, b) => b.salience - a.salience);
+  const digest = live.find((m) => m.kind === "digest");
+  const tones: Record<string, number> = {};
+  for (const s of recent) if (s.body?.emotional_tone) tones[s.body.emotional_tone] = (tones[s.body.emotional_tone] || 0) + 1;
+
+  return {
+    stressLevel,
+    momentum,
+    focus: (focuses[0]?.body?.text as string) ?? null,
+    recentSummary: (digest?.body?.summary as string) ?? null,
+    tone: Object.entries(tones).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+    signalCount: signals.length,
+  };
+}
