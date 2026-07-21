@@ -467,8 +467,9 @@ export default function NotificationPanel({
         )}
       </div>
 
-      {/* Scrollable list */}
-      <div style={{ overflowY: "auto", flex: 1 }}>
+      {/* Scrollable list — data-lenis-prevent stops the app-wide Lenis smooth
+          scroll from swallowing wheel events over this overlay. */}
+      <div data-lenis-prevent="" style={{ overflowY: "auto", flex: 1 }}>
         {loading ? (
           // Skeleton — three rows at varying widths
           <div style={{ padding: "6px 0" }}>

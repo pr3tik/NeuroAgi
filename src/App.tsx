@@ -977,7 +977,14 @@ export default function App() {
   // page-locked: INSIDE a room (activeRoomId set by RoomView on enter, cleared on
   // leave) — the room list keeps the readable 1240px cap like every other page.
   return (
-    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${navHover ? " nav-hover" : ""}${currentPage === "rooms" && activeRoomId || currentPage === "studyAssistant" ? " page-locked" : ""}${currentPage === "rooms" && activeRoomId ? " page-immersive" : ""}`}>
+    <div
+      className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${navHover ? " nav-hover" : ""}${currentPage === "rooms" && activeRoomId || currentPage === "studyAssistant" ? " page-locked" : ""}${currentPage === "rooms" && activeRoomId ? " page-immersive" : ""}`}
+      // Viewport-locked pages never scroll the document, but the global Lenis
+      // instance still swallows wheel events, deadening every nested scroll
+      // container (Reggie feed, room transcript). Opt the whole shell out here;
+      // Lenis honors data-lenis-prevent on any ancestor of the event target.
+      {...(currentPage === "rooms" && activeRoomId || currentPage === "studyAssistant" ? { "data-lenis-prevent": "" } : {})}
+    >
       {overlays}
       <TokenToast />
 

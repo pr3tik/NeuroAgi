@@ -3043,6 +3043,11 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
           <div
             onTouchStart={e => e.stopPropagation()}
             onTouchEnd={e => e.stopPropagation()}
+            // The app-wide Lenis smooth-scroll preventDefaults wheel events, which
+            // kills native wheel scrolling in this portal's nested containers
+            // (messages, history, textarea). data-lenis-prevent opts the whole
+            // window out — Lenis checks the event target's ancestors for it.
+            data-lenis-prevent=""
             style={{
               position: "fixed",
               ...(maximized
@@ -3265,7 +3270,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     New
                   </button>
                 </div>
-                <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
+                <div style={{ flex: 1, overflowY: "auto", padding: "8px", marginRight: 8 }}>
                   {conversations.length === 0 ? (
                     <p style={{ textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: "13px", marginTop: "40px" }}>
                       No saved chats yet.
@@ -3307,7 +3312,10 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
             )}
 
             {/* Messages */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            {/* marginRight keeps this list's scrollbar clear of the invisible 7px
+                east resize strip (zIndex 10) that otherwise sits on top of it and
+                turns scrollbar drags into window resizes. */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", marginRight: 8, display: "flex", flexDirection: "column", gap: "10px" }}>
               {messages.length === 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "40px", gap: "12px" }}>
                   <div style={{ width: 52, height: 52, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.14), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.10)" }} />
