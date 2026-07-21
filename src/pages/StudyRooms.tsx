@@ -2464,8 +2464,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 return (
                   <button key={key} onClick={() => { setCenterTab(key); if (key === "board" && !showBoard) handleOpenBoard(); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(var(--teal-rgb),0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#d3f0dc" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
                     {key === "session" && <Sparkles size={12} />}{key === "flashcards" && <BookOpen size={12} />}{label}
-                    {key === "session" && gs && gs.status !== "done" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
-                    {key === "flashcards" && fcCards.length > 0 && !fcDone && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
+                    {key === "session" && gs && gs.status !== "done" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(var(--teal-rgb))" }} />}
+                    {key === "flashcards" && fcCards.length > 0 && !fcDone && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(var(--teal-rgb))" }} />}
                   </button>
                 );
               })}
@@ -2520,7 +2520,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   {!gs ? (
                     /* Launcher */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
-                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><Sparkles size={26} color="#d3f0dc" /></div>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(var(--teal-rgb),0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><Sparkles size={26} color="#d3f0dc" /></div>
                       <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Start a guided session</h3>
                       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie plans it, teaches you step by step, and tracks your progress — grounded in your own course materials.</p>
                       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", justifyContent: "center" }}>
@@ -2555,7 +2555,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                           <button onClick={() => setGsTopic(courseName)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 11px", fontSize: 11.5, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{courseName}</button>
                         </div>
                       )}
-                      <button onClick={() => { if (gsUsingPicker) gsStartAssignment(); else beginGuidedSession(gsLaunchMode, gsTopic); }} disabled={!gsCanStart || gsBusy} style={{ background: (!gsCanStart || gsBusy) ? "rgba(var(--teal-rgb),0.2)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "12px 26px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!gsCanStart || gsBusy) ? "default" : "pointer", opacity: (!gsCanStart || gsBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(var(--teal-rgb),0.35)" }}>{gsBusy ? "Reggie is planning…" : "Start session →"}</button>
+                      <button onClick={() => { if (gsUsingPicker) gsStartAssignment(); else beginGuidedSession(gsLaunchMode, gsTopic); }} disabled={!gsCanStart || gsBusy} style={{ background: (!gsCanStart || gsBusy) ? "rgba(var(--teal-rgb),0.2)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)", border: "none", borderRadius: 12, padding: "12px 26px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!gsCanStart || gsBusy) ? "default" : "pointer", opacity: (!gsCanStart || gsBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(var(--teal-rgb),0.35)" }}>{gsBusy ? "Reggie is planning…" : "Start session →"}</button>
                     </div>
                   ) : gs.status === "done" ? (
                     /* Completion */
@@ -2565,7 +2565,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}>{gsNudge || "Great work — you finished every step."}</p>
                       <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{gs.steps.length} steps · {formatPomoTime(gsElapsedSec)} focused · {gs.topic}</p>
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => { setGs(null); setGsTopic(""); setGsStepContent({}); setGsExtra({}); setGsNudge(""); }} style={{ background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Start another</button>
+                        <button onClick={() => { setGs(null); setGsTopic(""); setGsStepContent({}); setGsExtra({}); setGsNudge(""); }} style={{ background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Start another</button>
                         <button onClick={() => setCenterTab("board")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Back to whiteboard</button>
                       </div>
                     </div>
@@ -2580,26 +2580,26 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                             <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{gs.topic}</span>
                           </div>
                           <div style={{ display: "inline-flex", alignItems: "center", gap: 10, flexShrink: 0, fontSize: 11.5, color: "var(--text-dim)" }}>
-                            <button onClick={() => { const on = !gsVoiceOn; setGsVoiceOn(on); if (on) { const c = gsStepContent[gs.currentIdx]; if (c) gsSpeak(c); } else gsStopSpeak(); }} title={gsVoiceOn ? "Auto-read is on — Reggie reads each step aloud" : "Auto-read steps aloud"} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: gsVoiceOn ? "rgba(94,234,212,0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsVoiceOn ? "rgba(94,234,212,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 600, color: gsVoiceOn ? "#5eead4" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{gsVoiceOn ? <Volume2 size={12} /> : <VolumeX size={12} />}{gsVoiceOn ? "Auto-read" : "Voice"}</button>
+                            <button onClick={() => { const on = !gsVoiceOn; setGsVoiceOn(on); if (on) { const c = gsStepContent[gs.currentIdx]; if (c) gsSpeak(c); } else gsStopSpeak(); }} title={gsVoiceOn ? "Auto-read is on — Reggie reads each step aloud" : "Auto-read steps aloud"} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: gsVoiceOn ? "rgba(var(--teal-rgb),0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsVoiceOn ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 600, color: gsVoiceOn ? "#A9B6FF" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{gsVoiceOn ? <Volume2 size={12} /> : <VolumeX size={12} />}{gsVoiceOn ? "Auto-read" : "Voice"}</button>
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }} title="Time focused"><Timer size={12} />{formatPomoTime(gsElapsedSec)}</span>
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#a5b4fc" }} title="Reggie's estimate">≈ {gsRemainMin} min left</span>
                           </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <div style={{ flex: 1, height: 7, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                            <div style={{ width: `${Math.round(gsProgress * 100)}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, rgb(var(--teal-rgb)), #5eead4)", transition: "width 0.4s ease" }} />
+                            <div style={{ width: `${Math.round(gsProgress * 100)}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, rgb(var(--teal-rgb)), #A9B6FF)", transition: "width 0.4s ease" }} />
                           </div>
                           <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", flexShrink: 0 }}>Step {Math.min(gs.currentIdx + 1, gs.steps.length)} of {gs.steps.length}</span>
                         </div>
                         <div style={{ display: "flex", gap: 5, marginTop: 9, flexWrap: "wrap" }}>
                           {gs.steps.map((s, i) => {
                             const state = i < gs.currentIdx ? "done" : i === gs.currentIdx ? "cur" : "todo";
-                            return <span key={i} title={s.title} style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 999, background: state === "cur" ? "rgba(var(--teal-rgb),0.25)" : state === "done" ? "rgba(94,234,212,0.14)" : "rgba(255,255,255,0.04)", border: `1px solid ${state === "cur" ? "rgba(var(--teal-rgb),0.5)" : state === "done" ? "rgba(94,234,212,0.3)" : "rgba(255,255,255,0.08)"}`, color: state === "cur" ? "#d3f0dc" : state === "done" ? "#5eead4" : "var(--text-dim)", fontWeight: state === "todo" ? 400 : 600 }}>{state === "done" ? "✓ " : ""}{i + 1}</span>;
+                            return <span key={i} title={s.title} style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 999, background: state === "cur" ? "rgba(var(--teal-rgb),0.25)" : state === "done" ? "rgba(var(--teal-rgb),0.14)" : "rgba(255,255,255,0.04)", border: `1px solid ${state === "cur" ? "rgba(var(--teal-rgb),0.5)" : state === "done" ? "rgba(var(--teal-rgb),0.3)" : "rgba(255,255,255,0.08)"}`, color: state === "cur" ? "#d3f0dc" : state === "done" ? "#A9B6FF" : "var(--text-dim)", fontWeight: state === "todo" ? 400 : 600 }}>{state === "done" ? "✓ " : ""}{i + 1}</span>;
                           })}
                         </div>
                       </div>
                       {gsNudge && (
-                        <div style={{ flexShrink: 0, marginBottom: 10, background: "rgba(94,234,212,0.09)", border: "1px solid rgba(94,234,212,0.22)", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, color: "#7dd3c8", display: "flex", alignItems: "center", gap: 7 }}><Sparkles size={13} />{gsNudge}</div>
+                        <div style={{ flexShrink: 0, marginBottom: 10, background: "rgba(var(--teal-rgb),0.09)", border: "1px solid rgba(var(--teal-rgb),0.22)", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, color: "#7dd3c8", display: "flex", alignItems: "center", gap: 7 }}><Sparkles size={13} />{gsNudge}</div>
                       )}
                       {/* Teaching content — scrolls within the stage */}
                       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
@@ -2608,7 +2608,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                             <h4 style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 3px" }}>{gs.steps[gs.currentIdx]?.title}</h4>
                             <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0 }}>{gs.steps[gs.currentIdx]?.goal}</p>
                           </div>
-                          <button onClick={() => (gsSpeaking ? gsStopSpeak() : gsSpeak(gsStepContent[gs.currentIdx] || ""))} disabled={!gsStepContent[gs.currentIdx]} title={gsSpeaking ? "Stop reading" : "Read this step aloud"} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, background: gsSpeaking ? "rgba(94,234,212,0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsSpeaking ? "rgba(94,234,212,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 11.5, fontWeight: 600, color: gsSpeaking ? "#5eead4" : "var(--text-secondary)", cursor: gsStepContent[gs.currentIdx] ? "pointer" : "default", opacity: gsStepContent[gs.currentIdx] ? 1 : 0.5, fontFamily: "inherit" }}>{gsSpeaking ? <><VolumeX size={12} />Stop</> : <><Volume2 size={12} />Read aloud</>}</button>
+                          <button onClick={() => (gsSpeaking ? gsStopSpeak() : gsSpeak(gsStepContent[gs.currentIdx] || ""))} disabled={!gsStepContent[gs.currentIdx]} title={gsSpeaking ? "Stop reading" : "Read this step aloud"} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, background: gsSpeaking ? "rgba(var(--teal-rgb),0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsSpeaking ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 11.5, fontWeight: 600, color: gsSpeaking ? "#A9B6FF" : "var(--text-secondary)", cursor: gsStepContent[gs.currentIdx] ? "pointer" : "default", opacity: gsStepContent[gs.currentIdx] ? 1 : 0.5, fontFamily: "inherit" }}>{gsSpeaking ? <><VolumeX size={12} />Stop</> : <><Volume2 size={12} />Read aloud</>}</button>
                         </div>
                         <div style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 14 }}>
                           <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(var(--teal-rgb),0.2)", border: "1px solid rgba(var(--teal-rgb),0.35)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Sparkles size={15} color="#c4b5fd" /></div>
@@ -2630,7 +2630,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 12 }}>
                         <button onClick={gsStuck} disabled={gsBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.6 : 1, fontFamily: "inherit" }}>I'm stuck</button>
                         <button onClick={() => setGsAskOpen(o => !o)} style={{ background: gsAskOpen ? "rgba(var(--teal-rgb),0.15)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsAskOpen ? "rgba(var(--teal-rgb),0.35)" : "rgba(255,255,255,0.12)"}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: gsAskOpen ? "#c4b5fd" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Ask a question</button>
-                        <button onClick={gsNext} disabled={gsBusy} style={{ marginLeft: "auto", background: gsBusy ? "rgba(var(--teal-rgb),0.25)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.7 : 1, fontFamily: "inherit", boxShadow: "0 6px 18px rgba(var(--teal-rgb),0.3)" }}>{gs.currentIdx >= gs.steps.length - 1 ? "Finish ✓" : "Continue →"}</button>
+                        <button onClick={gsNext} disabled={gsBusy} style={{ marginLeft: "auto", background: gsBusy ? "rgba(var(--teal-rgb),0.25)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.7 : 1, fontFamily: "inherit", boxShadow: "0 6px 18px rgba(var(--teal-rgb),0.3)" }}>{gs.currentIdx >= gs.steps.length - 1 ? "Finish ✓" : "Continue →"}</button>
                       </div>
                     </div>
                   )}
@@ -2641,12 +2641,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   {fcCards.length === 0 ? (
                     /* Launcher */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
-                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#d3f0dc" /></div>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(var(--teal-rgb),0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#d3f0dc" /></div>
                       <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Flashcards</h3>
                       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie builds a deck on any topic — grounded in your course materials — and quizzes you.</p>
                       <input value={fcTopic} onChange={e => setFcTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && fcTopic.trim()) fcGenerate(fcTopic); }} placeholder="Topic to make cards on…" style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <button onClick={() => fcGenerate(fcTopic)} disabled={!fcTopic.trim() || fcBusy} style={{ background: (!fcTopic.trim() || fcBusy) ? "rgba(var(--teal-rgb),0.2)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!fcTopic.trim() || fcBusy) ? "default" : "pointer", opacity: (!fcTopic.trim() || fcBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(var(--teal-rgb),0.35)" }}>{fcBusy ? "Building deck…" : "Generate deck →"}</button>
+                        <button onClick={() => fcGenerate(fcTopic)} disabled={!fcTopic.trim() || fcBusy} style={{ background: (!fcTopic.trim() || fcBusy) ? "rgba(var(--teal-rgb),0.2)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!fcTopic.trim() || fcBusy) ? "default" : "pointer", opacity: (!fcTopic.trim() || fcBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(var(--teal-rgb),0.35)" }}>{fcBusy ? "Building deck…" : "Generate deck →"}</button>
                         {room.course_id && <button onClick={fcLoadCourseDeck} disabled={fcBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 18px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: fcBusy ? "default" : "pointer", fontFamily: "inherit" }}>Load my deck</button>}
                       </div>
                     </div>
@@ -2655,10 +2655,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
                       <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
                       <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Deck complete</h3>
-                      <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}><span style={{ color: "#5eead4", fontWeight: 600 }}>{fcResults.got} got it</span> · <span style={{ color: "#fca5a5", fontWeight: 600 }}>{fcResults.missed} to review</span></p>
+                      <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}><span style={{ color: "#A9B6FF", fontWeight: 600 }}>{fcResults.got} got it</span> · <span style={{ color: "#fca5a5", fontWeight: 600 }}>{fcResults.missed} to review</span></p>
                       <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{fcCards.length} cards</p>
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => { setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }} style={{ background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Study again</button>
+                        <button onClick={() => { setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }} style={{ background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Study again</button>
                         <button onClick={fcReset} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>New deck</button>
                       </div>
                     </div>
@@ -2667,22 +2667,22 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
                       <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
                         <div style={{ flex: 1, height: 6, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                          <div style={{ width: `${Math.round((fcIdx / fcCards.length) * 100)}%`, height: "100%", background: "linear-gradient(90deg, rgb(var(--teal-rgb)), #5eead4)", transition: "width 0.3s ease" }} />
+                          <div style={{ width: `${Math.round((fcIdx / fcCards.length) * 100)}%`, height: "100%", background: "linear-gradient(90deg, rgb(var(--teal-rgb)), #A9B6FF)", transition: "width 0.3s ease" }} />
                         </div>
                         <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", flexShrink: 0 }}>Card {fcIdx + 1} of {fcCards.length}</span>
                         <button onClick={fcReset} title="New deck" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 10px", fontSize: 11, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Exit</button>
                       </div>
-                      <button onClick={() => setFcFlipped(f => !f)} style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: 12, background: fcFlipped ? "rgba(94,234,212,0.06)" : "rgba(var(--teal-rgb),0.07)", border: `1px solid ${fcFlipped ? "rgba(94,234,212,0.25)" : "rgba(var(--teal-rgb),0.25)"}`, borderRadius: 16, padding: "24px", cursor: "pointer", fontFamily: "inherit", overflow: "auto" }}>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: fcFlipped ? "#5eead4" : "#a5b4fc" }}>{fcFlipped ? "Answer" : "Question"}</span>
+                      <button onClick={() => setFcFlipped(f => !f)} style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: 12, background: fcFlipped ? "rgba(var(--teal-rgb),0.06)" : "rgba(var(--teal-rgb),0.07)", border: `1px solid ${fcFlipped ? "rgba(var(--teal-rgb),0.25)" : "rgba(var(--teal-rgb),0.25)"}`, borderRadius: 16, padding: "24px", cursor: "pointer", fontFamily: "inherit", overflow: "auto" }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: fcFlipped ? "#A9B6FF" : "#a5b4fc" }}>{fcFlipped ? "Answer" : "Question"}</span>
                         <span style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.45, color: "var(--text-primary)", maxWidth: 460 }}>{fcFlipped ? fcCards[fcIdx]?.a : fcCards[fcIdx]?.q}</span>
                         {!fcFlipped && <span style={{ fontSize: 11.5, color: "var(--text-dim)" }}>Tap to reveal</span>}
                       </button>
                       <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 12 }}>
                         {fcFlipped ? (<>
                           <button onClick={() => fcRate(false)} style={{ flex: 1, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fca5a5", cursor: "pointer", fontFamily: "inherit" }}>Missed</button>
-                          <button onClick={() => fcRate(true)} style={{ flex: 1, background: "rgba(94,234,212,0.14)", border: "1px solid rgba(94,234,212,0.35)", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#5eead4", cursor: "pointer", fontFamily: "inherit" }}>Got it</button>
+                          <button onClick={() => fcRate(true)} style={{ flex: 1, background: "rgba(var(--teal-rgb),0.14)", border: "1px solid rgba(var(--teal-rgb),0.35)", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#A9B6FF", cursor: "pointer", fontFamily: "inherit" }}>Got it</button>
                         </>) : (
-                          <button onClick={() => setFcFlipped(true)} style={{ flex: 1, background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Reveal answer</button>
+                          <button onClick={() => setFcFlipped(true)} style={{ flex: 1, background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)", border: "none", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Reveal answer</button>
                         )}
                       </div>
                     </div>
@@ -2708,13 +2708,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     aspectRatio: isMe ? "16 / 10" : "1 / 1",
                     borderRadius: 14,
                     background: "linear-gradient(160deg, rgba(var(--teal-rgb),0.16), rgba(255,255,255,0.03))",
-                    border: `1.5px solid ${speaking ? "rgba(94,234,212,0.75)" : "rgba(255,255,255,0.12)"}`,
-                    boxShadow: speaking ? "0 0 0 3px rgba(94,234,212,0.18)" : "none",
+                    border: `1.5px solid ${speaking ? "rgba(var(--teal-rgb),0.75)" : "rgba(255,255,255,0.12)"}`,
+                    boxShadow: speaking ? "0 0 0 3px rgba(var(--teal-rgb),0.18)" : "none",
                     display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden",
                   }}>
                     <div style={{ width: isMe ? 62 : 48, height: isMe ? 62 : 48, borderRadius: "50%", background: "rgba(var(--teal-rgb),0.3)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMe ? 24 : 18, fontWeight: 600, color: "#e6f4ea" }}>{initial}</div>
                     <span style={{ position: "absolute", bottom: 9, left: 12, fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)" }}>{isMe ? "You" : (m.name || "Guest")}</span>
-                    <div style={{ position: "absolute", bottom: 9, right: 12, display: "flex", gap: 7, color: speaking ? "#5eead4" : "var(--text-dim)" }}>
+                    <div style={{ position: "absolute", bottom: 9, right: 12, display: "flex", gap: 7, color: speaking ? "#A9B6FF" : "var(--text-dim)" }}>
                       
                     </div>
                   </div>
@@ -2736,7 +2736,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               </div>
             )}
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={() => setShowReggie(true)} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(94,234,212,0.3)", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#34d399" }} />Call Reggie</button>
+              <button onClick={() => setShowReggie(true)} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(var(--teal-rgb),0.3)", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "rgb(var(--teal-rgb))" }} />Call Reggie</button>
               <button onClick={() => (isHost ? handleCloseRoom() : handleLeave())} title={isHost ? "Closes the room for everyone" : "Leave this room"} style={{ flex: 1, background: "rgba(239,68,68,0.85)", border: "none", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>{isHost ? "Close room" : "Leave room"}</button>
             </div>
           </div>
@@ -2996,7 +2996,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           </div>
           <div style={{ padding: 13 }}>
             {musicTracks.length === 0 ? (
-              <button onClick={() => toggleMusic()} disabled={musicLoading} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: musicLoading ? "default" : "pointer", opacity: musicLoading ? 0.7 : 1, fontFamily: "inherit" }}>{musicLoading ? "Finding tracks…" : <><Play size={14} />Play focus music</>}</button>
+              <button onClick={() => toggleMusic()} disabled={musicLoading} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: musicLoading ? "default" : "pointer", opacity: musicLoading ? 0.7 : 1, fontFamily: "inherit" }}>{musicLoading ? "Finding tracks…" : <><Play size={14} />Play focus music</>}</button>
             ) : (<>
               <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
                 {musicTracks[musicIdx]?.artwork

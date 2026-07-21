@@ -35,16 +35,16 @@
      exist so call sites can keep their exact alpha: rgba(var(--gold-rgb), 0.15).
      JS-side mirrors (canvas/WebGL code that can't read CSS vars) live in
      src/lib/theme.ts — keep the two in sync. */
-  --gold:            #C49A3C;
-  --gold-rgb:        196, 154, 60;
-  --gold-bright:     rgb(255, 215, 80);
-  --gold-bright-rgb: 255, 215, 80;
-  --cream:           #F6F2E9;
-  --cream-rgb:       246, 242, 233;
+  --gold:            #C9D4FF;         /* ice-lavender — the old olive-gold clashed with periwinkle */
+  --gold-rgb:        201, 212, 255;
+  --gold-bright:     rgb(230, 236, 255);
+  --gold-bright-rgb: 230, 236, 255;
+  --cream:           #F0F3FF;
+  --cream-rgb:       240, 243, 255;
   --teal:            rgb(122, 140, 245);
   --teal-rgb:        122, 140, 245;   /* periwinkle accent (was teal) — re-skins every accent usage */
   --amber-rgb:       255, 190, 0;
-  --ink-warm:        #1a1814;
+  --ink-warm:        #1A1D33;
 
   /* Semantic aliases — prefer these in new code */
   --color-brand:       var(--gold);   /* AI/tutor accent, highlights, active states */
@@ -148,16 +148,16 @@
   --color-amber-bar:    rgba(255, 214, 92, 0.75);
 
   /* Gold family brightens slightly so it keeps contrast on the blue ground */
-  --gold:            #EBC25E;
-  --gold-rgb:        235, 194, 94;
-  --gold-bright:     rgb(255, 224, 120);
-  --gold-bright-rgb: 255, 224, 120;
-  --cream:           #FDF9EE;
-  --cream-rgb:       253, 249, 238;
+  --gold:            #E9EDFF;
+  --gold-rgb:        233, 237, 255;
+  --gold-bright:     rgb(255, 255, 255);
+  --gold-bright-rgb: 255, 255, 255;
+  --cream:           #F5F7FF;
+  --cream-rgb:       245, 247, 255;
   --teal:            rgb(175, 190, 255);
   --teal-rgb:        175, 190, 255;         /* pale periwinkle — reads on the blue ground */
   --amber-rgb:       255, 214, 92;
-  --ink-warm:        #2E3A9E;
+  --ink-warm:        #232A6E;
 
   --depth-line: 0 1px 0 rgba(255, 255, 255, 0.14);
 }
