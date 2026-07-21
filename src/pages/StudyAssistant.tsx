@@ -870,8 +870,14 @@ export default function StudyAssistant() {
       {!isEmpty && (
         <>
           {/* Scroll container spans the FULL chat pane (scrollbar at the far edge, not
-              mid-page); the message column centers inside it with room to breathe. */}
-          <div style={{ flex: 1, overflowY: "auto", boxSizing: "border-box" }}>
+              mid-page); the message column centers inside it with room to breathe.
+              The mask fades the CONTENT near the input instead of painting a backdrop
+              band over the page glow — natural over any background/theme. */}
+          <div style={{
+            flex: 1, overflowY: "auto", boxSizing: "border-box",
+            WebkitMaskImage: "linear-gradient(to bottom, black calc(100% - 20px), transparent)",
+            maskImage: "linear-gradient(to bottom, black calc(100% - 20px), transparent)",
+          }}>
             <div style={{ maxWidth: "800px", width: "100%", margin: "0 auto", padding: "28px 24px 16px", boxSizing: "border-box" }}>
             {messages.map((m, i) =>
               m.system
@@ -885,10 +891,12 @@ export default function StudyAssistant() {
             </div>
           </div>
 
-          {/* Pinned bottom input — full-width strip, centered column inside */}
+          {/* Pinned bottom input — full-width strip, centered column inside.
+              No painted backdrop: the input is a flex SIBLING of the scroller (messages
+              never pass underneath), so a gradient here just draws a dark band over the
+              page's ambient glow. The soft fade lives on the scroller's mask instead. */}
           <div style={{
             padding: "12px 24px 20px",
-            background: "linear-gradient(to top, var(--color-bg) 70%, transparent)",
             boxSizing: "border-box",
           }}>
           <div style={{ maxWidth: "800px", width: "100%", margin: "0 auto", boxSizing: "border-box", position: "relative" }}>
