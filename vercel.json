@@ -16,6 +16,6 @@
     { "path": "/api/assignment-reminder",   "schedule": "0 8 * * *"    },
     { "path": "/api/brain-intervention",    "schedule": "*/30 * * * *"  },
     { "path": "/api/arbiter",               "schedule": "*/5 * * * *"   },
-    { "path": "/api/exam-mastery-reminder", "schedule": "0 9 * * *"     }
+    { "path": "/api/exam-mastery-reminder", "schedule": "0 7 * * *"     }
   ]
 }

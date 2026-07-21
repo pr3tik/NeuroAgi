@@ -86,6 +86,36 @@ const REGGIE_TOOL_LABELS = {
 };
 const reggieToolLabel = (n) => REGGIE_TOOL_LABELS[n] || (n || "").replace(/_/g, " ");
 
+/* Manus-style tool-activity dropdown: collapsed shows the CURRENT fetch while
+   streaming ("searching your materials…"), or a summary once done; expanding
+   reveals the timeline of every pull with its outcome + the sources it hit. */
+function ActivityDropdown({ steps, live }) {
+  const [open, setOpen] = useState(false);
+  if (!steps?.length) return null;
+  const running = steps.find(s => s.status === "running");
+  const label = live && running ? `${running.label}…`
+    : `Pulled info · ${steps.length} step${steps.length > 1 ? "s" : ""}`;
+  return (
+    <div style={{ marginBottom: 8, fontSize: 12 }}>
+      <button onClick={() => setOpen(o => !o)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "5px 10px", color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>
+        {live && running ? <span className="nr-dot" /> : <span style={{ color: "rgb(var(--teal-rgb))" }}>✓</span>}
+        <span>{label}</span>
+        <span style={{ opacity: 0.5 }}>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div style={{ marginTop: 6, borderLeft: "2px solid rgba(var(--teal-rgb),0.3)", paddingLeft: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+          {steps.map((st, i) => (
+            <div key={i} style={{ color: "var(--text-dim)" }}>
+              {st.status === "running" ? "…" : st.status === "ok" ? "✓" : "⚠"} {st.label}
+              {st.sources?.length ? <span style={{ opacity: 0.75 }}> — {st.sources.slice(0, 3).map(x => x.title).join(", ")}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function isVizRequest(text) {
   const lower = text.toLowerCase();
   if (NAV_OVERRIDE_KEYWORDS.some(kw => lower.includes(kw))) return false;
@@ -931,6 +961,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   }, [reggieMode]);
   const [speaking,     setSpeaking]     = useState(false);
   const [streamingMsg, setStreamingMsg] = useState("");
+  const [liveActivity, setLiveActivity] = useState([]);   // Reggie tool-activity timeline (live turn)
   const typeTimerRef = useRef(null);
 
   // ── Visualization artifact state ────────────────────────────────────────────
@@ -2166,6 +2197,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     const voice = voiceModeRef.current;
     const speakLive = voice && !muted;                 // sentence-chunked TTS while streaming
     let streamed = "", toolNote = "", finalOut = "", errMsg = null;
+    let activity = []; setLiveActivity([]);
     let widgets: Array<{ type: string; data: any }> = [];
     let turnSources: Array<{ title: string; heading?: string | null; loc?: string | null }> = [];
     let turnTraceId: string | null = null;
@@ -2219,8 +2251,13 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
         {
           onToken:      (d) => { streamed += d; toolNote = ""; paint(); if (speakLive) chunker.feed(d); },
           onReset:      ()  => { streamed = ""; paint(); chunker.reset(); },
-          onToolCall:   (n) => { toolNote = `🔧 ${reggieToolLabel(n)}…`; paint(); },
-          onToolResult: ()  => { /* keep the note until the next token/reset */ },
+          onToolCall:   (n) => { activity = [...activity, { name: n, label: reggieToolLabel(n), status: "running" }]; setLiveActivity(activity); },
+          onToolResult: (n, ok, srcs) => {
+            for (let i = activity.length - 1; i >= 0; i--) {
+              if (activity[i].name === n && activity[i].status === "running") { activity[i] = { ...activity[i], status: ok ? "ok" : "err", sources: srcs }; break; }
+            }
+            activity = [...activity]; setLiveActivity(activity);
+          },
           onDone:       (r) => { finalOut = r.output || ""; widgets = r.widgets || []; turnSources = r.sources || []; turnTraceId = r.traceId || null; },
           onError:      (m) => { errMsg = m; },
         },
@@ -2265,7 +2302,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
 
     if (speakLive) {
       // Audio for every sentence is already queued — commit the bubble, wait it out.
-      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}), ...(turnSources.length ? { sources: turnSources } : {}), ...(turnTraceId ? { traceId: turnTraceId } : {}) }]);
+      setMessages(m => [...m, { role: "assistant", content: out, ...(activity.length ? { activity } : {}), ...(quizCards ? { quiz: quizCards } : {}), ...(turnSources.length ? { sources: turnSources } : {}), ...(turnTraceId ? { traceId: turnTraceId } : {}) }]); setLiveActivity([]);
       lastSpokenTextRef.current = out;
       await ttsChain;
       voiceTTSAbortRef.current = false;
@@ -2277,7 +2314,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
       await speakAndType(out);
       if (quizCards) setMessages(m => [...m, { role: "assistant", content: "Here's your quiz:", quiz: quizCards }]);
     } else {
-      setMessages(m => [...m, { role: "assistant", content: out, ...(quizCards ? { quiz: quizCards } : {}), ...(turnSources.length ? { sources: turnSources } : {}), ...(turnTraceId ? { traceId: turnTraceId } : {}) }]);
+      setMessages(m => [...m, { role: "assistant", content: out, ...(activity.length ? { activity } : {}), ...(quizCards ? { quiz: quizCards } : {}), ...(turnSources.length ? { sources: turnSources } : {}), ...(turnTraceId ? { traceId: turnTraceId } : {}) }]); setLiveActivity([]);
     }
 
     // ── Voice actions (parity with the classic tutor, shared executors). Gate on the
@@ -3098,6 +3135,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     >
                       {/* Only assistant turns are markdown — a student typing "a*b*c" or
                           "# of items" must see their text verbatim, not a parse of it. */}
+                      {m.role === "assistant" && m.activity && <ActivityDropdown steps={m.activity} live={false} />}
                       {m.role === "assistant"
                         ? <Markdown remarkPlugins={[remarkGfm]}>{m.content}</Markdown>
                         : m.content}
@@ -3279,6 +3317,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     fontSize: "14px", lineHeight: "1.6",
                     border: "1px solid rgba(255,255,255,0.07)",
                   }}>
+                  <ActivityDropdown steps={liveActivity} live />
                   <Markdown remarkPlugins={[remarkGfm]}>{streamingMsg}</Markdown>
                   <span style={{ opacity: 0.4, animation: "blink 1s step-end infinite" }}>|</span>
                 </div>
