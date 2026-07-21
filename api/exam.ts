@@ -102,6 +102,18 @@ async function generatePlan(req: any, res: any, sbUrl?: string, sbKey?: string) 
   if (!userId || courseId == null || !examDate) {
     return res.status(400).json({ error: "userId, courseId, and examDate are required" });
   }
+  const result = await generatePlanCore({ userId, courseId, examDate, topics, syllabusText, dailyMinutes, sbUrl, sbKey });
+  if ("error" in result) return res.status(result.status || 502).json({ error: result.error });
+  return res.status(200).json({ planId: result.planId, sessions: result.sessions });
+}
+
+/** Plan generation core, shared by the HTTP action above and the proactive
+ *  exam-mastery-reminder cron (which generates the plan unprompted). */
+export async function generatePlanCore({ userId, courseId, examDate, topics, syllabusText, dailyMinutes, sbUrl, sbKey }: {
+  userId: string; courseId: any; examDate: string;
+  topics?: string[]; syllabusText?: string; dailyMinutes?: number;
+  sbUrl?: string; sbKey?: string;
+}): Promise<{ planId: string; sessions: any[] } | { error: string; status?: number }> {
   const sys = "You are a study planner. Given an exam date, topics, and a daily study budget, produce a dated spaced-study plan. Respond with STRICT JSON only, no prose.";
   const prompt = `Exam date: ${examDate}
 Daily study budget: ${dailyMinutes ?? 60} minutes
@@ -119,7 +131,7 @@ Spread sessions from today up to the day before the exam, spacing topics for ret
     // generation time vs the old 8000 (this call dominated a ~118s planner turn in E2E).
     max_tokens: 3000, metadata: { tool: "exam.generate_plan", user_id: userId },
   });
-  if (!r.ok) return res.status(r.status || 502).json({ error: r.error ?? "plan generation failed" });
+  if (!r.ok) return { error: r.error ?? "plan generation failed", status: r.status };
 
   const parsed = parseJsonLoose(r.content, { sessions: [] });
   const sessions = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
@@ -133,7 +145,7 @@ Spread sessions from today up to the day before the exam, spacing topics for ret
       body: JSON.stringify({ id: planId, user_id: userId, course_id: courseId, exam_date: examDate, sessions }),
     }).catch(() => {});
   }
-  return res.status(200).json({ planId, sessions });
+  return { planId, sessions };
 }
 
 async function generateQuiz(req: any, res: any, sbUrl?: string, sbKey?: string) {

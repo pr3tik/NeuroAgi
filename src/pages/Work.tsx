@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { calendarDaysUntil } from "../lib/dueDate";
 import { useApp } from "../context/AppContext";
-import { Flame, Layers, MessageCircle } from "lucide-react";
+import { Flame, Layers, MessageCircle, GraduationCap } from "lucide-react";
 import { supabase } from "../api/supabase";
 import { SectionHeader, ObjectCard, MetaLine } from "../components/uikit";
 import { coursesToGpa } from "../lib/gpa";
@@ -235,15 +235,20 @@ export default function Work() {
   // ── Home extras (UI/UX spec v2): resume state + indexed materials ──────────
   // "Pick up where you left off" mirrors the reference's continue-learning card;
   // "Your materials" shows what Reggie can actually teach from (rag_documents).
-  const [homeExtras, setHomeExtras] = useState<{ srsDue: number; materials: { id: string; name: string; count: number }[] }>({ srsDue: 0, materials: [] });
+  const [homeExtras, setHomeExtras] = useState<{ srsDue: number; materials: { id: string; name: string; count: number }[]; plan: any | null }>({ srsDue: 0, materials: [], plan: null });
   useEffect(() => {
     if (!userId) return;
     let dead = false;
     (async () => {
       try {
-        const [srsR, ragR] = await Promise.all([
+        const [srsR, ragR, planR] = await Promise.all([
           supabase.from("srs_reviews").select("card_key").eq("user_id", userId).lte("due_at", new Date().toISOString()),
           supabase.from("rag_documents").select("course_id").eq("user_id", userId),
+          // Proactive study plan (exam-mastery-reminder cron): the freshest plan for the
+          // nearest still-upcoming exam. Owner-scoped RLS; absent table/rows -> no card.
+          supabase.from("exam_plans").select("id, course_id, exam_date, sessions, created_at")
+            .eq("user_id", userId).gte("exam_date", new Date().toISOString().slice(0, 10))
+            .order("exam_date", { ascending: true }).order("created_at", { ascending: false }).limit(1),
         ]);
         const counts: Record<string, number> = {};
         for (const r of (ragR.data ?? []) as any[]) { const k = r.course_id ?? "other"; counts[k] = (counts[k] || 0) + 1; }
@@ -253,7 +258,7 @@ export default function Work() {
             return { id: cid, name: c?.courseCode || c?.name || (cid === "other" ? "Other uploads" : "Course"), count: n as number };
           })
           .sort((a, b) => b.count - a.count).slice(0, 4);
-        if (!dead) setHomeExtras({ srsDue: (srsR.data ?? []).length, materials });
+        if (!dead) setHomeExtras({ srsDue: (srsR.data ?? []).length, materials, plan: (planR.data ?? [])[0] ?? null });
       } catch { /* non-fatal — sections simply don't render */ }
     })();
     return () => { dead = true; };
@@ -483,6 +488,52 @@ export default function Work() {
         <div style={{ maxWidth: "1400px", width: "100%", boxSizing: "border-box" as const, marginBottom: isMobile ? "20px" : "28px", animation: "workRise 0.6s ease both", animationDelay: "120ms" }}>
           <DailyBriefing isMobile={isMobile} />
         </div>
+
+        {/* ── Proactive study plan (exam-mastery cron) — an imminent exam outranks everything ── */}
+        {homeExtras.plan && Array.isArray(homeExtras.plan.sessions) && homeExtras.plan.sessions.length > 0 && (() => {
+          const plan = homeExtras.plan;
+          const course: any = (courses ?? []).find((x: any) => String(x.dbId ?? x.id) === String(plan.course_id));
+          const courseLabel = course?.courseCode || course?.name || "Upcoming exam";
+          const examLabel = new Date(plan.exam_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+          const fmtDay = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+          const shown = plan.sessions.slice(0, 3);
+          return (
+            <div style={{ marginBottom: isMobile ? "24px" : "32px", animation: "workRise 0.6s ease both", animationDelay: "120ms" }}>
+              <SectionHeader title="Your study plan" desc={`${courseLabel} · exam ${examLabel} — built from your review data, weakest topics first`} />
+              <div style={{
+                background: "rgba(var(--teal-rgb),0.06)", border: "1px solid rgba(var(--teal-rgb),0.22)",
+                borderRadius: "16px", padding: "18px 20px", maxWidth: 560,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <GraduationCap size={18} color="rgb(var(--teal-rgb))" />
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{plan.sessions.length} session{plan.sessions.length === 1 ? "" : "s"} to exam day</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                  {shown.map((s: any, i: number) => (
+                    <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 10, fontSize: 13.5 }}>
+                      <span style={{ color: "var(--text-secondary)", minWidth: 92, fontVariantNumeric: "tabular-nums" }}>{fmtDay(s.date)}</span>
+                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.topic}</span>
+                      <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{s.estimatedMinutes ?? 60} min</span>
+                    </div>
+                  ))}
+                  {plan.sessions.length > shown.length && (
+                    <span style={{ fontSize: 12, color: "var(--text-dim)" }}>+{plan.sessions.length - shown.length} more session{plan.sessions.length - shown.length === 1 ? "" : "s"}</span>
+                  )}
+                </div>
+                <button
+                  onClick={goPage("studyAssistant")}
+                  style={{
+                    background: "rgba(var(--teal-rgb),0.14)", border: "1px solid rgba(var(--teal-rgb),0.3)",
+                    color: "rgb(var(--teal-rgb))", borderRadius: "10px", padding: "8px 16px",
+                    fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >
+                  Work through it with Reggie
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Pick up where you left off + Your materials (spec v2 sections) ── */}
         {(homeExtras.srsDue > 0 || homeExtras.materials.length > 0) && (

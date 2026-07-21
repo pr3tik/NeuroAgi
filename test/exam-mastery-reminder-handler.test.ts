@@ -36,11 +36,26 @@ const anthropicOk = (json: any) => {
   return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
 };
 
-function stubFetch({ quizzes = [quiz()] as any[], hasProfile = true, hasCards = true, assessment = { testedTopics: ["Stoichiometry"], masteryPct: 42, weakestTopics: ["The Mole"] } } = {}) {
+const planSessions = [
+  { date: "2026-07-21", topic: "The Mole", activities: ["review flashcards"], materialIds: [], estimatedMinutes: 60 },
+  { date: "2026-07-22", topic: "Stoichiometry", activities: ["practice quiz"], materialIds: [], estimatedMinutes: 60 },
+  { date: "2026-07-23", topic: "Mixed review", activities: ["practice quiz"], materialIds: [], estimatedMinutes: 45 },
+];
+
+function stubFetch({
+  quizzes = [quiz()] as any[], hasProfile = true, hasCards = true,
+  assessment = { testedTopics: ["Stoichiometry"], masteryPct: 42, weakestTopics: ["The Mole"] } as any,
+  plan = { sessions: planSessions } as any,
+} = {}) {
   const fn = vi.fn(async (url: any, opts: any = {}) => {
     const u = String(url); const method = opts.method ?? "GET";
     const R = (data: any) => ({ ok: true, status: 200, json: async () => data, text: async () => "" });
-    if (u.includes("api.anthropic.com")) return anthropicOk(assessment);
+    if (u.includes("api.anthropic.com")) {
+      // Two model calls per quiz now: mastery assessment, then the study-plan generation
+      // (generatePlanCore). Route by each call's system prompt.
+      return String(opts.body ?? "").includes("study planner") ? anthropicOk(plan) : anthropicOk(assessment);
+    }
+    if (u.includes("/exam_plans") && method === "POST")       return R({});
     if (u.includes("/canvas_quizzes") && method === "GET")   return R(quizzes);
     if (u.includes("/canvas_quizzes") && method === "PATCH") return R({});
     if (u.includes("/courses"))         return R([course]);
@@ -108,5 +123,59 @@ describe("exam-mastery-reminder handler", () => {
 
     expect(res.body.proposed).toBe(0);
     expect(res.body.skipped).toBe(0);
+  });
+});
+
+// ── Proactive study planning (the plan half of the cron) ─────────────────────
+describe("proactive study plan generation", () => {
+  const signalPayload = (calls: any[]) =>
+    calls.find(c => c.table === "proactive_signals" && c.op === "insert")?.payload;
+
+  it("generates a plan, persists it, and attaches it to the signal (weakest topics first)", async () => {
+    const fetchFn = stubFetch();
+    const { handler, calls } = await loadHandler();
+    const res = makeRes();
+    await handler({ method: "POST", ...auth() }, res);
+    expect(res.statusCode).toBe(200);
+
+    const p = signalPayload(calls);
+    expect(p).toBeTruthy();
+    expect(p.data.sessionCount).toBe(3);
+    expect(typeof p.data.planId).toBe("string");
+    expect(p.body).toContain("3-session study plan");
+    expect(p.title).toContain("study plan");
+
+    // Persisted to exam_plans via generatePlanCore.
+    const persist = fetchFn.mock.calls.find(c => String(c[0]).includes("/exam_plans") && c[1]?.method === "POST");
+    expect(persist).toBeTruthy();
+    const row = JSON.parse(persist![1].body);
+    expect(row.user_id).toBe("u1");
+    expect(row.sessions).toHaveLength(3);
+
+    // Weakest topic leads the plan prompt (ordering contract).
+    const planCall = fetchFn.mock.calls.find(c => String(c[0]).includes("api.anthropic.com") && String(c[1]?.body).includes("study planner"));
+    expect(String(planCall![1].body).indexOf("The Mole")).toBeLessThan(String(planCall![1].body).indexOf("Stoichiometry"));
+  });
+
+  it("degrades to the plain reminder when plan generation returns nothing", async () => {
+    stubFetch({ plan: { nonsense: true } });   // planner returns no sessions
+    const { handler, calls } = await loadHandler();
+    const res = makeRes();
+    await handler({ method: "POST", ...auth() }, res);
+    const p = signalPayload(calls);
+    expect(p).toBeTruthy();
+    expect(p.data.sessionCount).toBe(0);
+    expect(p.data.planId).toBeNull();
+    expect(p.body).not.toContain("study plan");
+    expect(p.title).not.toContain("study plan");
+  });
+
+  it("the widened window catches an exam 4 days out (it's Monday, the test is Friday)", async () => {
+    stubFetch({ quizzes: [quiz({ due_at: new Date(Date.now() + 4 * 86_400_000).toISOString() })] });
+    const { handler, calls } = await loadHandler();
+    const res = makeRes();
+    await handler({ method: "POST", ...auth() }, res);
+    expect(signalPayload(calls)).toBeTruthy();
+    expect(res.body.proposed).toBe(1);
   });
 });
