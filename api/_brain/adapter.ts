@@ -24,6 +24,7 @@
 import {
   recall, remember, renderStudentBrainState, postgrestStore, type Store, type Memory,
 } from "./kernel.js";
+import { brainConn } from "./conn.js";
 
 // Cross-project hop budget (PRD): a brain read/write must not stall a room turn past this.
 export const BRAIN_HOP_BUDGET_MS = 600;
@@ -54,10 +55,8 @@ export type BrainWriteResult = { ok: boolean; degraded: boolean; id?: string };
  * no transport) at the call sites so tests can force degradation with `store: null`.
  */
 export function resolveBrainStore(): Store | null {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
-  if (!url || !key) return null;
-  return postgrestStore(url, key);
+  const c = brainConn();   // NeuroAGI project if NEURO_SUPABASE_* set, else the product DB
+  return c ? postgrestStore(c.url, c.key) : null;
 }
 
 // Resolve `p` but never wait longer than `ms`; on timeout OR rejection, resolve to `fallback()`.
