@@ -10,6 +10,7 @@ import { SectionHeader } from "../components/uikit";
 import { fetchAssignments, fetchModules } from "../../canvas-module/canvasApi";
 import { normalizeAssignment, normalizeModule } from "../../canvas-module/canvasTransform";
 import { supabase } from "../api/supabase";
+import { schoolFromCanvasUrl } from "../lib/schoolSearch";
 
 /* ─── constants ──────────────────────────────────────────── */
 
@@ -638,6 +639,19 @@ export default function Canvas() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // Auto-detect the connected school from the Canvas base URL (q.utoronto.ca →
+  // "University of Toronto"). Lazy — the universities dataset is its own chunk.
+  const [schoolName, setSchoolName] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (canvasToken && canvasBaseUrl) {
+      schoolFromCanvasUrl(canvasBaseUrl).then(n => { if (!cancelled) setSchoolName(n); });
+    } else {
+      setSchoolName(null);
+    }
+    return () => { cancelled = true; };
+  }, [canvasToken, canvasBaseUrl]);
+
   // Inject fonts
   useEffect(() => {
     const link = document.createElement("link");
@@ -744,6 +758,22 @@ export default function Canvas() {
         }}>
           Your Courses
         </h1>
+        {schoolName && (
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: "8px",
+            padding: "6px 14px", borderRadius: "9999px", margin: "0 0 16px",
+            background: "rgba(var(--teal-rgb), 0.1)",
+            border: "1px solid rgba(var(--teal-rgb), 0.25)",
+            fontFamily: "var(--font-sans)", fontSize: "13px", color: "#E3E2E2",
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="rgba(var(--teal-rgb), 0.95)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 10 12 5 2 10l10 5 10-5z" /><path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5" />
+            </svg>
+            {schoolName}
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(100,220,130,0.9)", flexShrink: 0 }} title="Connected" />
+          </div>
+        )}
         <p style={{
           fontFamily: "var(--font-sans)", fontWeight: 400,
           fontSize: "16px", lineHeight: "24px", color: "#C8C5CB",

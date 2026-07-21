@@ -88,3 +88,41 @@ export async function searchSchools(query: string) {
     isCustom:  false,
   }));
 }
+
+// Auto-detect the university behind a Canvas base URL by matching the hostname
+// against the dataset's domains. Canvas instances live on school subdomains
+// (q.utoronto.ca, canvas.ubc.ca), so we try each suffix of the hostname, most
+// specific first: "q.utoronto.ca" → exact miss → "utoronto.ca" → University of
+// Toronto. If only campus subdomains match (scar.utoronto.ca, utm.utoronto.ca)
+// we can't tell which campus the student is on, so fall back to the shortest
+// (most general) name rather than guessing a campus.
+export async function schoolFromCanvasUrl(url: string): Promise<string | null> {
+  if (!url) return null;
+  let hostname: string;
+  try {
+    hostname = new URL(url.includes("://") ? url : `https://${url}`).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  const parts = hostname.split(".").filter(Boolean);
+  if (parts.length < 2) return null;
+  const list = await loadUniversities();
+
+  // Exact match on progressively shorter suffixes (never the bare TLD).
+  for (let i = 0; i <= parts.length - 2; i++) {
+    const candidate = parts.slice(i).join(".");
+    const hit = list.find((u: any) => u.d === candidate);
+    if (hit) return hit.n;
+  }
+  // No exact entry — collect entries under the registrable suffix (campus
+  // subdomains) and take the most general name.
+  for (let i = 0; i <= parts.length - 2; i++) {
+    const suffix = "." + parts.slice(i).join(".");
+    const hits = list.filter((u: any) => u.d?.endsWith(suffix));
+    if (hits.length) {
+      hits.sort((a: any, b: any) => a.n.length - b.n.length);
+      return hits[0].n;
+    }
+  }
+  return null;
+}
