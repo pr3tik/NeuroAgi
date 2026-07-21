@@ -10,6 +10,7 @@ import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   Tooltip, CartesianGrid,
 } from "recharts";
+import { useSmoothScroll } from "../hooks/useSmoothScroll";
 
 const TOKEN_STORAGE = "wl_admin_token";  // 30-day session token (localStorage → persists across restarts)
 const REFRESH_MS = 30_000;
@@ -66,6 +67,7 @@ const fmtDateTime = (iso: string | null) => {
 };
 
 export default function WaitlistDashboard() {
+  useSmoothScroll();
   const [token, setToken] = useState<string>(() => { try { return localStorage.getItem(TOKEN_STORAGE) || ""; } catch { return ""; } });
   const [pwInput, setPwInput] = useState("");
   const [authing, setAuthing] = useState(false);

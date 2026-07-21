@@ -18,6 +18,7 @@ import { useApp }           from "./context/AppContext";
 import { supabase }         from "./api/supabase";
 import { signIn, signUp, adoptIdentity, completeOAuthLogin } from "./api/auth";
 import { usePageTracking }  from "./hooks/usePageTracking";
+import { useSmoothScroll }  from "./hooks/useSmoothScroll";
 import { awardTokens }      from "./api/tokens";
 import TokenToast           from "./components/TokenToast";
 import NotificationPanel    from "./components/NotificationPanel";
@@ -232,6 +233,7 @@ function PageLoader() {
 }
 
 export default function App() {
+  useSmoothScroll();
   const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary, activeRoomId } = useApp();
 
   const [isLoggedIn, setIsLoggedIn] = useState(

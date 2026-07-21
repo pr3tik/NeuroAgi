@@ -22,10 +22,14 @@ const isWaitlistDash =
   window.location.pathname.startsWith("/waitlist-dashboard");
 
 if (window.location.pathname === "/card") {
-  // /card — white Founding Card page (CardHeroAnimation + NFCTapAnimation). Standalone —
-  // rendered without AppProvider/Supabase.
+  // /card — Founding Card learn-more page. Standalone — no AppProvider/Supabase.
   import("./pages/Card").then(({ default: Card }) => {
     ReactDOM.createRoot(document.getElementById("root")).render(<Card />);
+  });
+} else if (window.location.pathname === "/claim") {
+  // /claim — apply form only. Standalone — no AppProvider/Supabase.
+  import("./pages/Claim").then(({ default: Claim }) => {
+    ReactDOM.createRoot(document.getElementById("root")).render(<Claim />);
   });
 } else if (isWaitlistDash) {
   // Internal waitlist admin dashboard — served at the waitlist.* subdomain (routed here by

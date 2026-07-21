@@ -5,6 +5,16 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { tealAlpha } from "../lib/theme";
+import ColorwayDial from "../ColorwayDial";
+import BlurText from "../components/BlurText";
+import { gsap, useGSAP, prefersReducedMotion } from "../lib/gsapSetup";
+import {
+  CARD_IMAGES_LIGHT,
+  COLORWAYS,
+  clampColorIndex,
+  loadClaimDraft,
+  patchClaimDraft,
+} from "../foundingCardShared";
 
 // ── naroai.co + Apple hybrid design tokens ────────────────────────────────────
 // naroai reference: --foreground: 0 0% 8% = #141414, --muted-foreground: 0 0% 45% = #737373
@@ -41,10 +51,10 @@ const FONT = '-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","H
 // ── PRIMARY CTA SWITCH ───────────────────────────────────────────────────────
 // Single on/off toggle for what the primary CTAs do across the landing page.
 //   true  (on)  → "Join the waitlist"  — opens the waitlist modal   (default)
-//   false (off) → "Claim your card"    — routes to the /card funnel
+//   false (off) → dual CTAs: Learn more (/card) + Claim card (/claim)
 // Flip this one line to switch every hero / nav / banner / footer CTA at once.
 const WAITLIST_MODE: boolean = false;
-const PRIMARY_CTA_LABEL = WAITLIST_MODE ? "Join the waitlist" : "Claim your card";
+const PRIMARY_CTA_LABEL = WAITLIST_MODE ? "Join the waitlist" : "Claim card";
 
 // ── Hooks ──────────────────────────────────────────────────────────────────────
 function useInView(threshold = 0.15) {
@@ -78,21 +88,41 @@ function useCountUp(target: number, duration = 1400) {
   return [ref, count] as const;
 }
 
-// ── Reveal ─────────────────────────────────────────────────────────────────────
-// ease-out-quint: fast start, settles gently — iOS-native feel vs generic ease
-const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)";
-
+// ── Reveal — GSAP ScrollTrigger (synced with Lenis via useSmoothScroll) ───────
 function Reveal({ children, delay = 0, style = {} }: {
   children: React.ReactNode; delay?: number; style?: React.CSSProperties;
 }) {
-  const [ref, visible] = useInView();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useGSAP(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (prefersReducedMotion()) {
+      gsap.set(el, { opacity: 1, y: 0 });
+      return;
+    }
+    gsap.fromTo(
+      el,
+      { opacity: 0, y: 24 },
+      {
+        opacity: 1,
+        y: 0,
+        duration: 0.85,
+        delay,
+        ease: "power2.out",
+        scrollTrigger: {
+          trigger: el,
+          start: "top 90%",
+          once: true,
+        },
+      },
+    );
+  }, { dependencies: [delay] });
+
   return (
-    <div ref={ref} style={{
-      opacity: visible ? 1 : 0,
-      transform: visible ? "translateY(0)" : "translateY(20px)",
-      transition: `opacity 0.6s ${EASE_OUT} ${delay}s, transform 0.6s ${EASE_OUT} ${delay}s`,
-      ...style,
-    }}>{children}</div>
+    <div ref={ref} style={{ opacity: prefersReducedMotion() ? 1 : 0, ...style }}>
+      {children}
+    </div>
   );
 }
 
@@ -2447,8 +2477,8 @@ function NeuralCoreSection({ t }: { t: typeof DARK }) {
 // No external links. "Create account" → signup, "Log in" → login.
 // Animated: floating orb bg, staggered text entrance, pulsing ring on button.
 
-function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () => void }) {
-  const [ref, inView] = useInView(0.12);
+function PremiumCTA({ onSignup, onLogin, onLearnMore }: { onSignup: () => void; onLogin: () => void; onLearnMore?: () => void }) {
+  const sectionRef = useRef<HTMLElement>(null);
   const [btnHover, setBtnHover] = useState(false);
   // Real waitlist size — only surfaced once it clears 1,000 (no fixed/vanity number).
   const [wlTotal, setWlTotal] = useState<number | null>(null);
@@ -2459,8 +2489,34 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
       .catch(() => {});
   }, []);
 
+  useGSAP(() => {
+    if (!sectionRef.current) return;
+    const items = sectionRef.current.querySelectorAll(".cta-reveal");
+    if (prefersReducedMotion()) {
+      gsap.set(items, { opacity: 1, y: 0, scale: 1 });
+      return;
+    }
+    gsap.fromTo(
+      items,
+      { opacity: 0, y: 22, scale: 0.98 },
+      {
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        duration: 0.85,
+        stagger: 0.1,
+        ease: "power2.out",
+        scrollTrigger: {
+          trigger: sectionRef.current,
+          start: "top 78%",
+          once: true,
+        },
+      },
+    );
+  }, { scope: sectionRef });
+
   return (
-    <section style={{
+    <section ref={sectionRef} style={{
       // Apple MacBook Air tile blue — exact product section treatment
       background: "linear-gradient(180deg, #b8d4e8 0%, #cce0ee 35%, #d8eaf5 65%, #e4f1fb 100%)",
       padding: "clamp(100px,13vw,160px) 20px",
@@ -2473,7 +2529,7 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
         position: "absolute", inset: 0, pointerEvents: "none",
         backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.35) 1px, transparent 1px)",
         backgroundSize: "40px 40px",
-        animation: "ctaGridBreath 8s ease-in-out infinite",
+        animation: prefersReducedMotion() ? "none" : "ctaGridBreath 8s ease-in-out infinite",
         opacity: 0.9,
       }} />
       {/* Warm center glow */}
@@ -2482,100 +2538,124 @@ function PremiumCTA({ onSignup, onLogin }: { onSignup: () => void; onLogin: () =
         transform: "translate(-50%,-50%)",
         width: "80%", maxWidth: 800, height: 400,
         background: "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(255,255,255,0.40) 0%, rgba(255,255,255,0.10) 55%, transparent 100%)",
-        animation: "ctaGlowPulse 6s ease-in-out infinite",
+        animation: prefersReducedMotion() ? "none" : "ctaGlowPulse 6s ease-in-out infinite",
         pointerEvents: "none",
       }} />
 
-      <div ref={ref} style={{ position: "relative", zIndex: 1, maxWidth: 680, margin: "0 auto" }}>
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 680, margin: "0 auto" }}>
 
         {/* Eyebrow */}
-        <p style={{
+        <p className="cta-reveal" style={{
           fontSize: 11, fontWeight: 600, letterSpacing: "0.16em",
           textTransform: "uppercase", color: "rgba(0,40,80,0.50)", marginBottom: 22,
-          opacity: inView ? 1 : 0,
-          transform: inView ? "none" : "translateY(12px)",
-          transition: "opacity 0.7s ease, transform 0.7s cubic-bezier(0.16,1,0.3,1)",
+          opacity: prefersReducedMotion() ? 1 : 0,
         }}>Get started today</p>
 
         {/* Headline */}
-        <h2 style={{
+        <h2 className="cta-reveal" style={{
           fontSize: "clamp(44px,6.5vw,84px)", fontWeight: 600,
           letterSpacing: "-0.03em", lineHeight: 1.03, color: "#0d2b40",
           margin: "0 0 20px", fontFamily: FONT,
-          opacity: inView ? 1 : 0,
-          transform: inView ? "none" : "translateY(22px) scale(0.97)",
-          transition: "opacity 0.72s ease 0.07s, transform 0.72s cubic-bezier(0.16,1,0.3,1) 0.07s",
+          opacity: prefersReducedMotion() ? 1 : 0,
         }}>
           Launching<br />August 1st.
         </h2>
 
         {/* Body */}
-        <p style={{
+        <p className="cta-reveal" style={{
           fontSize: 19, color: "rgba(0,40,80,0.62)", lineHeight: 1.68,
           margin: "0 auto 48px", maxWidth: "36ch", fontFamily: FONT,
-          opacity: inView ? 1 : 0,
-          transform: inView ? "none" : "translateY(16px)",
-          transition: "opacity 0.72s ease 0.14s, transform 0.72s cubic-bezier(0.16,1,0.3,1) 0.14s",
+          opacity: prefersReducedMotion() ? 1 : 0,
         }}>
           Get early access. Every tool from day one. No credit card, no feature gates.
         </p>
 
         {/* Buttons */}
-        <div style={{
+        <div className="cta-reveal" style={{
           display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap",
-          opacity: inView ? 1 : 0,
-          transform: inView ? "none" : "translateY(14px)",
-          transition: "opacity 0.72s ease 0.20s, transform 0.72s cubic-bezier(0.16,1,0.3,1) 0.20s",
+          opacity: prefersReducedMotion() ? 1 : 0,
         }}>
-          {/* Primary — shimmer + scale on hover */}
-          <button onClick={onSignup}
-            onMouseEnter={() => setBtnHover(true)}
-            onMouseLeave={() => setBtnHover(false)}
-            style={{
-              background: "#0071e3", color: "#fff", border: "none",
-              borderRadius: 980, padding: "16px 34px", fontSize: 17, fontWeight: 400,
-              cursor: "pointer", fontFamily: FONT,
-              transform: btnHover ? "scale(1.03)" : "scale(1)",
-              transition: "transform 0.22s cubic-bezier(0.16,1,0.3,1), opacity 0.15s",
-              position: "relative", overflow: "hidden",
-              boxShadow: btnHover
-                ? "0 8px 28px rgba(0,113,227,0.40), 0 2px 8px rgba(0,113,227,0.20)"
-                : "0 4px 16px rgba(0,113,227,0.24), 0 1px 4px rgba(0,113,227,0.12)",
-            }}
-          >
-            {PRIMARY_CTA_LABEL}
-            {/* Shimmer sweep */}
-            <span aria-hidden="true" style={{
-              position: "absolute", inset: 0,
-              background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.28) 50%, transparent 70%)",
-              backgroundSize: "200% 100%",
-              animation: "btnShimmer 2.8s ease-in-out 1.2s infinite",
-              borderRadius: "inherit",
-              pointerEvents: "none",
-            }} />
-          </button>
+          {onLearnMore ? (
+            <>
+              <button onClick={onLearnMore}
+                onMouseEnter={() => setBtnHover(true)}
+                onMouseLeave={() => setBtnHover(false)}
+                style={{
+                  background: "#0071e3", color: "#fff", border: "none",
+                  borderRadius: 980, padding: "16px 34px", fontSize: 17, fontWeight: 400,
+                  cursor: "pointer", fontFamily: FONT,
+                  transform: btnHover ? "scale(1.03)" : "scale(1)",
+                  transition: "transform 0.22s cubic-bezier(0.16,1,0.3,1), opacity 0.15s",
+                  boxShadow: btnHover
+                    ? "0 8px 28px rgba(0,113,227,0.40), 0 2px 8px rgba(0,113,227,0.20)"
+                    : "0 4px 16px rgba(0,113,227,0.24), 0 1px 4px rgba(0,113,227,0.12)",
+                }}
+              >
+                Learn more
+              </button>
+              <button onClick={onSignup} style={{
+                background: "transparent", color: "#0071e3",
+                border: "1.5px solid #0071e3",
+                borderRadius: 980, padding: "16px 34px", fontSize: 17, fontWeight: 400,
+                cursor: "pointer", fontFamily: FONT,
+                transition: "background 0.18s, transform 0.22s cubic-bezier(0.16,1,0.3,1)",
+              }}
+                onMouseEnter={e => { const b = e.currentTarget; b.style.background = "rgba(0,113,227,0.06)"; b.style.transform = "scale(1.03)"; }}
+                onMouseLeave={e => { const b = e.currentTarget; b.style.background = "transparent"; b.style.transform = "scale(1)"; }}
+              >Claim card</button>
+            </>
+          ) : (
+            <>
+              {/* Primary — shimmer + scale on hover */}
+              <button onClick={onSignup}
+                onMouseEnter={() => setBtnHover(true)}
+                onMouseLeave={() => setBtnHover(false)}
+                style={{
+                  background: "#0071e3", color: "#fff", border: "none",
+                  borderRadius: 980, padding: "16px 34px", fontSize: 17, fontWeight: 400,
+                  cursor: "pointer", fontFamily: FONT,
+                  transform: btnHover ? "scale(1.03)" : "scale(1)",
+                  transition: "transform 0.22s cubic-bezier(0.16,1,0.3,1), opacity 0.15s",
+                  position: "relative", overflow: "hidden",
+                  boxShadow: btnHover
+                    ? "0 8px 28px rgba(0,113,227,0.40), 0 2px 8px rgba(0,113,227,0.20)"
+                    : "0 4px 16px rgba(0,113,227,0.24), 0 1px 4px rgba(0,113,227,0.12)",
+                }}
+              >
+                {PRIMARY_CTA_LABEL}
+                {/* Shimmer sweep */}
+                <span aria-hidden="true" style={{
+                  position: "absolute", inset: 0,
+                  background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.28) 50%, transparent 70%)",
+                  backgroundSize: "200% 100%",
+                  animation: "btnShimmer 2.8s ease-in-out 1.2s infinite",
+                  borderRadius: "inherit",
+                  pointerEvents: "none",
+                }} />
+              </button>
 
-          {/* Secondary */}
-          <button onClick={onLogin} style={{
-            background: "rgba(255,255,255,0.60)", color: "#1d4f72",
-            border: "1px solid rgba(255,255,255,0.80)",
-            borderRadius: 980, padding: "16px 34px", fontSize: 17, fontWeight: 400,
-            cursor: "pointer", fontFamily: FONT,
-            backdropFilter: "blur(12px)",
-            transition: "background 0.18s, transform 0.22s cubic-bezier(0.16,1,0.3,1)",
-          }}
-            onMouseEnter={e => { const b = e.currentTarget; b.style.background = "rgba(255,255,255,0.85)"; b.style.transform = "scale(1.03)"; }}
-            onMouseLeave={e => { const b = e.currentTarget; b.style.background = "rgba(255,255,255,0.60)"; b.style.transform = "scale(1)"; }}
-          >Already on the list?</button>
+              {/* Secondary */}
+              <button onClick={onLogin} style={{
+                background: "rgba(255,255,255,0.60)", color: "#1d4f72",
+                border: "1px solid rgba(255,255,255,0.80)",
+                borderRadius: 980, padding: "16px 34px", fontSize: 17, fontWeight: 400,
+                cursor: "pointer", fontFamily: FONT,
+                backdropFilter: "blur(12px)",
+                transition: "background 0.18s, transform 0.22s cubic-bezier(0.16,1,0.3,1)",
+              }}
+                onMouseEnter={e => { const b = e.currentTarget; b.style.background = "rgba(255,255,255,0.85)"; b.style.transform = "scale(1.03)"; }}
+                onMouseLeave={e => { const b = e.currentTarget; b.style.background = "rgba(255,255,255,0.60)"; b.style.transform = "scale(1)"; }}
+              >Already on the list?</button>
+            </>
+          )}
         </div>
 
         {/* Social proof — real waitlist count, shown only once it's at least 1,000 */}
         {wlTotal != null && wlTotal >= 1000 && (
-          <p style={{
+          <p className="cta-reveal" style={{
             fontSize: 13, color: "rgba(0,40,80,0.45)", marginTop: 30,
             fontFamily: FONT, letterSpacing: "0.01em",
-            opacity: inView ? 1 : 0,
-            transition: "opacity 0.72s ease 0.30s",
+            opacity: prefersReducedMotion() ? 1 : 0,
           }}>
             {wlTotal.toLocaleString()} students on the waitlist · free for your first month
           </p>
@@ -3122,8 +3202,32 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
   // Primary CTA action — driven by the WAITLIST_MODE switch at the top of the file.
   const onPrimaryCta = () => {
     if (WAITLIST_MODE) setWaitlistOpen(true);
-    else window.location.href = "/card";
+    else window.location.href = "/claim";
   };
+  const onLearnMore = () => { window.location.href = "/card"; };
+  const onClaimCard = () => { window.location.href = "/claim"; };
+
+  const [activeColor, setActiveColor] = useState(() => clampColorIndex(loadClaimDraft()?.activeColor));
+  const selectColorway = (i: number) => {
+    const next = clampColorIndex(i);
+    setActiveColor(next);
+    patchClaimDraft({ activeColor: next });
+  };
+  const cw = COLORWAYS[activeColor];
+
+  // Deep-link /#colorway from claim page "change colorway"
+  useEffect(() => {
+    if (window.location.hash !== "#colorway") return;
+    const el = document.getElementById("colorway");
+    if (!el) return;
+    const t = window.setTimeout(() => {
+      const lenis = (window as any).__fschoolLenis;
+      if (lenis) lenis.scrollTo(el, { offset: -64, duration: 1.25 });
+      else el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, []);
+
   const [scrollY, setScrollY] = useState(0);
   const [faqOpen, setFaqOpen] = useState<number|null>(null);
   // Ghost wordmark: fires once when the product section scrolls into view, stays on.
@@ -3278,6 +3382,13 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           Founding Card
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {!WAITLIST_MODE && (
+            <button onClick={onLearnMore} style={{
+              borderRadius: 980, border: "none",
+              padding: "7px 17px", fontSize: 13, fontWeight: 400,
+              color: "#fff", background: "#0071e3", cursor: "pointer", fontFamily: FONT,
+            }}>Learn more</button>
+          )}
           <button onClick={onPrimaryCta} style={{
             borderRadius: 980, border: "1px solid rgba(0,102,204,0.56)",
             padding: "7px 17px", fontSize: 13, fontWeight: 400,
@@ -3388,7 +3499,8 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
           <div style={{ flex: "0 0 auto", width: "min(480px, 100%)", animation: "appleTitle 0.9s cubic-bezier(0.16,1,0.3,1) 0.1s both" }}>
             {/* H1 — Apple weight 600, SF Pro Display optical size, tight tracking */}
             <h1 style={{ fontSize: "clamp(40px,5.5vw,72px)", fontWeight: 600, letterSpacing: "-0.03em", lineHeight: 1.04, color: "#1d1d1f", margin: "0 0 18px", fontFamily: FONT }}>
-              Your degree<br />on autopilot.
+              <BlurText text="Your degree" animateBy="words" delay={90} style={{ display: "block" }} />
+              <BlurText text="on autopilot." animateBy="words" delay={110} style={{ display: "block" }} />
             </h1>
 
             {/* Body — Apple 19px, color #6e6e73, relaxed line-height */}
@@ -3396,23 +3508,56 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
               The AI that reads your Canvas, explains your lectures, and builds your exam prep, grounded in your actual notes.
             </p>
 
-            {/* Hero CTA — action driven by the WAITLIST_MODE switch (waitlist modal vs /card funnel) */}
+            {/* Hero CTAs — Learn more (solid) + Claim card (outline), matching Apple dual-pill pattern */}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
-              <button
-                onClick={onPrimaryCta}
-                style={{
-                  display: "inline-flex", alignItems: "center",
-                  background: "#0071e3", color: "#fff", border: "none",
-                  borderRadius: 980, cursor: "pointer", fontFamily: FONT,
-                  overflow: "hidden", transition: "opacity 0.15s, transform 0.18s cubic-bezier(0.16,1,0.3,1)",
-                  boxShadow: "0 4px 16px rgba(0,113,227,0.28), 0 1px 4px rgba(0,113,227,0.14)",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.opacity = "0.86"; e.currentTarget.style.transform = "scale(1.02)"; }}
-                onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1)"; }}
-              >
-                <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>{PRIMARY_CTA_LABEL}</span>
-                <HeroBtnCountdown />
-              </button>
+              {WAITLIST_MODE ? (
+                <button
+                  onClick={onPrimaryCta}
+                  style={{
+                    display: "inline-flex", alignItems: "center",
+                    background: "#0071e3", color: "#fff", border: "none",
+                    borderRadius: 980, cursor: "pointer", fontFamily: FONT,
+                    overflow: "hidden", transition: "opacity 0.15s, transform 0.18s cubic-bezier(0.16,1,0.3,1)",
+                    boxShadow: "0 4px 16px rgba(0,113,227,0.28), 0 1px 4px rgba(0,113,227,0.14)",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.opacity = "0.86"; e.currentTarget.style.transform = "scale(1.02)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1)"; }}
+                >
+                  <span style={{ padding: "14px 22px", fontSize: 17, fontWeight: 400 }}>{PRIMARY_CTA_LABEL}</span>
+                  <HeroBtnCountdown />
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={onLearnMore}
+                    style={{
+                      background: "#0071e3", color: "#fff", border: "none",
+                      borderRadius: 980, padding: "14px 28px", fontSize: 17, fontWeight: 400,
+                      cursor: "pointer", fontFamily: FONT,
+                      boxShadow: "0 4px 16px rgba(0,113,227,0.28), 0 1px 4px rgba(0,113,227,0.14)",
+                      transition: "opacity 0.15s, transform 0.18s cubic-bezier(0.16,1,0.3,1)",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.opacity = "0.86"; e.currentTarget.style.transform = "scale(1.02)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1)"; }}
+                  >
+                    Learn more
+                  </button>
+                  <button
+                    onClick={onClaimCard}
+                    style={{
+                      background: "transparent", color: "#0071e3",
+                      border: "1.5px solid #0071e3",
+                      borderRadius: 980, padding: "14px 28px", fontSize: 17, fontWeight: 400,
+                      cursor: "pointer", fontFamily: FONT,
+                      transition: "background 0.15s, transform 0.18s cubic-bezier(0.16,1,0.3,1)",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,113,227,0.06)"; e.currentTarget.style.transform = "scale(1.02)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
+                  >
+                    Claim card
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Subtle stat pills */}
@@ -3458,6 +3603,59 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
         </div>
       </section>
 
+      {/* ── COLORWAY — choose on landing; carried into /claim via localStorage draft ── */}
+      {!WAITLIST_MODE && (
+        <>
+          <div aria-hidden="true" style={{ height: 8 }} />
+          <section id="colorway" style={{ padding: "100px 20px 110px", textAlign: "center", background: "#ffffff", scrollMarginTop: 64 }}>
+            <Reveal>
+              <p style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.16em", color: "#86868b", textTransform: "uppercase", marginBottom: 16, fontFamily: FONT }}>
+                Colorway
+              </p>
+            </Reveal>
+            <Reveal delay={0.06}>
+              <h2 style={{ fontSize: "clamp(32px,5vw,52px)", fontWeight: 700, letterSpacing: "-0.02em", margin: "0 0 8px", color: "#1d1d1f", fontFamily: FONT }}>
+                <BlurText text={cw.name} animateBy="words" delay={80} key={cw.id} />
+              </h2>
+              <p style={{ color: "#6e6e73", fontSize: 16, marginBottom: 48, fontFamily: FONT }}>{cw.tag}</p>
+            </Reveal>
+            <Reveal delay={0.1}>
+            <ColorwayDial
+              colorways={COLORWAYS}
+              activeColor={activeColor}
+              onSelect={selectColorway}
+              images={CARD_IMAGES_LIGHT}
+              cardWidth={148}
+            />
+            <div style={{ marginTop: 36, display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+              <button
+                onClick={onClaimCard}
+                style={{
+                  background: "#0071e3", color: "#fff", border: "none",
+                  borderRadius: 980, padding: "14px 28px", fontSize: 16, fontWeight: 500,
+                  cursor: "pointer", fontFamily: FONT,
+                  boxShadow: "0 4px 16px rgba(0,113,227,0.24)",
+                }}
+              >
+                Claim card
+              </button>
+              <button
+                onClick={onLearnMore}
+                style={{
+                  background: "transparent", color: "#0071e3",
+                  border: "1.5px solid #0071e3",
+                  borderRadius: 980, padding: "14px 28px", fontSize: 16, fontWeight: 500,
+                  cursor: "pointer", fontFamily: FONT,
+                }}
+              >
+                Learn more
+              </button>
+            </div>
+            </Reveal>
+          </section>
+        </>
+      )}
+
       {/* ── SECTION TILE GAP — 8px of page background shows between every tile ── */}
       <div aria-hidden="true" style={{ height: 8 }} />
       <FeaturesShowcase t={t} chromaStyle={chromaStyle} ghostRef={ghostRef} />
@@ -3475,7 +3673,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
       <ThreeMoments t={t} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
-      <PremiumCTA onSignup={onPrimaryCta} onLogin={() => setWaitlistOpen(true)} />
+      <PremiumCTA onSignup={onPrimaryCta} onLogin={() => setWaitlistOpen(true)} onLearnMore={WAITLIST_MODE ? undefined : onLearnMore} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
       {/* ── FAQ — clean solid tile ── */}

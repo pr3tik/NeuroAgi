@@ -1,52 +1,19 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import Lenis from "lenis";
-import "lenis/dist/lenis.css";
+import { useState, useEffect, useRef } from "react";
+import ScrollSequence from "./components/ScrollSequence";
 import CardHeroAnimation from "./CardHeroAnimation";
 import NFCTapAnimation from "./NFCTapAnimation";
-import ColorwayDial from "./ColorwayDial";
-
-// ── Card image maps ───────────────────────────────────────────────────────────
-const CARD_IMAGES_LIGHT = {
-  white:  "/cards/card-mockups/white.png",
-  violet: "/cards/card-mockups/violet.png",
-  pink:   "/cards/card-mockups/pink.png",
-  blue:   "/cards/card-mockups/blue.png",
-  green:  "/cards/card-mockups/green.png",
-  black:  "/cards/black_cropped.png",
-};
-
-// eslint-disable-next-line no-unused-vars
-const CARD_IMAGES_DARK = {
-  white:  "/cards/white_mockup_dark.png",
-  violet: "/cards/violet_mockup_dark.png",
-  pink:   "/cards/pink_mockup_dark.png",
-  blue:   "/cards/blue_mockup_dark.png",
-  green:  "/cards/green_mockup_dark.png",
-  black:  "/cards/black_cropped.png",
-};
-
-const COLORWAYS = [
-  { id: "white",  name: "Base White",   tag: "Clean. Timeless. Iconic.",          dot: "#e8e4dc", accentDot: "#bbb" },
-  { id: "violet", name: "Aura Purple",  tag: "Vivid. Confident. Distinct.",       dot: "#C8B8E8", accentDot: "#9b7ec8" },
-  { id: "pink",   name: "Royal Pink",   tag: "Bold. Expressive. Unforgettable.",  dot: "#EFA9B5", accentDot: "#d06080" },
-  { id: "blue",   name: "Sky Blue",     tag: "Clear. Focused. Elevated.",         dot: "#B8D4F0", accentDot: "#4a90d9" },
-  { id: "green",  name: "Sage Green",   tag: "Fresh. Grounded. Original.",        dot: "#b8e8b0", accentDot: "#3a9a50" },
-];
-
-const CLAIM_DRAFT_KEY = "fschoolai-founding-card-draft-v2";
+import {
+  CARD_IMAGES_LIGHT,
+  COLORWAYS,
+  CLAIM_DRAFT_KEY,
+  loadClaimDraft,
+  clampColorIndex,
+} from "./foundingCardShared";
+import { useSmoothScroll } from "./hooks/useSmoothScroll";
+import { gsap, useGSAP, prefersReducedMotion } from "./lib/gsapSetup";
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
-}
-
-function loadClaimDraft() {
-  try {
-    const raw = localStorage.getItem(CLAIM_DRAFT_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
 }
 
 // ── Theme tokens ──────────────────────────────────────────────────────────────
@@ -438,22 +405,37 @@ const useCountdown = (target) => {
   return time;
 };
 
-// ── Scroll reveal ─────────────────────────────────────────────────────────────
-const useInView = (threshold = 0.15) => {
-  const ref = useRef(null);
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setVisible(true); }, { threshold });
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, [threshold]);
-  return [ref, visible];
-};
-
+// ── Scroll reveal (GSAP ScrollTrigger; Lenis-synced via useSmoothScroll) ──────
 const Reveal = ({ children, delay = 0, style = {} }) => {
-  const [ref, visible] = useInView();
+  const ref = useRef(null);
+
+  useGSAP(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (prefersReducedMotion()) {
+      gsap.set(el, { opacity: 1, y: 0 });
+      return;
+    }
+    gsap.fromTo(
+      el,
+      { opacity: 0, y: 28 },
+      {
+        opacity: 1,
+        y: 0,
+        duration: 0.9,
+        delay,
+        ease: "power2.out",
+        scrollTrigger: {
+          trigger: el,
+          start: "top 88%",
+          once: true,
+        },
+      },
+    );
+  }, { dependencies: [delay] });
+
   return (
-    <div ref={ref} style={{ opacity: visible?1:0, transform: visible?"translateY(0)":"translateY(28px)", transition: `opacity 0.7s ease ${delay}s, transform 0.7s ease ${delay}s`, ...style }}>
+    <div ref={ref} style={{ opacity: prefersReducedMotion() ? 1 : 0, ...style }}>
       {children}
     </div>
   );
@@ -528,16 +510,16 @@ const ShineBorder = ({ borderRadius = 24, borderWidth = 1.5, duration = 10, colo
   </div>
 );
 
-export default function FschoolAILanding({ onBack } = {}) {
+export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
+  // mode: "learn" = info/showcase page; "claim" = apply form only
+  const isClaim = mode === "claim";
   // Light-only on this page — no dark/light toggle in the nav
   const dark = false;
   const t = LIGHT;
 
   const [activeColor, setActiveColor] = useState(() => {
     const d = loadClaimDraft();
-    return typeof d?.activeColor === "number" && d.activeColor >= 0 && d.activeColor < COLORWAYS.length
-      ? d.activeColor
-      : 0;
+    return clampColorIndex(d?.activeColor);
   });
   const [delivery, setDelivery] = useState(() => (loadClaimDraft()?.delivery === "founder" ? "founder" : "standard"));
   const [form, setForm] = useState(() => {
@@ -554,7 +536,7 @@ export default function FschoolAILanding({ onBack } = {}) {
   const [applyError, setApplyError] = useState("");
   const [honeypot, setHoneypot] = useState("");
   const nameInputRef = useRef(null);
-  const lenisRef = useRef(null);
+  const { scrollTo: scrollToId } = useSmoothScroll();
   const countdown = useCountdown("2026-06-30T23:59:59");
   const cw = COLORWAYS[activeColor];
   const pad = n => String(n).padStart(2,"0");
@@ -565,52 +547,25 @@ export default function FschoolAILanding({ onBack } = {}) {
   const formValid = nameOk && schoolOk && emailOk;
   const firstName = form.name.trim().split(/\s+/)[0] || "there";
 
-  // Gliding smooth scroll (Lenis) — card page only; skip if user prefers reduced motion
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      smoothWheel: true,
-      touchMultiplier: 1.15,
-    });
-    lenisRef.current = lenis;
-
-    let rafId = 0;
-    const raf = (time) => {
-      lenis.raf(time);
-      rafId = requestAnimationFrame(raf);
-    };
-    rafId = requestAnimationFrame(raf);
-
-    return () => {
-      cancelAnimationFrame(rafId);
-      lenis.destroy();
-      lenisRef.current = null;
-    };
-  }, []);
-
-  const scrollToId = useCallback((id, { offset = -64, duration = 1.25 } = {}) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    if (lenisRef.current) {
-      lenisRef.current.scrollTo(el, { offset, duration });
-    } else {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+  const goToClaim = (opts = {}) => {
+    if (opts.founder) {
+      try {
+        const prev = loadClaimDraft() || {};
+        localStorage.setItem(CLAIM_DRAFT_KEY, JSON.stringify({ ...prev, delivery: "founder" }));
+      } catch { /* ignore */ }
     }
-  }, []);
+    window.location.href = "/claim";
+  };
 
   const goToOrder = () => {
+    if (!isClaim) {
+      goToClaim();
+      return;
+    }
     scrollToId("order");
     window.setTimeout(() => {
       nameInputRef.current?.focus({ preventScroll: true });
     }, 520);
-  };
-
-  const selectColor = (i) => {
-    setActiveColor(i);
   };
 
   const handleApply = async () => {
@@ -690,8 +645,44 @@ export default function FschoolAILanding({ onBack } = {}) {
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  // What's Inside — cards fade in one-by-one when the section scrolls into view
-  const [wiRef, wiVisible] = useInView();
+  // What's Inside — GSAP stagger when the section scrolls into view
+  const wiRef = useRef(null);
+  useGSAP(() => {
+    const root = wiRef.current;
+    if (!root) return;
+    const cards = root.querySelectorAll(".wi-card");
+    const note = root.querySelector(".wi-note");
+    if (prefersReducedMotion()) {
+      gsap.set([cards, note], { opacity: 1, y: 0 });
+      return;
+    }
+    gsap.fromTo(
+      cards,
+      { opacity: 0, y: 24 },
+      {
+        opacity: 1,
+        y: 0,
+        duration: 0.7,
+        stagger: 0.12,
+        ease: "power2.out",
+        scrollTrigger: { trigger: root, start: "top 80%", once: true },
+      },
+    );
+    if (note) {
+      gsap.fromTo(
+        note,
+        { opacity: 0, y: 16 },
+        {
+          opacity: 1,
+          y: 0,
+          duration: 0.7,
+          delay: 0.35,
+          ease: "power2.out",
+          scrollTrigger: { trigger: root, start: "top 80%", once: true },
+        },
+      );
+    }
+  }, { dependencies: [isClaim] });
 
   const Label = ({ children }) => (
     <p style={{ fontFamily:"'SF Pro Text','Inter',sans-serif", fontSize:11, fontWeight:600, letterSpacing:"0.16em", color:t.label, textTransform:"uppercase", marginBottom:16 }}>{children}</p>
@@ -711,19 +702,23 @@ export default function FschoolAILanding({ onBack } = {}) {
       {/* NAV */}
       <nav style={{ position:"fixed", top:0, left:0, right:0, zIndex:100, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 20px", height:52, background: dark ? "rgba(8,8,10,0.55)" : "rgba(255,255,255,0.52)", backdropFilter:"blur(28px) saturate(1.7)", WebkitBackdropFilter:"blur(28px) saturate(1.7)", borderBottom:`1px solid ${dark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.55)"}`, boxShadow: dark ? "none" : "0 1px 0 rgba(255,255,255,0.4) inset", transition:"background 0.3s ease" }}>
         <button onClick={() => (onBack ? onBack() : (window.location.href = "/"))} style={{ background:"none", border:"none", color:t.textMuted, fontSize:14, cursor:"pointer" }}>‹ FschoolAI</button>
-        <span style={{ fontSize:14, fontWeight:500, color:t.text }}>Founding Card</span>
+        <span style={{ fontSize:14, fontWeight:500, color:t.text }}>{isClaim ? "Claim your card" : "Founding Card"}</span>
         <button
           ref={navApplyRef}
-          onClick={goToOrder}
+          onClick={isClaim ? () => { window.location.href = "/card"; } : goToClaim}
           style={{ background:"#000", color:"#fff", border:"none", borderRadius:20, padding:"6px 16px", fontSize:13, fontWeight:600, cursor:"pointer" }}
         >
-          Apply
+          {isClaim ? "Learn more" : "Claim card"}
         </button>
       </nav>
 
+      {!isClaim && (<>
       {/* HERO + COUNTDOWN — combined, reordered on mobile */}
       <style>{`
         @keyframes heroFadeIn{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+        @media (prefers-reduced-motion: reduce) {
+          .hero-fade { opacity:1!important; animation:none!important; transform:none!important; }
+        }
         @media(max-width:767px){
           .hero-section{min-height:100svh!important;height:100svh!important;justify-content:space-between!important;padding-bottom:40px!important;}
           .hero-countdown-mobile{display:block!important;}
@@ -746,19 +741,18 @@ export default function FschoolAILanding({ onBack } = {}) {
 
         {/* Text */}
         <div style={{ position:"relative", zIndex:20, textAlign:"center", padding:"80px 20px 0", width:"100%" }}>
-          <p style={{ fontSize:12, fontWeight:600, letterSpacing:"0.2em", color:t.textFaint, marginBottom:16, textTransform:"uppercase", opacity:0, animation:"heroFadeIn 1s ease 2s both" }}>Founding Edition · Only 500</p>
-          <h1 style={{ fontSize:"clamp(32px,5vw,64px)", fontWeight:700, lineHeight:1.05, margin:"0 0 16px", letterSpacing:"-0.02em", color:t.text, opacity:0, animation:"heroFadeIn 1s ease 2.3s both" }}>FschoolAI<br />Founding Card</h1>
-          <p style={{ fontSize:17, color:t.textMuted, opacity:0, animation:"heroFadeIn 1s ease 2.6s both" }}>Free for founding members. Ships Q4 2026.</p>
-          {/* Primary funnel CTA — jumps straight to the configurator/apply form */}
-          <div style={{ marginTop:28, opacity:0, animation:"heroFadeIn 1s ease 2.9s both" }}>
+          <p className="hero-fade" style={{ fontSize:12, fontWeight:600, letterSpacing:"0.2em", color:t.textFaint, marginBottom:16, textTransform:"uppercase", opacity:0, animation:"heroFadeIn 1s ease 2s both" }}>Founding Edition · Only 500</p>
+          <h1 className="hero-fade" style={{ fontSize:"clamp(32px,5vw,64px)", fontWeight:700, lineHeight:1.05, margin:"0 0 16px", letterSpacing:"-0.02em", color:t.text, opacity:0, animation:"heroFadeIn 1s ease 2.3s both" }}>FschoolAI<br />Founding Card</h1>
+          <p className="hero-fade" style={{ fontSize:17, color:t.textMuted, opacity:0, animation:"heroFadeIn 1s ease 2.6s both" }}>Free for founding members. Ships Q4 2026.</p>
+          <div className="hero-fade" style={{ marginTop:28, opacity:0, animation:"heroFadeIn 1s ease 2.9s both", display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
             <button
-              onClick={goToOrder}
+              onClick={goToClaim}
               style={{ background:"#0071e3", color:"#fff", border:"none", borderRadius:980, padding:"14px 32px", fontSize:16, fontWeight:600, cursor:"pointer", fontFamily:"inherit", boxShadow:"0 4px 16px rgba(0,113,227,0.24)" }}
             >
-              Claim your card
+              Claim card
             </button>
-            <p style={{ fontSize:13, color:t.textFaint, marginTop:10 }}>Free · takes under a minute</p>
           </div>
+          <p className="hero-fade" style={{ fontSize:13, color:t.textFaint, marginTop:10, opacity:0, animation:"heroFadeIn 1s ease 3.1s both" }}>Free · takes under a minute</p>
         </div>
 
         {/* Cards animation — mobile only, fills remaining space below text */}
@@ -773,9 +767,12 @@ export default function FschoolAILanding({ onBack } = {}) {
         </div>
       </section>
 
-      {/* PERSONALIZE — the full colorway/delivery/apply flow, promoted to directly after
-          the hero: visitors arriving from the landing CTA reach the form in one scroll
-          (or instantly via the hero button). Showcase sections now live below this. */}
+      {/* Scroll-linked image sequence — Apple AirPods-style product reveal */}
+      <ScrollSequence headline="See it in motion." />
+      </>)}
+
+      {isClaim && (<>
+      {/* APPLY — form only; colorway lives on the main landing */}
       <style>{`
         @keyframes shineMove { 0%{background-position:0% 0%;} 50%{background-position:100% 100%;} 100%{background-position:0% 0%;} }
         .trust-inner { width:660px; }
@@ -920,7 +917,7 @@ export default function FschoolAILanding({ onBack } = {}) {
           .claim-card { background: #fff !important; }
         }
       `}</style>
-      <section id="order" className="mkyours-section" style={{ padding:`100px ${sideInset}px`, textAlign:"center", background: dark ? "#0c0c10" : "#eceef4", transition:"background 0.3s ease", scrollMarginTop:64 }}>
+      <section id="order" className="mkyours-section" style={{ padding:`100px ${sideInset}px`, paddingTop: 100, textAlign:"center", background: dark ? "#0c0c10" : "#eceef4", transition:"background 0.3s ease", scrollMarginTop:64, minHeight: "100svh" }}>
         <Reveal>
           <Label>Personalize</Label>
           <h2 style={{ fontSize:"clamp(38px,6vw,64px)", fontWeight:700, letterSpacing:"-0.02em", marginBottom:12 }}>Make it yours.</h2>
@@ -975,31 +972,21 @@ export default function FschoolAILanding({ onBack } = {}) {
 
                 <div className="claim-card" style={{ padding:"clamp(16px,5vw,24px)" }}>
                   <p style={{ fontSize:12, color:t.formTextMuted, marginBottom:4 }}>Colorway</p>
-                  <p style={{ fontSize:"clamp(15px,4vw,17px)", fontWeight:600, color:t.formText, marginBottom:16 }}>{delivery==="founder" ? "Titanium Black — Exclusive. Unmistakable." : `${cw.name} — ${cw.tag}`}</p>
-                  <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                  <p style={{ fontSize:"clamp(15px,4vw,17px)", fontWeight:600, color:t.formText, marginBottom:12 }}>{delivery==="founder" ? "Titanium Black — Exclusive. Unmistakable." : `${cw.name} — ${cw.tag}`}</p>
+                  <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
                     {delivery==="founder" ? (
-                      <button type="button" style={{ width:32, height:32, borderRadius:"50%", background:"#111", border:"3px solid #0071e3", cursor:"default", outline:"1px solid rgba(0,0,0,0.1)" }} />
+                      <span style={{ width:32, height:32, borderRadius:"50%", background:"#111", border:"3px solid #0071e3", outline:"1px solid rgba(0,0,0,0.1)", display:"inline-block" }} />
                     ) : (
-                      COLORWAYS.map((c,i) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          aria-label={c.name}
-                          aria-pressed={i === activeColor}
-                          onClick={() => selectColor(i)}
-                          style={{ width:32, height:32, borderRadius:"50%", background:c.dot, border: i===activeColor ? "3px solid #0071e3" : "2px solid transparent", cursor:"pointer", outline:"1px solid rgba(0,0,0,0.1)", transition:"transform 0.2s ease, border-color 0.2s ease", transform: i===activeColor ? "scale(1.08)" : "scale(1)" }}
-                        />
-                      ))
+                      <span style={{ width:32, height:32, borderRadius:"50%", background:cw.dot, border:"3px solid #0071e3", outline:"1px solid rgba(0,0,0,0.1)", display:"inline-block" }} />
                     )}
                   </div>
                   {delivery !== "founder" && (
-                    <button
-                      type="button"
-                      onClick={() => scrollToId("colorway", { offset: -window.innerHeight * 0.12 })}
-                      style={{ marginTop:14, background:"none", border:"none", padding:0, color:"#0071e3", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}
+                    <a
+                      href="/#colorway"
+                      style={{ display:"inline-block", marginTop:14, color:"#0071e3", fontSize:13, fontWeight:600, textDecoration:"none" }}
                     >
-                      Preview all colors ↓
-                    </button>
+                      Change colorway on landing →
+                    </a>
                   )}
                 </div>
               </div>
@@ -1129,7 +1116,7 @@ export default function FschoolAILanding({ onBack } = {}) {
                       <div style={{ display:"flex", flexWrap:"wrap", gap:10, justifyContent:"center" }}>
                         <button
                           type="button"
-                          onClick={() => scrollToId("whats-inside")}
+                          onClick={() => { window.location.href = "/card#whats-inside"; }}
                           style={{
                             background:"#0071e3", color:"#fff", border:"none", borderRadius:980,
                             padding:"10px 22px", fontSize:13, fontWeight:600, cursor:"pointer",
@@ -1159,24 +1146,9 @@ export default function FschoolAILanding({ onBack } = {}) {
           </div>
         </div>
       </section>
+      </>)}
 
-      {/* COLORWAY SELECTOR */}
-      <section id="colorway" style={{ padding:"100px 20px 120px", textAlign:"center", scrollMarginTop:64 }}>
-        <Reveal>
-          <Label>Colorway</Label>
-          <h2 style={{ fontSize:"clamp(32px,5vw,52px)", fontWeight:700, letterSpacing:"-0.02em", marginBottom:8, transition:"all 0.3s ease", color:t.text }}>{cw.name}</h2>
-          <p style={{ color:t.textMuted, fontSize:16, marginBottom:52 }}>{cw.tag}</p>
-        </Reveal>
-
-        <ColorwayDial
-          colorways={COLORWAYS}
-          activeColor={activeColor}
-          onSelect={setActiveColor}
-          images={CARD_IMAGES_LIGHT}
-          cardWidth={148}
-        />
-      </section>
-
+      {!isClaim && (<>
       {/* TITANIUM BLACK */}
       <section style={{ padding:"120px 40px", background:dark?"#080808":"#e8e8e8", position:"relative", overflow:"hidden", transition:"background 0.3s ease" }}>
         <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse at 65% 50%, rgba(80,80,80,0.3) 0%, transparent 65%)", pointerEvents:"none" }} />
@@ -1194,7 +1166,7 @@ export default function FschoolAILanding({ onBack } = {}) {
                 </div>
               ))}
             </div>
-            <button onClick={() => { setDelivery("founder"); goToOrder(); }} style={{ background:dark?"#fff":"#000", color:dark?"#000":"#fff", border:"none", borderRadius:50, padding:"16px 36px", fontSize:15, fontWeight:600, cursor:"pointer" }}>Apply for Founder Delivery</button>
+            <button onClick={() => { setDelivery("founder"); goToClaim({ founder: true }); }} style={{ background:dark?"#fff":"#000", color:dark?"#000":"#fff", border:"none", borderRadius:50, padding:"16px 36px", fontSize:15, fontWeight:600, cursor:"pointer" }}>Apply for Founder Delivery</button>
           </Reveal>
           <Reveal delay={0.2} style={{ display:"flex", justifyContent:"center" }}>
             {/* TODO: replacement image goes here */}
@@ -1202,6 +1174,7 @@ export default function FschoolAILanding({ onBack } = {}) {
         </div>
       </section>
 
+      {/* COLORWAY SELECTOR — removed from learn/claim; lives on main landing #colorway */}
       {/* WHAT'S INSIDE */}
       <section id="whats-inside" style={{ background:t.formBg, color:t.formText, padding:"80px 20px 40px", transition:"background 0.3s ease", scrollMarginTop:64 }}>
         <div style={{ maxWidth:1000, margin:"0 auto" }}>
@@ -1209,11 +1182,9 @@ export default function FschoolAILanding({ onBack } = {}) {
           <div ref={wiRef} className={`mkyours-panel${dark ? " whats-inside-dark" : ""}`}>
             <div style={{ display:"flex", flexWrap:"wrap", gap:24, justifyContent:"center" }}>
               {whatsInside.map((item,i) => (
-                <div key={i} style={{
+                <div key={i} className="wi-card" style={{
                   flex:"0 1 240px", maxWidth:270, minHeight:170,
-                  opacity: wiVisible ? 1 : 0,
-                  transform: wiVisible ? "translateY(0)" : "translateY(24px)",
-                  transition: `opacity 0.6s ease ${i*0.15}s, transform 0.6s ease ${i*0.15}s`,
+                  opacity: prefersReducedMotion() ? 1 : 0,
                 }}>
                   <ShineBorder color={item.color} borderRadius={22} borderWidth={1.5} duration={9}>
                     <div style={{ background:t.formSection, borderRadius:22, height:"100%", boxSizing:"border-box", padding:"26px 18px", boxShadow:"10px -5px 14px rgba(0,0,0,0.1)", display:"flex", flexDirection:"column", alignItems:"center", textAlign:"center", gap:10 }}>
@@ -1225,11 +1196,9 @@ export default function FschoolAILanding({ onBack } = {}) {
                 </div>
               ))}
             </div>
-            <div style={{
+            <div className="wi-note" style={{
               background:t.formBg, borderRadius:14, padding:"16px 18px", marginTop:24, maxWidth:680, marginLeft:"auto", marginRight:"auto",
-              opacity: wiVisible ? 1 : 0,
-              transform: wiVisible ? "translateY(0)" : "translateY(16px)",
-              transition: `opacity 0.6s ease ${whatsInside.length*0.15 + 0.3}s, transform 0.6s ease ${whatsInside.length*0.15 + 0.3}s`,
+              opacity: prefersReducedMotion() ? 1 : 0,
             }}>
               <p style={{ fontSize:14, color:t.formText, lineHeight:1.5, textAlign:"center", margin:0 }}>Set up your identity card with a one-on-one session with a Specialist. <a href="mailto:support@fschoolai.com" style={{ color:"#0071e3", textDecoration:"none" }}>Book a free Personal Setup session.</a></p>
             </div>
@@ -1264,6 +1233,7 @@ export default function FschoolAILanding({ onBack } = {}) {
       </section>
 
       {/* FOOTER */}
+      </>)}
       <footer style={{ background:t.formBg, borderTop:`1px solid ${t.trustBorder}`, padding:"20px", textAlign:"center", transition:"background 0.3s ease" }}>
         <p style={{ fontSize:13, color:t.formTextMuted }}>© 2026 FschoolAI. All rights reserved.</p>
       </footer>
