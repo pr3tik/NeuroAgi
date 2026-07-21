@@ -2404,9 +2404,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         {roomToast && !focusMode && (
           <div style={{ position: "fixed", top: 18, right: 18, zIndex: 90, display: "flex", alignItems: "center", gap: 8, background: "rgba(var(--teal-rgb),0.92)", color: "#fff", padding: "10px 15px", borderRadius: 12, fontSize: 13, fontWeight: 600, boxShadow: "0 10px 34px rgba(0,0,0,0.5)" }}>{roomToast}</div>
         )}
-        {focusMode && (
-          <button onClick={() => setFocusMode(false)} style={{ position: "fixed", top: 20, right: 20, zIndex: 90, display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(var(--teal-rgb),0.9)", color: "#fff", border: "none", borderRadius: 999, padding: "8px 15px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 26px rgba(0,0,0,0.45)" }}>Focus Mode · ON — exit</button>
-        )}
+        {/* No floating focus pill: the top bar's Focus Mode toggle stays visible in focus
+            mode (the right panel that used to host it collapses), so one control both
+            enters and exits — Harshil's #258 regroup, adapted to the v2 layout. */}
         {/* Top bar — room controls (left) · session timer (center) · presence (right).
             The control pills moved up here from the deleted left column, so the main
             work area gets the full width and there's exactly one home for room tools. */}
@@ -2438,8 +2438,14 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               </>)}
             </div>
           </div>
-          <div style={{ position: "absolute", right: 0, top: 4, display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "6px 12px", fontSize: 12, color: "var(--text-secondary)" }}>
-            <Users size={13} /> {members.length}
+          {/* Right — room identity + presence + Focus Mode (#258: the room's name previously
+              rendered nowhere; its only copy was stranded in the disabled block below). */}
+          <div style={{ position: "absolute", right: 0, top: 4, display: "flex", alignItems: "center", gap: 8, maxWidth: "32%" }}>
+            <span title={room.name} style={{ fontFamily: "'Fraunces',serif", fontSize: 15, fontWeight: 600, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{room.name}</span>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "6px 12px", fontSize: 12, color: "var(--text-secondary)", flexShrink: 0 }}>
+              <Users size={13} /> {members.length}
+            </div>
+            <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: focusMode ? "#d3f0dc" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Focus{focusMode ? " · ON" : ""}</button>
           </div>
         </div>
 
@@ -2688,9 +2694,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 
           {/* RIGHT — Group session */}
           <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(var(--teal-rgb),0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
               <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>Group session</p>
-              <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "5px 10px", fontSize: 11, color: focusMode ? "#d3f0dc" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Focus Mode{focusMode ? " · ON" : ""}</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignContent: "start" }}>
               {(members.length ? members : [{ userId, name: userData?.name || "You" }]).map((m, i) => {
