@@ -14,7 +14,6 @@
     "seed:fixture:clean": "node scripts/seed-studyroom-fixture.mjs --clean"
   },
   "dependencies": {
-    "@daily-co/daily-js": "^0.91.0",
     "@gsap/react": "^2.1.2",
     "@supabase/supabase-js": "^2.106.1",
     "cfb": "^1.2.2",

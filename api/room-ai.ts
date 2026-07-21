@@ -30,7 +30,7 @@
 // the trace sink. No prompt text is persisted — deliberate. Do not add a manual write here.
 import { requireUserOr401 } from "./_auth.js";
 import { rateLimit } from "./_ratelimit.js";
-import { callModel } from "./_gateway.js";
+import { callModel, openStream } from "./_gateway.js";
 import { buildRoomSystemPrompt } from "./_personas.js";
 import { searchRoomSources } from "./_roomRetrieval.js";
 import { latestBoardContext } from "./room-board.js";
@@ -247,19 +247,36 @@ export default async function handler(req: any, res: any) {
       boardRevision: board?.revision ?? null,
     });
 
+    const messages = [...history, { role: "user", content: message }];
+    const metadata = { scope, user_id: userId, room_id: roomId, session_id: session.id, persona: session.persona };
+
+    // Streaming path (group only): the room voice agent streams tokens so the client can
+    // sentence-chunk them into TTS and start speaking within ~a second. Pipes the gateway's
+    // raw SSE straight through, exactly like api/claude.ts. Grounding still runs above; the
+    // grounded refs are simply not surfaced on the streamed turn.
+    if (scope === "group" && req.body?.stream === true) {
+      const out = await openStream({ task: "tutor", system, messages, max_tokens: 900, metadata });
+      if (!out.ok || !out.stream) {
+        return res.status(out.status >= 400 ? out.status : 502).json({ error: out.error ?? "stream open failed", detail: out.detail });
+      }
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      const reader = out.stream.getReader();
+      try {
+        while (true) { const { done, value } = await reader.read(); if (done) break; res.write(value); }
+      } finally { res.end(); }
+      return;
+    }
+
     const result = await callModel({
       task: "tutor",
       system,
-      messages: [...history, { role: "user", content: message }],
+      messages,
       max_tokens: 900,
       // Lifted into prompt_runs columns by the trace sink → BE-12 with no manual write.
-      metadata: {
-        scope,
-        user_id: userId,
-        room_id: roomId,
-        session_id: session.id,
-        persona: session.persona,
-      },
+      metadata,
     });
 
     if (!result.ok) {

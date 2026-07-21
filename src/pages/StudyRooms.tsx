@@ -33,7 +33,11 @@ import { GOLD } from "../lib/theme";
 import Whiteboard, { PEN_COLORS, PEN_WIDTHS, ERASER_SIZES, DEFAULT_BG } from "../components/Whiteboard";
 import type { Tool } from "../components/Whiteboard";
 import StudyOrb from "../components/StudyOrb";
-import VoiceRoom from "../components/VoiceRoom";
+import { startRoomVoice, type RoomVoice } from "../lib/roomVoice";
+import { startScribeSession, isStreamingSTT, type ScribeSession } from "../lib/scribeStream";
+import { RoomTranscript, type Utterance } from "../lib/roomTranscript";
+import { electDriver, parseWakeWord, buildAiPrompt, detectConfusion, buildProactivePrompt, isProactiveSilent, isSolveDone, buildSolvePrompt, stripSolvedToken, hasSolvedToken } from "../lib/roomAiTrigger";
+import { createSentenceChunker } from "../lib/ttsChunker";
 import RoomGroundingChips from "../components/RoomGroundingChips";
 import type { GroundingRef } from "../lib/roomGrounding";
 import { MUSIC_PRESETS, stopAudio, cycleIndex } from "../lib/focusMusic";
@@ -41,7 +45,7 @@ import { interventionReason, shouldShowIntervention, type InterventionPayload } 
 import SessionReview from "../components/SessionReview";
 import {
   School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail,
-  MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
+  MessageCircle, Pen, Mic, MicOff, Settings, X, Plus, MoreHorizontal, Target, Flame,
   Timer, Coins, ThumbsUp, ThumbsDown, Image as ImageIcon, Hand, Zap, Hourglass,
   RefreshCw, LogOut, Sparkles, Video, Volume2, VolumeX, Music, Play, Pause, SkipForward,
 } from "lucide-react";
@@ -1144,6 +1148,17 @@ function GsRichText({ text }: { text: string }) {
   );
 }
 
+// Shared WebAudio context for Reggie's voice. WebAudio (decode + BufferSource) plays
+// reliably once the context is resumed inside a user gesture — unlike a fresh HTMLAudio
+// element, which browsers block from programmatic play(). This is the same approach the
+// floating orb uses, which is why the orb's TTS works and the old <audio> path didn't.
+let _roomAudioCtx: AudioContext | null = null;
+function roomAudioCtx(): AudioContext {
+  if (!_roomAudioCtx) _roomAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  if (_roomAudioCtx.state === "suspended") _roomAudioCtx.resume();
+  return _roomAudioCtx;
+}
+
 function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const { userId, userData, setActiveRoomId, setWhiteboardSnapshot, assignments } = useApp();
   const [members,            setMembers]            = useState([]);
@@ -1158,8 +1173,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [showSummary,        setShowSummary]        = useState(false);
   const [summaryDurationSecs,setSummaryDurationSecs]= useState(0);
   const [courseName,         setCourseName]         = useState("");
-  // Voice chat (Daily.co)
-  const [showVoice,          setShowVoice]          = useState(false);
+  // Active speaker name (derived from P2P voice below) — consumed by the guided-session
+  // and member-list "who's talking" indicators.
   const [activeSpeakerName,  setActiveSpeakerName]  = useState<string | null>(null);
   // Focus Sprint — configurable duration, no break phase
   const [sprintDuration,     setSprintDuration]     = useState(25 * 60);
@@ -1172,12 +1187,75 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [showRoomMenu,       setShowRoomMenu]       = useState(false);
   const roomMenuRef = useRef<HTMLDivElement>(null);
   // Phase 2 — Chat
-  const [showChat,           setShowChat]           = useState(false);
+  const [showChat,           setShowChat]           = useState(false);   // focus-mode floating chat panel only
+  const [leftBarOpen,        setLeftBarOpen]        = useState(false);   // chat is off by default in a voice room; the top-bar chat toggle reveals it
   const [chatMessages,       setChatMessages]       = useState<ChatMessage[]>([]);
   const [chatInput,          setChatInput]          = useState("");
   const [chatSending,        setChatSending]        = useState(false);
   const [imageUploading,     setImageUploading]     = useState(false);
   const chatLoadedRef = useRef(false);
+  const leftChatEndRef = useRef<HTMLDivElement>(null);   // autoscroll anchor for the docked left chat
+  // Peer-to-peer voice (WebRTC mesh; see src/lib/roomVoice.ts). Foundation for the
+  // in-room voice agent — the STT layer will later consume roomVoiceRef's local stream.
+  const [voiceLive,      setVoiceLive]      = useState(false);   // I've joined voice (mic acquired)
+  const [micMuted,       setMicMuted]       = useState(false);   // my mic muted (still connected)
+  const [speakerOn,      setSpeakerOn]      = useState(true);    // do I hear others (local playback)
+  const [voiceError,     setVoiceError]     = useState<string | null>(null);
+  const [remoteStreams,  setRemoteStreams]  = useState<Record<string, MediaStream>>({});
+  const [voiceSpeaking,  setVoiceSpeaking]  = useState<Record<string, boolean>>({});  // userId → talking now
+  const roomVoiceRef  = useRef<RoomVoice | null>(null);
+  const voiceLiveRef  = useRef(false);
+  const micMutedRef   = useRef(false);
+  // Shared transcript — the single source of truth (see src/lib/roomTranscript.ts). Each
+  // participant STTs their own mic and broadcasts committed segments; every client merges
+  // them into this one store. This is what the AI layer will read.
+  const transcriptRef = useRef<RoomTranscript | null>(null);
+  if (!transcriptRef.current) transcriptRef.current = new RoomTranscript();
+  const transcriptSeqRef = useRef(0);                    // my per-speaker monotonic counter
+  const scribeRef = useRef<ScribeSession | null>(null);  // my own STT session (when unmuted)
+  const [transcript, setTranscript] = useState<readonly Utterance[]>([]);
+  const [livePartials, setLivePartials] = useState<Record<string, { name: string; text: string }>>({});
+  const transcriptEndRef = useRef<HTMLDivElement>(null);   // autoscroll anchor for the transcript view
+  // In-room AI ("Reggie") trigger. Exactly one client (the driver) runs the LLM + TTS
+  // loop; anyone can summon it (wake word / @ai / button). See src/lib/roomAiTrigger.ts.
+  const [aiThinking, setAiThinking] = useState(false);
+  const amDriverRef   = useRef(true);
+  const aiReqSeqRef   = useRef(0);
+  const aiMsgSeqRef   = useRef(0);
+  const aiHandledRef  = useRef<Set<string>>(new Set());   // request ids already answered (dedupe)
+  const aiActiveRef   = useRef(false);                     // a Reggie turn is generating right now
+  const aiGenRef      = useRef(0);                         // generation stamp — newest turn wins
+  const aiAbortRef    = useRef<AbortController | null>(null);   // aborts the in-flight LLM stream
+  const aiSourceRef   = useRef<AudioBufferSourceNode | null>(null);   // currently-playing AI clip
+  const aiSpeakChainRef = useRef<Promise<void>>(Promise.resolve());   // serialize clip playback
+  const currentAiTurnRef = useRef<string | null>(null);   // turnId of the AI turn being streamed
+  const aiStreamTextRef  = useRef("");                    // accumulated text of that turn
+  const aiBargedRef      = useRef(false);                 // a human spoke → stop this AI turn
+  const aiSpeakingRef    = useRef(false);                 // an AI clip is actually playing right now
+  const [streamingAi, setStreamingAi] = useState<{ turnId: string; text: string } | null>(null);
+  // Push-to-talk "Ask Reggie" capture: speech after the click is collected as the question.
+  const [captureMode,   setCaptureMode]   = useState(false);
+  const [captureText,   setCaptureText]   = useState("");
+  const [capturePartial, setCapturePartial] = useState("");
+  const captureActiveRef = useRef(false);
+  const captureTextRef   = useRef("");
+  const captureScribeRef = useRef<ScribeSession | null>(null);   // temp mic when not already STT-ing
+  const captureStreamRef = useRef<MediaStream | null>(null);
+  // Proactive/ambient AI (R7): the driver may chime in on detected confusion. Opt-in,
+  // off by default, throttled, and it stays quiet while anyone is mid-sentence.
+  const [proactiveOn, setProactiveOn] = useState(false);
+  const proactiveOnRef  = useRef(false);
+  const lastAiTurnRef   = useRef(0);     // ms of the last spoken AI turn (interjection cooldown)
+  const lastProactiveRef = useRef(0);    // ms of the last Stage-B attempt (LLM-call throttle)
+  const proactiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const livePartialsRef = useRef<Record<string, { name: string; text: string }>>({});
+  // Query-solving loop: once a question is asked, Reggie stays in a back-and-forth until
+  // it's resolved. Exactly one loop room-wide; the driver runs it, all clients show status.
+  const [solving, setSolving] = useState(false);
+  const solvingRef = useRef(false);
+  const solveTurnsRef = useRef(0);
+  const solveIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const solveFollowupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Phase 3 — Whiteboard
   const [showBoard,          setShowBoard]          = useState(false);  // board is opt-in — guided study leads; open via the Board pill/tab
   const [strokes,            setStrokes]            = useState<Stroke[]>([]);
@@ -1212,6 +1290,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const joinedAtRef         = useRef(Date.now());
   const workingOnRef        = useRef("");
   const leftRef             = useRef(false);
+  // Users who broadcast `member_left` but may still linger in presence until the server's
+  // disconnect timeout. The presence sync filters these out until the server drops them.
+  const leftUsersRef        = useRef<Set<string>>(new Set());
   const workingOnDebounce   = useRef(null);
   const pomoRef             = useRef(null);
   const pomoAutoAdvancedRef = useRef(null);
@@ -1446,7 +1527,15 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       initial:   (userData?.name?.[0] ?? "?").toUpperCase(),
       workingOn: wo,
       joinedAt:  joinedAtRef.current,
+      // Voice presence — every client reads this off the roster to show who's in
+      // voice and who's muted, and to know which peers to open a mesh connection to.
+      voice:     { live: voiceLiveRef.current, muted: micMutedRef.current },
     };
+  }
+
+  // Re-broadcast my presence after a voice state change (join / mute) so peers update.
+  function pushPresence() {
+    channelRef.current?.track(presencePayload()).catch(() => {});
   }
 
   function subscribePresence() {
@@ -1466,6 +1555,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           ? !!m.workingOn
           : (m.joinedAt ?? 0) >= (prev.joinedAt ?? 0);
         if (better) byUser.set(m.userId, m);
+      }
+      // Honor pending leaves: a member who announced `member_left` may still linger in
+      // presence until the server's disconnect timeout — keep them hidden until then,
+      // and stop suppressing once the server has actually dropped them.
+      for (const id of Array.from(leftUsersRef.current)) {
+        if (byUser.has(id)) byUser.delete(id);
+        else leftUsersRef.current.delete(id);
       }
       const collapsed = Array.from(byUser.values());
       setMembers(collapsed);
@@ -1497,6 +1593,20 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     .on("broadcast", { event: "room_closed" }, () => {
       if (!leftRef.current) endSession().then(() => onLeave());
     })
+    // A peer announced they're leaving — prune them now rather than waiting for the
+    // presence timeout, and clear any per-user state keyed to them.
+    .on("broadcast", { event: "member_left" }, ({ payload }) => {
+      const id = payload?.userId;
+      if (!id || id === userId) return;
+      leftUsersRef.current.add(id);   // keep them pruned even if presence still lists them
+      setMembers(prev => prev.filter((m: any) => m.userId !== id));
+      setRaisedHands(prev => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n; });
+      setRemoteStreams(prev => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n; });
+      setVoiceSpeaking(prev => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n; });
+      setLivePartials(prev => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n; });
+      setLiveStrokes(prev => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n; });
+      setPeerCursors(prev => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n; });
+    })
     .on("broadcast", { event: "pomodoro" }, ({ payload }) => {
       setPomo(payload);
     })
@@ -1514,6 +1624,57 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         if (prev.some(m => m.id === payload.id)) return prev;
         return [...prev, payload as ChatMessage];
       });
+    })
+    // WebRTC voice signaling — SDP offers/answers + ICE candidates, addressed peer to
+    // peer. Only the target processes; the mesh itself carries the audio, not this.
+    .on("broadcast", { event: "voice_signal" }, ({ payload }) => {
+      if (payload?.to !== userId || !payload.from) return;
+      roomVoiceRef.current?.handleSignal(payload.from, payload.data);
+    })
+    // A peer's committed transcript segment — merge into the shared store (deduped +
+    // ordered there). Skip my own echo; I already added it locally.
+    .on("broadcast", { event: "transcript" }, ({ payload }) => {
+      if (!payload || payload.speakerId === userId) return;
+      transcriptRef.current?.add(payload as Utterance);
+      setLivePartials(prev => { if (!(payload.speakerId in prev)) return prev; const n = { ...prev }; delete n[payload.speakerId]; return n; });
+      onHumanTurn(payload.text);   // a peer finished a thought — advance the loop or chime in
+    })
+    // A peer's live partial — captions only, never the source of truth.
+    .on("broadcast", { event: "transcript_partial" }, ({ payload }) => {
+      if (!payload || payload.speakerId === userId) return;
+      setLivePartials(prev => ({ ...prev, [payload.speakerId]: { name: payload.name, text: payload.text } }));
+    })
+    // Someone summoned the AI — only the elected driver answers, and it starts the loop.
+    .on("broadcast", { event: "ai_request" }, ({ payload }) => {
+      if (!amDriverRef.current || !payload?.id || aiHandledRef.current.has(payload.id)) return;   // dedupe re-delivery
+      aiHandledRef.current.add(payload.id);
+      enterSolve();
+      fireAiTurn("ask", { question: payload.text, askerName: payload.askerName });
+    })
+    // The AI's turn from the driver — non-streamed (proactive): record + speak.
+    .on("broadcast", { event: "ai_message" }, ({ payload }) => {
+      if (payload?.text) applyAiMessage(payload);
+    })
+    // Streamed AI turn: a finished sentence (speak now) and the turn-end marker.
+    .on("broadcast", { event: "ai_chunk" }, ({ payload }) => {
+      if (payload?.text) applyAiChunk(payload);
+    })
+    .on("broadcast", { event: "ai_done" }, ({ payload }) => {
+      if (payload?.turnId) applyAiDone(payload);
+    })
+    // Shared "let Reggie chime in" toggle — keep every client in sync.
+    .on("broadcast", { event: "proactive_set" }, ({ payload }) => {
+      proactiveOnRef.current = !!payload?.on;
+      setProactiveOn(!!payload?.on);
+    })
+    // Query-solving loop status — every client shows the "solving" banner.
+    .on("broadcast", { event: "solve_state" }, ({ payload }) => {
+      setSolving(!!payload?.active);
+      if (!payload?.active) solvingRef.current = false;
+    })
+    // A client hit "Done" — the driver ends the loop and cuts off any in-flight answer.
+    .on("broadcast", { event: "solve_end" }, () => {
+      if (amDriverRef.current) { abortAiTurn(); endSolve(); }
     })
     // Whiteboard — a peer is actively drawing (live preview)
     .on("broadcast", { event: "wb_live" }, ({ payload }) => {
@@ -1646,6 +1807,18 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   async function endSession(goalMet = null) {
     if (leftRef.current) return;
     leftRef.current = true;
+    roomVoiceRef.current?.stop();   // drop P2P mesh + release the mic before leaving
+    roomVoiceRef.current = null;
+    scribeRef.current?.stop();
+    scribeRef.current = null;
+    captureActiveRef.current = false;
+    stopCaptureMic();
+    if (proactiveTimerRef.current) clearTimeout(proactiveTimerRef.current);
+    solvingRef.current = false;
+    if (solveIdleTimerRef.current) clearTimeout(solveIdleTimerRef.current);
+    if (solveFollowupTimerRef.current) clearTimeout(solveFollowupTimerRef.current);
+    try { aiAbortRef.current?.abort(); } catch { /* none in flight */ }
+    try { aiSourceRef.current?.stop(); } catch { /* nothing playing */ }
     if (channelRef.current) {
       // Session-only whiteboard: if I'm the last present member, wipe the board.
       // Read presence BEFORE untracking and clear BEFORE leaveRoom drops my
@@ -1663,6 +1836,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           yjsProviderRef.current?.persistState().catch(() => {});
         }
       } catch {}
+      // Tell everyone I'm leaving BEFORE untracking. On an ungraceful exit (tab close)
+      // the async untrack often can't flush, so peers would keep my stale presence until
+      // the server's disconnect timeout — this broadcast prunes me from their roster
+      // immediately. The presence `sync` that follows the untrack then agrees, so there's
+      // no flicker/reappear.
+      try { await channelRef.current.send({ type: "broadcast", event: "member_left", payload: { userId } }); } catch {}
       try { await channelRef.current.untrack(); } catch {}
       supabase.removeChannel(channelRef.current);
       channelRef.current = null;
@@ -1761,16 +1940,549 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     }
   }
 
+  // Chat is always docked in the left bar now, so load history on room entry rather
+  // than on a button click.
+  useEffect(() => { loadChatOnce(); }, []);
+
+  // Keep the docked left chat pinned to the newest message as it grows / when the bar opens.
+  useEffect(() => {
+    if (!leftBarOpen) return;
+    leftChatEndRef.current?.scrollIntoView({ block: "end" });
+  }, [chatMessages, leftBarOpen]);
+
+  function loadChatOnce() {
+    if (chatLoadedRef.current) return;
+    chatLoadedRef.current = true;
+    loadRecentMessages(userId, room.id).then(setChatMessages).catch(err => {
+      console.error("[chat] load:", (err as any)?.message);
+      chatLoadedRef.current = false; // allow retry on a later attempt if it failed
+    });
+  }
+
   function handleOpenChat() {
-    setShowChat(true);
-    if (!chatLoadedRef.current) {
-      chatLoadedRef.current = true;
-      loadRecentMessages(userId, room.id).then(setChatMessages).catch(err => {
-        console.error("[chat] load:", (err as any)?.message);
-        chatLoadedRef.current = false; // allow retry on next open if it failed
+    setShowChat(true);   // focus-mode floating chat
+    loadChatOnce();
+  }
+
+  // ── Peer-to-peer voice ─────────────────────────────────────────────────────────
+  async function joinVoice() {
+    primeAiAudio();   // unlock AI playback within this user gesture
+    if (voiceLiveRef.current) return;
+    setVoiceError(null);
+    try {
+      const rv = await startRoomVoice(userId, {
+        sendSignal: (to, data) => {
+          channelRef.current?.send({ type: "broadcast", event: "voice_signal", payload: { from: userId, to, data } }).catch(() => {});
+        },
+        onRemoteStream: (id, stream) => setRemoteStreams(prev => ({ ...prev, [id]: stream })),
+        onRemoteGone: (id) => {
+          setRemoteStreams(prev => { const n = { ...prev }; delete n[id]; return n; });
+          setVoiceSpeaking(prev => { const n = { ...prev }; delete n[id]; return n; });
+        },
+        onSpeaking: (id, sp) => setVoiceSpeaking(prev => (prev[id] === sp ? prev : { ...prev, [id]: sp })),
+        onError: (msg) => setVoiceError(msg),
       });
+      roomVoiceRef.current = rv;
+      // Join muted by default — you arrive listening, then choose to speak. Speaker
+      // stays on (speakerOn defaults true) so you hear the room immediately.
+      rv.setMuted(true);
+      voiceLiveRef.current = true;
+      micMutedRef.current = true;
+      setVoiceLive(true);
+      setMicMuted(true);
+      pushPresence();   // tell the room I'm in voice; peers open connections to me
+    } catch {
+      // startRoomVoice already reported the mic error via onError.
+      leaveVoice();
     }
   }
+
+  function toggleMic() {
+    if (!voiceLiveRef.current) { joinVoice(); return; }   // first tap joins
+    const next = !micMutedRef.current;
+    micMutedRef.current = next;
+    setMicMuted(next);
+    roomVoiceRef.current?.setMuted(next);
+    pushPresence();
+  }
+
+  function toggleSpeaker() { primeAiAudio(); setSpeakerOn(s => !s); }   // local playback only — no signaling
+
+  function leaveVoice() {
+    roomVoiceRef.current?.stop();
+    roomVoiceRef.current = null;
+    voiceLiveRef.current = false;
+    micMutedRef.current = false;
+    setVoiceLive(false);
+    setMicMuted(false);
+    setRemoteStreams({});
+    setVoiceSpeaking({});
+    if (channelRef.current) pushPresence();   // clear my voice state for peers still here
+  }
+
+  // Reconcile the mesh whenever the roster of in-voice members changes. Connect only to
+  // peers who are also live in voice (their presence carries voice.live).
+  useEffect(() => {
+    if (!voiceLive || !roomVoiceRef.current) return;
+    const peerIds = members.filter((m: any) => m.userId !== userId && m.voice?.live).map((m: any) => m.userId);
+    roomVoiceRef.current.setPeers(peerIds);
+  }, [members, voiceLive]);
+
+  // Surface a single "active speaker" name from the P2P speaking map for the guided
+  // session / member-list indicators.
+  useEffect(() => {
+    const speaker = (members as any[]).find(m => voiceSpeaking[m.userId]);
+    setActiveSpeakerName(speaker ? (speaker.userId === userId ? (userData?.name ?? "You") : speaker.name) : null);
+  }, [voiceSpeaking, members]);
+
+  // Stop voice if the component unmounts without a clean leave.
+  useEffect(() => () => { roomVoiceRef.current?.stop(); }, []);
+
+  // Mirror the shared transcript store into React state for rendering.
+  useEffect(() => {
+    const store = transcriptRef.current!;
+    return store.subscribe(list => setTranscript([...list]));
+  }, []);
+
+  // Keep the transcript view pinned to the newest line.
+  useEffect(() => { transcriptEndRef.current?.scrollIntoView({ block: "end" }); }, [transcript, livePartials, streamingAi]);
+
+  // Elect the AI driver from the current roster (smallest userId; alone → me). Only the
+  // driver runs the LLM + TTS loop, so the AI never answers twice or talks over itself.
+  const driverId = electDriver((members.length ? members : [{ userId }]).map((m: any) => m.userId));
+  useEffect(() => { amDriverRef.current = driverId === userId; }, [driverId]);
+  // If I become the driver mid-loop but don't own that loop (the previous driver left),
+  // end it cleanly so the "solving" banner can't get stuck for everyone.
+  useEffect(() => {
+    if (driverId === userId && solving && !solvingRef.current) endSolve();
+  }, [driverId, solving]);
+  const speakerOnRef = useRef(true);
+  useEffect(() => { speakerOnRef.current = speakerOn; }, [speakerOn]);
+  useEffect(() => { proactiveOnRef.current = proactiveOn; }, [proactiveOn]);
+  useEffect(() => { livePartialsRef.current = livePartials; }, [livePartials]);
+  // Barge-in: the moment I start talking (mic on + detected speaking), Reggie yields —
+  // pause the current clip and skip the rest of this turn. Feels human, not a droning bot.
+  useEffect(() => {
+    // Only latch a barge while Reggie is actually speaking — otherwise the asker's own
+    // trailing speech (right before the reply) would wrongly suppress the whole turn.
+    if (voiceSpeaking[userId] && !micMutedRef.current && aiSpeakingRef.current) {
+      aiBargedRef.current = true;
+      try { aiSourceRef.current?.stop(); } catch { /* nothing playing */ }
+    }
+  }, [voiceSpeaking]);
+
+  // ── In-room AI ("Reggie"): trigger → LLM → TTS ──────────────────────────────────
+  // Anyone can summon; if I'm the driver I handle it, otherwise I hand it to the driver
+  // over the channel (the driver won't hear its own broadcast, so it self-handles).
+  function requestAi(question: string, askerName: string) {
+    if (amDriverRef.current) { enterSolve(); fireAiTurn("ask", { question, askerName }); }   // explicit ask starts the loop
+    else channelRef.current?.send({ type: "broadcast", event: "ai_request", payload: { id: `${userId}-${++aiReqSeqRef.current}`, askerId: userId, askerName, text: (question || "").trim() } }).catch(() => {});
+  }
+
+  // Stop whatever Reggie is currently saying/doing so a newer turn can take over cleanly.
+  function abortAiTurn() {
+    try { aiAbortRef.current?.abort(); } catch { /* none in flight */ }
+    aiAbortRef.current = null;
+    aiBargedRef.current = true;                       // pending clips in the old chain skip
+    try { aiSourceRef.current?.stop(); } catch { /* nothing playing */ }
+    aiSourceRef.current = null;
+    aiSpeakingRef.current = false;
+    aiSpeakChainRef.current = Promise.resolve();      // fresh playback chain for the new turn
+  }
+
+  /**
+   * Run ONE Reggie turn (driver only), gen-stamped so the newest turn always wins. If a
+   * turn is already in flight it's aborted first — this is the whole point of the solve
+   * loop: the moment fresh speech settles, we cancel the stale answer and respond to the
+   * latest. mode "ask"/"solve" stream + speak; "proactive" is a one-off SILENT-or-hint call.
+   */
+  async function fireAiTurn(mode: "ask" | "solve" | "proactive", opts: { question?: string; askerName?: string } = {}) {
+    if (!amDriverRef.current) return;
+    abortAiTurn();                                    // supersede any in-flight turn
+    const gen = ++aiGenRef.current;
+    const live = () => gen === aiGenRef.current;      // am I still the newest turn?
+    const ac = new AbortController();
+    aiAbortRef.current = ac;
+    aiActiveRef.current = true;
+    setAiThinking(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("no auth");
+      await ensureRoomAiSession(token);
+      if (!live()) return;
+      const isProactive = mode === "proactive";
+      const context = transcriptRef.current?.forPrompt({ limit: isProactive ? 10 : 24, maxChars: isProactive ? 1200 : 2200 }) ?? "";
+
+      if (isProactive) {
+        const r = await fetch("/api/room-ai?action=group", {
+          method: "POST", signal: ac.signal,
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ roomId: room.id, message: buildProactivePrompt(context) }),
+        });
+        const d = await r.json().catch(() => ({}));
+        const text = String(d?.message ?? "").trim();
+        if (!live()) return;
+        // If Reggie chimes in, it stays engaged — enter the solve loop so follow-ups answer.
+        if (r.ok && text && !isProactiveSilent(text)) { broadcastAiMessage(text); enterSolve(); }
+      } else {
+        const prompt = mode === "solve" ? buildSolvePrompt(context) : buildAiPrompt(context, opts.askerName || "Someone", opts.question || "");
+        const turnId = `reggie-${++aiMsgSeqRef.current}`;
+        let full = "";
+        const chunker = createSentenceChunker((sentence) => {
+          if (!live()) return;                        // a newer turn superseded us mid-sentence
+          const s = stripSolvedToken(sentence);
+          if (!s) return;
+          const chunk = { turnId, text: s };
+          applyAiChunk(chunk);
+          channelRef.current?.send({ type: "broadcast", event: "ai_chunk", payload: chunk }).catch(() => {});
+        });
+        await streamRoomAiTokens(token, prompt, (tok) => { if (live()) { full += tok; chunker.feed(tok); } }, ac.signal);
+        if (!live()) return;                          // superseded during the stream — drop it
+        chunker.flush();
+        const done = { turnId, text: stripSolvedToken(full) };
+        applyAiDone(done);
+        channelRef.current?.send({ type: "broadcast", event: "ai_done", payload: done }).catch(() => {});
+        // The model appends [SOLVED] once the room confirms; otherwise cap the turns.
+        if (solvingRef.current) {
+          solveTurnsRef.current++;
+          if (hasSolvedToken(full) || solveTurnsRef.current >= SOLVE_MAX_TURNS) endSolve();
+        }
+      }
+    } catch { /* aborted (superseded) or a transient error — the room keeps going */ }
+    finally {
+      if (live()) {
+        aiActiveRef.current = false;
+        setAiThinking(false);
+        if (solvingRef.current) armSolveIdle();       // now awaiting the room's next reply
+      }
+    }
+  }
+
+  // Driver → everyone: the AI's turn. Applied locally too (no self-echo on broadcast).
+  function broadcastAiMessage(text: string) {
+    const msg = { id: `reggie-${++aiMsgSeqRef.current}`, text, ts: Date.now() };
+    applyAiMessage(msg);
+    channelRef.current?.send({ type: "broadcast", event: "ai_message", payload: msg }).catch(() => {});
+  }
+
+  // All clients: record the AI turn in the shared transcript and speak it (if sound is on).
+  // Used by the non-streamed (proactive) path.
+  function applyAiMessage(msg: { id: string; text: string; ts: number }) {
+    aiBargedRef.current = false;          // fresh turn — clear any prior barge-in
+    lastAiTurnRef.current = Date.now();   // start the proactive-interjection cooldown
+    transcriptRef.current?.add({ id: `reggie:${msg.id}`, speakerId: "reggie", speakerName: "Reggie", text: msg.text, ts: msg.ts, seq: 0 });
+    if (speakerOnRef.current) speakAi(msg.text);
+  }
+
+  // Consume the room-ai SSE stream (raw Anthropic format), calling onToken per text delta.
+  async function streamRoomAiTokens(token: string, prompt: string, onToken: (t: string) => void, signal?: AbortSignal) {
+    const r = await fetch("/api/room-ai?action=group", {
+      method: "POST", signal,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ roomId: room.id, message: prompt, stream: true }),
+    });
+    if (!r.ok || !r.body) throw new Error(`stream ${r.status}`);
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const events = buf.split("\n\n");
+      buf = events.pop() ?? "";
+      for (const ev of events) {
+        for (const line of ev.split("\n")) {
+          const m = line.match(/^data: (.*)$/);
+          if (!m || m[1] === "[DONE]") continue;
+          try {
+            const j = JSON.parse(m[1]);
+            if (j.type === "content_block_delta" && j.delta?.type === "text_delta") onToken(j.delta.text ?? "");
+          } catch { /* keep-alive / non-JSON frame */ }
+        }
+      }
+    }
+  }
+
+  // Streaming AI turn — a finished sentence. Speak it now (chunked queue) and show it
+  // building in the transcript. First chunk of a new turn resets barge-in + the live line.
+  function applyAiChunk(chunk: { turnId: string; text: string }) {
+    if (chunk.turnId !== currentAiTurnRef.current) {
+      currentAiTurnRef.current = chunk.turnId;
+      aiBargedRef.current = false;
+      aiStreamTextRef.current = "";
+    }
+    aiStreamTextRef.current += (aiStreamTextRef.current ? " " : "") + chunk.text;
+    setStreamingAi({ turnId: chunk.turnId, text: aiStreamTextRef.current });
+    lastAiTurnRef.current = Date.now();
+    if (speakerOnRef.current) speakAi(chunk.text);
+  }
+
+  // Streaming AI turn finished — commit the full text to the shared transcript (one line)
+  // and clear the live streaming display.
+  function applyAiDone(done: { turnId: string; text: string }) {
+    transcriptRef.current?.add({ id: `reggie:${done.turnId}`, speakerId: "reggie", speakerName: "Reggie", text: done.text, ts: Date.now(), seq: 0 });
+    lastAiTurnRef.current = Date.now();
+    aiStreamTextRef.current = "";
+    setStreamingAi(prev => (prev?.turnId === done.turnId ? null : prev));
+  }
+
+  // ── Proactive/ambient loop (driver only) ────────────────────────────────────────
+  // Debounced a beat after the last human segment (interject at a pause, not mid-flow).
+  const PROACTIVE_QUIET_MS = 2500;      // wait for a lull before considering a chime-in
+  const PROACTIVE_COOLDOWN_MS = 45000;  // min gap after any AI turn
+  const PROACTIVE_THROTTLE_MS = 20000;  // min gap between Stage-B (LLM) checks
+
+  function scheduleProactiveCheck() {
+    if (!amDriverRef.current || !proactiveOnRef.current) return;
+    if (proactiveTimerRef.current) clearTimeout(proactiveTimerRef.current);
+    proactiveTimerRef.current = setTimeout(maybeProactive, PROACTIVE_QUIET_MS);
+  }
+
+  function maybeProactive() {
+    if (!amDriverRef.current || !proactiveOnRef.current || aiActiveRef.current) return;
+    if (solvingRef.current) return;   // a query loop owns the floor — don't also chime in
+    if (Object.keys(livePartialsRef.current).length) return;   // someone is mid-sentence — wait
+    const now = Date.now();
+    if (now - lastAiTurnRef.current < PROACTIVE_COOLDOWN_MS) return;
+    if (now - lastProactiveRef.current < PROACTIVE_THROTTLE_MS) return;
+    // Stage A (free): only spend an LLM call if the recent human talk shows confusion.
+    const humans = (transcriptRef.current?.list() ?? []).filter(u => u.speakerId !== "reggie");
+    const recent = humans.slice(-6).map(u => u.text).join(" ");
+    if (!detectConfusion(recent)) return;
+    lastProactiveRef.current = now;
+    fireAiTurn("proactive");   // Stage B: the LLM decides + generates, or replies SILENT
+  }
+
+  function toggleProactive() {
+    const next = !proactiveOnRef.current;
+    proactiveOnRef.current = next;
+    setProactiveOn(next);
+    channelRef.current?.send({ type: "broadcast", event: "proactive_set", payload: { on: next } }).catch(() => {});
+  }
+
+  // ── Query-solving loop (driver only; one loop room-wide) ─────────────────────────
+  const SOLVE_MAX_TURNS = 12;         // hard cap so a loop can never run away
+  const SOLVE_IDLE_MS = 90000;        // genuinely long silence (reading/thinking is fine) → end
+  const SOLVE_FOLLOWUP_QUIET_MS = 1500;   // wait for a short lull before the next Reggie turn
+
+  function enterSolve() {
+    if (solvingRef.current) return;   // already looping — the new ask just continues it
+    solvingRef.current = true;
+    solveTurnsRef.current = 0;
+    setSolving(true);
+    channelRef.current?.send({ type: "broadcast", event: "solve_state", payload: { active: true } }).catch(() => {});
+  }
+
+  function endSolve() {
+    if (!solvingRef.current && !solving) { /* still clear timers below */ }
+    solvingRef.current = false;
+    solveTurnsRef.current = 0;
+    if (solveIdleTimerRef.current) { clearTimeout(solveIdleTimerRef.current); solveIdleTimerRef.current = null; }
+    if (solveFollowupTimerRef.current) { clearTimeout(solveFollowupTimerRef.current); solveFollowupTimerRef.current = null; }
+    setSolving(false);
+    setAiThinking(false);
+    channelRef.current?.send({ type: "broadcast", event: "solve_state", payload: { active: false } }).catch(() => {});
+  }
+
+  // Any client can end the loop (the "Done" button); the driver tears it down and cuts off
+  // any in-flight answer. (The SOLVED/idle paths call endSolve WITHOUT aborting, so Reggie's
+  // closing line plays out.)
+  function requestEndSolve() {
+    if (amDriverRef.current) { abortAiTurn(); endSolve(); }
+    else channelRef.current?.send({ type: "broadcast", event: "solve_end", payload: {} }).catch(() => {});
+  }
+
+  function armSolveIdle() {
+    if (solveIdleTimerRef.current) clearTimeout(solveIdleTimerRef.current);
+    solveIdleTimerRef.current = setTimeout(() => { if (solvingRef.current) endSolve(); }, SOLVE_IDLE_MS);
+  }
+
+  function scheduleSolveFollowup() {
+    setAiThinking(true);   // your turn landed → show "Reggie is thinking" through the lull + LLM call
+    if (solveFollowupTimerRef.current) clearTimeout(solveFollowupTimerRef.current);
+    solveFollowupTimerRef.current = setTimeout(() => {
+      if (!solvingRef.current || !amDriverRef.current) return;
+      if (Object.keys(livePartialsRef.current).length) { scheduleSolveFollowup(); return; }   // still talking — wait for the lull
+      // Fire on the latest transcript. If a turn is already generating, fireAiTurn aborts it
+      // and responds to the newer input — exactly the interrupt-and-refire behaviour we want.
+      fireAiTurn("solve");
+    }, SOLVE_FOLLOWUP_QUIET_MS);
+  }
+
+  // Every committed human turn (mine or a peer's) routes here on the driver: advance the
+  // solve loop if one is running, otherwise consider a proactive chime-in.
+  function onHumanTurn(text: string) {
+    if (!amDriverRef.current) return;
+    if (solvingRef.current) {
+      if (solveIdleTimerRef.current) { clearTimeout(solveIdleTimerRef.current); solveIdleTimerRef.current = null; }
+      if (isSolveDone(text)) { endSolve(); return; }   // user's satisfied → stop
+      scheduleSolveFollowup();
+    } else {
+      scheduleProactiveCheck();
+    }
+  }
+
+  // ── Push-to-talk "Ask Reggie" ───────────────────────────────────────────────────
+  // Start capturing: everything spoken until Submit becomes the question. If I'm already
+  // STT-ing (unmuted in voice) we tap that stream; otherwise spin a temporary capture mic.
+  async function startCapture() {
+    primeAiAudio();   // unlock AI playback within this user gesture
+    if (!isStreamingSTT()) { requestAi("", userData?.name ?? "Someone"); return; }   // no STT → generic ask
+    captureTextRef.current = "";
+    setCaptureText("");
+    setCapturePartial("");
+    setCaptureMode(true);
+    captureActiveRef.current = true;
+    if (!scribeRef.current) await startCaptureMic();
+  }
+
+  async function startCaptureMic() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      captureStreamRef.current = stream;
+      captureScribeRef.current = await startScribeSession({
+        stream,
+        idleClose: false,
+        onPartial: (t) => setCapturePartial(t.trim()),
+        onSegment: (t) => {
+          const s = t.trim();
+          if (!s) return;
+          captureTextRef.current += (captureTextRef.current ? " " : "") + s;
+          setCaptureText(captureTextRef.current);
+          setCapturePartial("");
+        },
+        onError: () => {},
+      });
+    } catch { /* mic denied — the user can still cancel out */ }
+  }
+
+  function stopCaptureMic() {
+    try { captureScribeRef.current?.stop(); } catch { /* already closed */ }
+    captureScribeRef.current = null;
+    captureStreamRef.current?.getTracks().forEach(t => t.stop());
+    captureStreamRef.current = null;
+  }
+
+  // Submit → fire the question at Reggie (context vs. query kept separate in the prompt).
+  // Cancel → drop it. Either way, tear down capture.
+  function stopCapture(commit: boolean) {
+    primeAiAudio();   // Submit/Cancel is a gesture — keep AI playback unlocked
+    captureActiveRef.current = false;
+    stopCaptureMic();
+    setCaptureMode(false);
+    const q = captureTextRef.current.trim();
+    captureTextRef.current = "";
+    setCaptureText("");
+    setCapturePartial("");
+    if (commit && q) requestAi(q, userData?.name ?? "Someone");
+  }
+
+  // Unlock the WebAudio context inside a user gesture (join / ask / submit / speaker), so
+  // Reggie's later programmatic playback is allowed.
+  function primeAiAudio() {
+    try { roomAudioCtx(); } catch { /* WebAudio unavailable */ }
+  }
+
+  // Serialized playback so consecutive AI clips never overlap; each clip synthesizes while
+  // the previous plays, so streamed sentences are heard back-to-back. Plays through the
+  // shared WebAudio context (reliable once resumed on a gesture). Skips/stops on barge-in.
+  function speakAi(text: string) {
+    aiSpeakChainRef.current = aiSpeakChainRef.current.then(() => new Promise<void>((resolve) => {
+      if (aiBargedRef.current) { resolve(); return; }   // user started talking — yield the floor
+      (async () => {
+        try {
+          // Use the base64-JSON path (same as the orb): the dev proxy returns { audio }
+          // regardless of ?action, and decodeAudioData needs the decoded bytes anyway.
+          const r = await fetch("/api/tts", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: gsStripForSpeech(text) }),
+          });
+          if (!r.ok) throw new Error("tts");
+          const { audio } = await r.json();
+          if (!audio) throw new Error("no audio");
+          const bin = atob(audio);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const ctx = roomAudioCtx();
+          if (ctx.state === "suspended") { try { await ctx.resume(); } catch { /* stays suspended */ } }
+          const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+          if (aiBargedRef.current) { resolve(); return; }   // barged during fetch/decode
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          aiSourceRef.current = source;
+          aiSpeakingRef.current = true;
+          source.onended = () => {
+            aiSpeakingRef.current = false;
+            if (aiSourceRef.current === source) aiSourceRef.current = null;
+            resolve();
+          };
+          source.start(0);
+        } catch { aiSpeakingRef.current = false; resolve(); }
+      })();
+    }));
+  }
+
+  // Run my own STT while I'm unmuted in voice — one Scribe session over the mic stream
+  // roomVoice already owns. Each committed segment becomes an utterance: added to the
+  // shared store locally AND broadcast so every peer merges the same record. Partials feed
+  // live captions only (not the source of truth). Gated by VITE_VOICE_STREAMING; when off,
+  // voice still works and the transcript simply stays empty.
+  useEffect(() => {
+    const shouldRun = voiceLive && !micMuted && isStreamingSTT();
+    if (!shouldRun) {
+      scribeRef.current?.stop();
+      scribeRef.current = null;
+      setLivePartials(prev => { if (!(userId in prev)) return prev; const n = { ...prev }; delete n[userId]; return n; });
+      return;
+    }
+    const stream = roomVoiceRef.current?.getLocalStream();
+    if (!stream) return;
+    const myName = userData?.name ?? "You";
+    let cancelled = false;
+    (async () => {
+      try {
+        const session = await startScribeSession({
+          stream,
+          idleClose: false,   // stay open across silences while unmuted
+          onPartial: (text) => {
+            const t = text.trim();
+            if (captureActiveRef.current) setCapturePartial(t);   // Ask-Reggie capture in progress
+            setLivePartials(prev => ({ ...prev, [userId]: { name: myName, text: t } }));
+            channelRef.current?.send({ type: "broadcast", event: "transcript_partial", payload: { speakerId: userId, name: myName, text: t } }).catch(() => {});
+          },
+          onSegment: (text) => {
+            const t = text.trim();
+            if (!t) return;
+            const seq = ++transcriptSeqRef.current;
+            const u: Utterance = { id: `${userId}:${seq}`, speakerId: userId, speakerName: myName, text: t, ts: Date.now(), seq };
+            transcriptRef.current?.add(u);
+            setLivePartials(prev => { if (!(userId in prev)) return prev; const n = { ...prev }; delete n[userId]; return n; });
+            channelRef.current?.send({ type: "broadcast", event: "transcript", payload: u }).catch(() => {});
+            // Ask-Reggie capture: this segment is part of the question, not a room summon.
+            if (captureActiveRef.current) {
+              captureTextRef.current += (captureTextRef.current ? " " : "") + t;
+              setCaptureText(captureTextRef.current);
+              setCapturePartial("");
+            } else {
+              // Spoken summon: "hey Reggie, …" → ask the AI (the driver answers).
+              const ask = parseWakeWord(t);
+              if (ask !== null) requestAi(ask, myName);
+              else onHumanTurn(t);   // advance a solve loop, or maybe chime in proactively
+            }
+          },
+          onError: () => {},   // transcript just goes quiet; voice itself is unaffected
+        });
+        if (cancelled) session.stop();
+        else scribeRef.current = session;
+      } catch { /* token/mic issue — no transcript, voice keeps working */ }
+    })();
+    return () => { cancelled = true; scribeRef.current?.stop(); scribeRef.current = null; };
+  }, [voiceLive, micMuted]);
 
   function handleOpenBoard() {
     setShowBoard(true);
@@ -2373,6 +3085,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       channelRef.current?.send({
         type: "broadcast", event: "chat_message", payload: msg,
       }).catch(() => {});
+      // Typed summon: "@ai …" / "@reggie …" routes the question to the room AI.
+      const at = body.match(/^@(?:ai|reggie)\b[\s,:]*/i);
+      if (at) requestAi(body.slice(at[0].length).trim(), userData?.name ?? "Someone");
     } catch (err) {
       console.error("[chat] send:", (err as any)?.message);
       setChatInput(body);
@@ -2421,6 +3136,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const gsUsingPicker = gsLaunchMode === "assignment" && gsAssignmentOptions.length > 0 && gsAssignmentId !== "__custom";
   const gsCanStart    = gsUsingPicker ? !!gsAssignmentId : !!gsTopic.trim();
 
+  // Compact top-bar pill styles (used by the pomodoro controls).
+  const topPill: React.CSSProperties = { background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" };
+  const topPillGhost: React.CSSProperties = { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 12px", fontSize: 12, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" };
+
   return (
     // Fills the shell's viewport-locked column (App.tsx applies .page-locked when a room
     // is active), so the room fits ONE viewport exactly — no document scroll, no
@@ -2445,12 +3164,28 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         {/* Top bar — room controls (left) · session timer (center) · presence (right).
             The control pills moved up here from the deleted left column, so the main
             work area gets the full width and there's exactly one home for room tools. */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 16, flexShrink: 0 }}>
-          <div style={{ position: "absolute", left: 0, top: 8, display: "flex", gap: 6, flexWrap: "wrap", maxWidth: "34%" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexShrink: 0 }}>
+          {/* LEFT — chat toggle + room identity (voice-first layout). The Chat pill from
+              the old bar lives on this toggle; the Voice pill is gone on purpose — voice
+              controls are always-on in the voice cluster (join-muted design). */}
+          <button
+            onClick={() => (focusMode ? (showChat ? setShowChat(false) : handleOpenChat()) : setLeftBarOpen(o => !o))}
+            title={leftBarOpen ? "Hide chat" : "Show chat"}
+            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
+              background: (focusMode ? showChat : leftBarOpen) ? "rgba(var(--teal-rgb),0.18)" : "rgba(255,255,255,0.05)",
+              border: `1px solid ${(focusMode ? showChat : leftBarOpen) ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`,
+              color: (focusMode ? showChat : leftBarOpen) ? "#DCE3FF" : "var(--text-dim)" }}>
+            <MessageCircle size={16} />
+          </button>
+          <div style={{ minWidth: 0 }}>
+            <div title={room.name} style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{room.name}</div>
+            {courseName && <div style={{ fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{courseName}</div>}
+          </div>
+
+          {/* Room tool pills — Board / Music / Recap / Invite (from the pre-voice bar). */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {[
-              { label: "Chat", icon: <MessageCircle size={13} />, on: showChat, act: () => (showChat ? setShowChat(false) : handleOpenChat()) },
               { label: "Board", icon: <Pen size={13} />, on: centerTab === "board" && showBoard, act: () => { if (centerTab === "board" && showBoard) { setShowBoard(false); } else { setCenterTab("board"); handleOpenBoard(); } } },
-              { label: "Voice", icon: <Mic size={13} />, on: showVoice, act: () => setShowVoice(v => !v) },
               { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => { if (musicOpen) stopMusic(); setMusicOpen(o => !o); } },
               { label: "Recap", icon: <BookOpen size={13} />, on: reviewOpen, act: () => { if (reviewSessionId) setReviewOpen(true); } },
               { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
@@ -2458,30 +3193,47 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(var(--teal-rgb),0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#DCE3FF" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
             ))}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-            <div style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#DCE3FF" : "var(--text-primary)" }}>
+
+          {/* CENTER — focus sprint timer, pushed to the middle */}
+          <div style={{ marginLeft: "auto", marginRight: "auto", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#DCE3FF" : "var(--text-dim)" }}>
               {pomo && pomo.phase === "focus" ? formatPomoTime(remaining) : "00:00"}
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {(!pomo || pomo.phase !== "focus") ? (
-                <button onClick={handlePomoStart} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>▶ Start focus sprint</button>
-              ) : pomo.paused ? (<>
-                <button onClick={handlePomoResume} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>▶ Resume</button>
-                <button onClick={handlePomoReset} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 14px", fontSize: 12, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Reset</button>
-              </>) : (<>
-                <button onClick={handlePomoPause} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>⏸ Pause</button>
-                <button onClick={handlePomoSkip} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 14px", fontSize: 12, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>End</button>
-              </>)}
-            </div>
+            </span>
+            {(!pomo || pomo.phase !== "focus") ? (
+              <button onClick={handlePomoStart} style={topPill}>▶ Focus sprint</button>
+            ) : pomo.paused ? (<>
+              <button onClick={handlePomoResume} style={topPill}>▶ Resume</button>
+              <button onClick={handlePomoReset} style={topPillGhost}>Reset</button>
+            </>) : (<>
+              <button onClick={handlePomoPause} style={topPill}>⏸ Pause</button>
+              <button onClick={handlePomoSkip} style={topPillGhost}>End</button>
+            </>)}
           </div>
-          {/* Right — room identity + presence + Focus Mode (#258: the room's name previously
-              rendered nowhere; its only copy was stranded in the disabled block below). */}
-          <div style={{ position: "absolute", right: 0, top: 4, display: "flex", alignItems: "center", gap: 8, maxWidth: "32%" }}>
-            <span title={room.name} style={{ fontFamily: "var(--font-sans)", fontSize: 15, fontWeight: 600, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{room.name}</span>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "6px 12px", fontSize: 12, color: "var(--text-secondary)", flexShrink: 0 }}>
+
+          {/* RIGHT — presence · Focus · overflow menu (the one home for room tools) */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "6px 12px", fontSize: 12, color: "var(--text-secondary)" }}>
               <Users size={13} /> {members.length}
             </div>
-            <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: focusMode ? "#DCE3FF" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Focus{focusMode ? " · ON" : ""}</button>
+            <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: focusMode ? "#DCE3FF" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Focus{focusMode ? " · ON" : ""}</button>
+            <div ref={roomMenuRef} style={{ position: "relative" }}>
+              <button onClick={() => setShowRoomMenu(o => !o)} title="Room menu" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative", width: 34, height: 34, borderRadius: 10, background: showRoomMenu ? "rgba(var(--teal-rgb),0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${showRoomMenu ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
+                <MoreHorizontal size={17} />
+                {isHost && requests.length > 0 && (
+                  <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999, background: "#f59e0b", color: "#1a1205", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{requests.length}</span>
+                )}
+              </button>
+              {showRoomMenu && <RoomMenu
+                room={room} isHost={isHost} requests={requests}
+                onCopyCode={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }}
+                onInvite={() => { setShowInvite(true); setShowRoomMenu(false); }}
+                onAccess={() => { setShowAccess(true); setShowRoomMenu(false); }}
+                onPrivateReggie={() => { setShowReggie(true); setShowRoomMenu(false); }}
+                onMusic={() => { setMusicOpen(o => !o); setShowRoomMenu(false); }}
+                onAccept={acceptRequest} onDecline={declineRequest}
+                onLeave={() => { setShowRoomMenu(false); isHost ? handleCloseRoom() : handleLeave(); }}
+              />}
+            </div>
           </div>
         </div>
 
@@ -2489,47 +3241,129 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             (one chat, opened from the Chat pill) — the fake "Live Transcript" and the
             duplicate inline chat input are gone. A real activity feed can take a left
             panel later, opt-in, per the UX audit. */}
-        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "280px 1fr 320px", gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
+        {/* Hidden audio sinks — one per peer's P2P stream. muted follows the speaker toggle. */}
+        {Object.entries(remoteStreams).map(([id, stream]) => (
+          <RemoteAudio key={id} stream={stream} muted={!speakerOn} />
+        ))}
 
-          {/* LEFT — live transcript / room chat, docked like the mockup. Same state the
-              Chat pill drives; the floating ChatPanel now only serves focus mode. */}
-          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 18, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", padding: 16, minHeight: 0, overflow: "hidden" }}>
-            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: "0 0 10px" }}>Live transcript</p>
-            {!showChat ? (
-              <button onClick={handleOpenChat} style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 10, padding: "9px 14px", fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Start transcript →</button>
-            ) : (<>
-              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-                {chatMessages.length === 0 && <span style={{ fontSize: 12, color: "var(--text-dim)" }}>Messages and session activity appear here.</span>}
-                {chatMessages.map((m: any, i: number) => (
-                  <div key={m.id ?? i} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
-                    <span style={{ color: "rgb(var(--teal-rgb))", fontWeight: 600 }}>{m.user_name || m.userName || (m.user_id === userId ? "You" : "Member")}</span>{" "}
-                    <span style={{ color: "var(--text-secondary)" }}>{m.message || m.text || m.content}</span>
-                  </div>
-                ))}
+        {/* Ask-Reggie capture popup — makes it unmistakable that your voice is being taken
+            as a question, with a live transcript and an explicit Submit. */}
+        {captureMode && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 1400, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(6,8,14,0.55)", backdropFilter: "blur(3px)" }}>
+            <div style={{ width: "min(440px, 92vw)", background: "rgba(18,20,28,0.98)", border: "1px solid rgba(169,182,255,0.35)", borderRadius: 18, padding: 22, boxShadow: "0 12px 48px rgba(0,0,0,0.6)" }}>
+              <style>{`@keyframes rgMicPulse{0%,100%{box-shadow:0 0 0 0 rgba(169,182,255,0.5)}50%{box-shadow:0 0 0 14px rgba(169,182,255,0)}}`}</style>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                <div style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(169,182,255,0.18)", border: "1px solid rgba(169,182,255,0.5)", display: "flex", alignItems: "center", justifyContent: "center", color: "#C7D0FF", animation: "rgMicPulse 1.6s ease-in-out infinite", flexShrink: 0 }}>
+                  <Mic size={19} strokeWidth={2.3} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--text-primary)" }}>Listening to your question…</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-dim)" }}>Speak, then hit Submit. Reggie hears only this.</div>
+                </div>
+              </div>
+              <div style={{ minHeight: 64, maxHeight: 160, overflowY: "auto", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, lineHeight: 1.5, color: "var(--text-primary)" }}>
+                {captureText ? <span>{captureText} </span> : null}
+                {capturePartial ? <span style={{ color: "var(--text-dim)", fontStyle: "italic" }}>{capturePartial}</span> : null}
+                {!captureText && !capturePartial && <span style={{ color: "var(--text-dim)" }}>{isStreamingSTT() ? "Your words will appear here as you speak…" : "Voice capture needs streaming STT."}</span>}
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                <button onClick={() => stopCapture(false)} style={{ flex: 1, padding: "10px", borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", color: "var(--text-secondary)" }}>Cancel</button>
+                <button onClick={() => stopCapture(true)} disabled={!captureText.trim()} style={{ flex: 2, padding: "10px", borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: captureText.trim() ? "pointer" : "default", fontFamily: "inherit", color: "#08131b", border: "1px solid rgba(127,224,160,0.55)", background: "linear-gradient(135deg, #7fe0a0, #A9B6FF)", opacity: captureText.trim() ? 1 : 0.5 }}>Submit to Reggie →</button>
+              </div>
+            </div>
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : (leftBarOpen ? "280px 1fr 320px" : "1fr 320px"), gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
+
+          {/* LEFT — room chat, always docked. The top-bar Chat button toggles this whole
+              column (leftBarOpen); the floating ChatPanel still serves focus mode only. */}
+          <div style={{ display: (focusMode || !leftBarOpen) ? "none" : "flex", flexDirection: "column", background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 18, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", padding: 16, minHeight: 0, overflow: "hidden" }}>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: "0 0 10px" }}>Room chat</p>
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2, paddingRight: 2 }}>
+                {chatMessages.length === 0 && (
+                  <span style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>No messages yet. Say hi to the room below.</span>
+                )}
+                {chatMessages.map((m: any, i: number) => {
+                  // Canonical ChatMessage shape: { id, user_id, name, body, created_at }.
+                  // (The old code read m.message/m.text + m.user_name — none exist, so text
+                  // was blank and every name fell back to "Member". Read the real fields.)
+                  const isMe = m.user_id === userId;
+                  const prev = chatMessages[i - 1];
+                  const next = chatMessages[i + 1];
+                  const startGroup = !prev || prev.user_id !== m.user_id;   // first of a run → show name
+                  const endGroup = !next || next.user_id !== m.user_id;     // last of a run → show time
+                  const isImg = typeof m.body === "string" && m.body.startsWith("[img]");
+                  const imgUrl = isImg ? m.body.slice(5) : "";
+                  const time = m.created_at
+                    ? new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : "";
+                  return (
+                    <div key={m.id ?? i} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", marginTop: startGroup && i > 0 ? 9 : 0 }}>
+                      {startGroup && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: isMe ? "var(--text-dim)" : "rgb(var(--teal-rgb))", margin: isMe ? "0 3px 3px 0" : "0 0 3px 4px" }}>
+                          {isMe ? "You" : (m.name || "Member")}
+                        </span>
+                      )}
+                      <div style={{
+                        maxWidth: "90%", padding: isImg ? 3 : "6px 10px", wordBreak: "break-word",
+                        borderRadius: isMe ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
+                        background: isMe ? "rgba(var(--gold-rgb),0.16)" : "rgba(255,255,255,0.07)",
+                        border: `1px solid ${isMe ? "rgba(var(--gold-rgb),0.24)" : "rgba(255,255,255,0.10)"}`,
+                        fontSize: 12.5, lineHeight: 1.45, color: "var(--text-primary)", overflow: "hidden",
+                      }}>
+                        {isImg ? (
+                          <a href={imgUrl} target="_blank" rel="noopener noreferrer">
+                            <img src={imgUrl} alt="shared image" style={{ display: "block", maxWidth: "100%", maxHeight: 180, borderRadius: 8, cursor: "zoom-in" }}
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                          </a>
+                        ) : m.body}
+                      </div>
+                      {endGroup && time && (
+                        <span style={{ fontSize: 9.5, color: "var(--text-dim)", margin: isMe ? "2px 3px 0 0" : "2px 0 0 4px" }}>{time}</span>
+                      )}
+                    </div>
+                  );
+                })}
+                <div ref={leftChatEndRef} />
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
                 <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && chatInput.trim()) sendChatMessage(); }} placeholder="Message the room…" style={{ flex: 1, minWidth: 0, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 10, padding: "8px 11px", fontSize: 12.5, color: "var(--text-primary)", outline: "none", fontFamily: "inherit" }} />
                 <button onClick={() => chatInput.trim() && sendChatMessage()} disabled={chatSending} style={{ background: "rgba(var(--teal-rgb),0.2)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 10, padding: "0 12px", color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5 }}>→</button>
               </div>
-            </>)}
           </div>
 
           {/* CENTER — Guided session (default) / Whiteboard / Flashcards */}
           <div style={{ display: "flex", flexDirection: "column", background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 18, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", padding: 16, overflow: "hidden" }}>
-            {/* Center tab strip — collaborative board vs. Reggie-guided session */}
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexShrink: 0 }}>
-              {([["board", "Whiteboard"], ["session", "Guided session"], ["flashcards", "Flashcards"]] as const).map(([key, label]) => {
-                const active = centerTab === key;
-                return (
-                  <button key={key} onClick={() => { setCenterTab(key); if (key === "board" && !showBoard) handleOpenBoard(); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(var(--teal-rgb),0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#DCE3FF" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
-                    {key === "session" && <Sparkles size={12} />}{key === "flashcards" && <BookOpen size={12} />}{label}
-                    {key === "session" && gs && gs.status !== "done" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(var(--teal-rgb))" }} />}
-                    {key === "flashcards" && fcCards.length > 0 && !fcDone && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(var(--teal-rgb))" }} />}
-                  </button>
-                );
-              })}
+            {/* Center navigation — a segmented control over the three work modes. Each is a
+                distinct thing to do, so they read as equal, full-width, icon-forward tabs. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexShrink: 0 }}>
+              <div style={{ display: "flex", flex: 1, gap: 4, padding: 4, borderRadius: 13, background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                {([
+                  ["board", "Whiteboard", <Pen size={15} />, "Draw together", false],
+                  ["session", "Guided session", <Sparkles size={15} />, "Reggie teaches", !!(gs && gs.status !== "done")],
+                  ["flashcards", "Flashcards", <BookOpen size={15} />, "Review & recall", !!(fcCards.length > 0 && !fcDone)],
+                ] as const).map(([key, label, icon, sub, dot]) => {
+                  const active = centerTab === key;
+                  return (
+                    <button key={key} onClick={() => { setCenterTab(key as any); if (key === "board" && !showBoard) handleOpenBoard(); }} style={{
+                      flex: 1, position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+                      padding: "9px 6px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", transition: "background 0.15s, color 0.15s",
+                      background: active ? "linear-gradient(160deg, rgba(var(--teal-rgb),0.28), rgba(169,182,255,0.12))" : "transparent",
+                      border: `1px solid ${active ? "rgba(var(--teal-rgb),0.5)" : "transparent"}`,
+                      boxShadow: active ? "0 2px 12px rgba(var(--teal-rgb),0.18)" : "none",
+                      color: active ? "#EAF0FF" : "var(--text-dim)",
+                    }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700 }}>
+                        {icon}{label}
+                        {dot && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#7fe0a0", boxShadow: "0 0 6px #7fe0a0" }} />}
+                      </span>
+                      <span style={{ fontSize: 10.5, fontWeight: 500, color: active ? "rgba(234,240,255,0.7)" : "var(--text-dim)", opacity: active ? 1 : 0.7 }}>{sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
               {centerTab === "session" && gs && (
-                <button onClick={endGuidedSession} title="Ends this guided lesson — you stay in the room" style={{ marginLeft: "auto", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 999, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>End lesson</button>
+                <button onClick={endGuidedSession} title="Ends this guided lesson — you stay in the room" style={{ flexShrink: 0, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 999, padding: "8px 13px", fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>End lesson</button>
               )}
             </div>
             <div style={{ flex: 1, minHeight: 0, overflow: "hidden", borderRadius: 14, ["--gold" as any]: "rgb(var(--teal-rgb))", ["--gold-rgb" as any]: "var(--teal-rgb)" }}>
@@ -2751,246 +3585,162 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             </div>
           </div>
 
-          {/* RIGHT — Group session */}
-          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 18, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
-              <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>Group session</p>
-            </div>
-            <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignContent: "start" }}>
-              {(members.length ? members : [{ userId, name: userData?.name || "You" }]).map((m, i) => {
-                const isMe = m.userId === userId;
-                const speaking = !!activeSpeakerName && activeSpeakerName === m.name;
-                const initial = (m.name || "?").charAt(0).toUpperCase();
-                return (
-                  <div key={m.userId || i} style={{
-                    gridColumn: isMe ? "1 / -1" : "auto",
-                    aspectRatio: isMe ? "16 / 10" : "1 / 1",
-                    borderRadius: 14,
-                    background: "linear-gradient(160deg, rgba(var(--teal-rgb),0.16), rgba(255,255,255,0.03))",
-                    border: `1.5px solid ${speaking ? "rgba(var(--teal-rgb),0.75)" : "rgba(255,255,255,0.12)"}`,
-                    boxShadow: speaking ? "0 0 0 3px rgba(var(--teal-rgb),0.18)" : "none",
-                    display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden",
-                  }}>
-                    <div style={{ width: isMe ? 62 : 48, height: isMe ? 62 : 48, borderRadius: "50%", background: "rgba(var(--teal-rgb),0.3)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMe ? 24 : 18, fontWeight: 600, color: "#e6f4ea" }}>{initial}</div>
-                    <span style={{ position: "absolute", bottom: 9, left: 12, fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)" }}>{isMe ? "You" : (m.name || "Guest")}</span>
-                    <div style={{ position: "absolute", bottom: 9, right: 12, display: "flex", gap: 7, color: speaking ? "#A9B6FF" : "var(--text-dim)" }}>
-                      
+          {/* RIGHT — VOICE (the star): people strip · live transcript (the space) · one control bar */}
+          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", gap: 12, background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.22)", borderRadius: 18, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(20px)", padding: 16, minHeight: 0, overflow: "hidden" }}>
+            <style>{`@keyframes rvJoinPulse{0%,100%{box-shadow:0 0 0 0 rgba(var(--teal-rgb),0.45)}50%{box-shadow:0 0 0 6px rgba(var(--teal-rgb),0)}}@keyframes rvThink{0%,80%,100%{transform:translateY(0);opacity:.35}40%{transform:translateY(-3px);opacity:1}}`}</style>
+
+            {/* ── People — compact avatar strip ─────────────────────────────── */}
+            <div style={{ flexShrink: 0 }}>
+              <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: "0 0 8px" }}>In the room · {members.length || 1}</p>
+              <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 2 }}>
+                {(members.length ? members : [{ userId, name: userData?.name || "You", voice: null }]).map((m: any, i: number) => {
+                  const isMe = m.userId === userId;
+                  const speaking = !!voiceSpeaking[m.userId];
+                  const initial = (m.name || "?").charAt(0).toUpperCase();
+                  const inVoice = !!m.voice?.live;
+                  const muted = !!m.voice?.muted;
+                  const dot = !inVoice ? null : muted ? "#f87171" : speaking ? "#7fe0a0" : "rgb(var(--teal-rgb))";
+                  return (
+                    <div key={m.userId || i} title={isMe ? "You" : (m.name || "Guest")} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, width: 52, flexShrink: 0 }}>
+                      <div style={{ position: "relative", width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, fontWeight: 700, color: "#e6f4ea",
+                        background: "linear-gradient(160deg, rgba(var(--teal-rgb),0.4), rgba(169,182,255,0.25))",
+                        border: `2px solid ${speaking ? "rgb(var(--teal-rgb))" : "rgba(255,255,255,0.18)"}`,
+                        boxShadow: speaking ? "0 0 0 3px rgba(var(--teal-rgb),0.25)" : "none", transition: "box-shadow 0.15s, border-color 0.15s" }}>
+                        {initial}
+                        {dot && (
+                          <span style={{ position: "absolute", bottom: -2, right: -2, width: 17, height: 17, borderRadius: "50%", background: "#0d0f16", border: "2px solid #0d0f16", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            {muted ? <MicOff size={10} style={{ color: dot }} /> : <Mic size={10} style={{ color: dot }} />}
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 10.5, color: "var(--text-secondary)", maxWidth: 52, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{isMe ? "You" : (m.name || "Guest")}</span>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-            {room.join_code && (
-              <div style={{ marginTop: 12 }}>
-                {members.length <= 1 && (
-                  <p style={{ fontSize: 11, color: "var(--text-dim)", margin: "0 0 8px", textAlign: "center" }}>You're the first one here — share the code to invite others.</p>
-                )}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "10px 14px" }}>
-                  <div>
-                    <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 2 }}>Room code</div>
-                    <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 600, letterSpacing: 3, color: "#DCE3FF" }}>{room.join_code}</div>
+
+            {/* ── Live transcript — the shared source of truth (gets the space) ── */}
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderTop: "1px solid rgba(255,255,255,0.10)", paddingTop: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 8px" }}>
+                <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>
+                  Live transcript{aiThinking && !solving && <span style={{ color: "#A9B6FF", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>· Reggie is thinking…</span>}
+                </p>
+                {solving && (
+                  <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(169,182,255,0.16)", border: "1px solid rgba(169,182,255,0.4)", borderRadius: 999, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: "#C7D0FF" }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#A9B6FF", boxShadow: "0 0 6px #A9B6FF", animation: "rvJoinPulse 1.4s ease-in-out infinite" }} />
+                      Solving your question
+                    </span>
+                    <button onClick={requestEndSolve} title="End the Q&A loop" style={{ borderRadius: 999, padding: "3px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", color: "var(--text-dim)" }}>Done</button>
                   </div>
-                  <button onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }} style={{ background: "rgba(var(--teal-rgb),0.16)", border: "1px solid rgba(var(--teal-rgb),0.3)", borderRadius: 9, padding: "6px 13px", fontSize: 12, fontWeight: 600, color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
+                )}
+              </div>
+              <div style={{ flex: 1, minHeight: 60, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5, lineHeight: 1.5, paddingRight: 2 }}>
+                {transcript.length === 0 && Object.keys(livePartials).length === 0 && !streamingAi && (
+                  <span style={{ color: "var(--text-dim)", fontSize: 11.5, lineHeight: 1.5 }}>
+                    {isStreamingSTT() ? "Join voice and speak — the conversation appears here, and Reggie is listening." : "Streaming transcription is off (VITE_VOICE_STREAMING)."}
+                  </span>
+                )}
+                {transcript.map(u => {
+                  const isAi = u.speakerId === "reggie";
+                  return (
+                    <div key={u.id} style={isAi ? { background: "rgba(169,182,255,0.08)", borderRadius: 8, padding: "5px 9px" } : undefined}>
+                      <span style={{ color: isAi ? "#A9B6FF" : (u.speakerId === userId ? "var(--gold)" : "rgb(var(--teal-rgb))"), fontWeight: 700 }}>
+                        {isAi ? "Reggie" : (u.speakerId === userId ? "You" : u.speakerName)}
+                      </span>{" "}
+                      <span style={{ color: isAi ? "var(--text-primary)" : "var(--text-secondary)" }}>{u.text}</span>
+                    </div>
+                  );
+                })}
+                {Object.entries(livePartials).map(([id, p]) => (
+                  <div key={"p_" + id} style={{ opacity: 0.6, fontStyle: "italic" }}>
+                    <span style={{ color: id === userId ? "var(--gold)" : "rgb(var(--teal-rgb))", fontWeight: 600 }}>{id === userId ? "You" : p.name}</span>{" "}
+                    <span style={{ color: "var(--text-dim)" }}>{p.text}…</span>
+                  </div>
+                ))}
+                {streamingAi && (
+                  <div style={{ background: "rgba(169,182,255,0.08)", borderRadius: 8, padding: "5px 9px" }}>
+                    <span style={{ color: "#A9B6FF", fontWeight: 700 }}>Reggie</span>{" "}
+                    <span style={{ color: "var(--text-primary)" }}>{streamingAi.text}</span>
+                    <span style={{ color: "#A9B6FF", opacity: 0.6 }}>▍</span>
+                  </div>
+                )}
+                {/* Reggie is working on your input — shown from when the transcript is sent
+                    until the first sentence streams back, so the gap never feels dead. */}
+                {aiThinking && !streamingAi && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(169,182,255,0.08)", borderRadius: 8, padding: "6px 9px" }}>
+                    <span style={{ color: "#A9B6FF", fontWeight: 700 }}>Reggie</span>
+                    <span style={{ display: "inline-flex", gap: 3, alignItems: "flex-end" }}>
+                      {[0, 1, 2].map(i => (
+                        <span key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: "#A9B6FF", animation: `rvThink 1s ease-in-out ${i * 0.16}s infinite` }} />
+                      ))}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-dim)" }}>thinking…</span>
+                  </div>
+                )}
+                <div ref={transcriptEndRef} />
+              </div>
+            </div>
+
+            {/* ── Voice control bar — every voice control in one place ─────────── */}
+            <div style={{ flexShrink: 0 }}>
+              {!voiceLive ? (
+                <button onClick={joinVoice} style={{
+                  width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 9,
+                  padding: "12px", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                  color: "#08131b", border: "1px solid rgba(var(--teal-rgb),0.55)",
+                  background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)",
+                  animation: "rvJoinPulse 2.2s ease-in-out infinite",
+                }}><Mic size={17} strokeWidth={2.4} />Join voice chat</button>
+              ) : (
+                <div style={{ display: "flex", gap: 7, alignItems: "stretch" }}>
+                  <button onClick={toggleMic} title={micMuted ? "Unmute your mic" : "Mute your mic"} style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 13px", borderRadius: 11, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                    background: micMuted ? "rgba(239,68,68,0.16)" : "rgba(var(--teal-rgb),0.2)",
+                    border: `1px solid ${micMuted ? "rgba(239,68,68,0.5)" : "rgba(var(--teal-rgb),0.55)"}`,
+                    color: micMuted ? "#f87171" : "#DCE3FF" }}>
+                    {micMuted ? <MicOff size={16} /> : <Mic size={16} />}{micMuted ? "Muted" : "Live"}
+                  </button>
+                  <button onClick={toggleSpeaker} title={speakerOn ? "Mute the room (stop hearing others)" : "Unmute the room"} style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", width: 40, borderRadius: 11, cursor: "pointer", fontFamily: "inherit",
+                    background: speakerOn ? "rgba(255,255,255,0.07)" : "rgba(239,68,68,0.16)",
+                    border: `1px solid ${speakerOn ? "rgba(255,255,255,0.16)" : "rgba(239,68,68,0.5)"}`,
+                    color: speakerOn ? "var(--text-primary)" : "#f87171" }}>
+                    {speakerOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                  </button>
+                  {captureMode ? (
+                    <div style={{ display: "flex", gap: 7, flex: 1 }}>
+                      <button onClick={() => stopCapture(false)} style={{ flex: 1, borderRadius: 11, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", color: "var(--text-dim)" }}>Cancel</button>
+                      <button onClick={() => stopCapture(true)} style={{ flex: 1, borderRadius: 11, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: "rgba(127,224,160,0.18)", border: "1px solid rgba(127,224,160,0.5)", color: "#7fe0a0" }}>Submit →</button>
+                    </div>
+                  ) : (
+                    <>
+                      <button onClick={startCapture} disabled={aiThinking} title="Ask Reggie a question — tap, speak, then submit" style={{
+                        flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 10px", borderRadius: 11, fontSize: 12.5, fontWeight: 700, cursor: aiThinking ? "default" : "pointer", fontFamily: "inherit",
+                        background: "rgba(169,182,255,0.16)", border: "1px solid rgba(169,182,255,0.4)", color: "#C7D0FF", opacity: aiThinking ? 0.5 : 1 }}>
+                        <Sparkles size={14} />Ask Reggie
+                      </button>
+                      <button onClick={toggleProactive} title={proactiveOn ? "Reggie chimes in when someone's stuck — click to turn off" : "Let Reggie chime in on its own when someone seems stuck"} style={{
+                        display: "inline-flex", alignItems: "center", gap: 4, padding: "9px 11px", borderRadius: 11, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                        background: proactiveOn ? "rgba(127,224,160,0.16)" : "rgba(255,255,255,0.05)",
+                        border: `1px solid ${proactiveOn ? "rgba(127,224,160,0.45)" : "rgba(255,255,255,0.12)"}`,
+                        color: proactiveOn ? "#7fe0a0" : "var(--text-dim)" }}>
+                        <Zap size={13} />{proactiveOn ? "On" : "Auto"}
+                      </button>
+                    </>
+                  )}
                 </div>
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={() => setShowReggie(true)} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(var(--teal-rgb),0.3)", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "rgb(var(--teal-rgb))" }} />Call Reggie</button>
-              <button onClick={() => (isHost ? handleCloseRoom() : handleLeave())} title={isHost ? "Closes the room for everyone" : "Leave this room"} style={{ flex: 1, background: "rgba(239,68,68,0.85)", border: "none", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>{isHost ? "Close room" : "Leave room"}</button>
+              )}
+              {voiceError && <p style={{ fontSize: 11, color: "#f87171", margin: "8px 0 0", lineHeight: 1.4 }}>{voiceError}</p>}
+              {!voiceLive && members.length <= 1 && room.join_code && (
+                <p style={{ fontSize: 11, color: "var(--text-dim)", margin: "8px 0 0", textAlign: "center" }}>You're the first one here — share code <b style={{ color: "#DCE3FF", letterSpacing: 1 }}>{room.join_code}</b> via the ⋯ menu.</p>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {false && (<>
-      {/* Header */}
-      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", flexWrap:"wrap", gap:"10px", marginBottom:"20px" }}>
-        <div>
-          <p style={S.sectionLabel}>Study Room</p>
-          <h1 style={{ ...S.pageTitle, fontSize:"22px" }}>{room.name}</h1>
-          <p style={{ fontSize:"12px", color:"var(--text-dim)", marginTop:"3px" }}>
-            {room.room_type === "invite"
-              ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Lock size={12} />Invite only</span>
-              : <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Globe size={12} />Public</span>}
-            {members.length > 0 && (
-              <span style={{ marginLeft:"10px", color:"var(--color-accent)" }}>
-                · {members.length} focusing now
-              </span>
-            )}
-          </p>
-          {activeFilterKeys(accessFilters).length > 0 && (
-            <div style={{ marginTop:"8px" }}>
-              <FilterBadges filters={accessFilters} small />
-            </div>
-          )}
-        </div>
-        <div style={{ display:"flex", gap:"6px", alignItems:"center", flexWrap:"wrap" }}>
-          {/* Panel toggles */}
-          <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><MessageCircle size={13} />Chat</span></button>
-          <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(var(--gold-rgb), 0.1)" : "none", borderColor: showBoard ? "rgba(var(--gold-rgb), 0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "var(--gold)" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Pen size={13} />Board</span></button>
-          <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Mic size={13} />Voice</span></button>
-          <button onClick={() => setShowReggie(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showReggie ? "rgba(var(--teal-rgb),0.12)" : "none", borderColor: showReggie ? "rgba(var(--teal-rgb),0.35)" : "rgba(255,255,255,0.09)", color: showReggie ? "rgb(var(--teal-rgb))" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Sparkles size={13} />Reggie</span></button>
-          <button onClick={() => setShowInvite(true)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Plus size={13} />Invite</span></button>
-
-          {/* ⋯ overflow — admin actions + leave */}
-          <div ref={roomMenuRef} style={{ position:"relative" }}>
-            <button
-              onClick={() => setShowRoomMenu(m => !m)}
-              style={{ ...S.ghostBtn, marginTop:0, padding:"8px 12px", fontSize:"14px", letterSpacing:"1px", background: showRoomMenu ? "rgba(255,255,255,0.07)" : "none" }}
-              title="More options"
-            >
-              <MoreHorizontal size={16} />
-            </button>
-            {showRoomMenu && (
-              <div style={{
-                position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:200,
-                background:"var(--color-surface)", border:"1px solid var(--color-border)",
-                borderRadius:"12px", padding:"6px", minWidth:"140px", maxWidth:"calc(100vw - 24px)",
-                boxShadow:"0 8px 32px rgba(0,0,0,0.45)",
-              }}>
-                {isHost && (
-                  <button onClick={() => { setShowAccess(true); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"var(--text-secondary)", cursor:"pointer", fontFamily:"inherit" }}
-                    onMouseEnter={e => (e.currentTarget.style.background="rgba(255,255,255,0.06)")}
-                    onMouseLeave={e => (e.currentTarget.style.background="none")}
-                  ><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><Settings size={14} />Access settings</span></button>
-                )}
-                {isHost && (
-                  <button onClick={() => { handleCloseRoom(); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"rgba(255,100,90,0.8)", cursor:"pointer", fontFamily:"inherit" }}
-                    onMouseEnter={e => (e.currentTarget.style.background="rgba(255,59,48,0.07)")}
-                    onMouseLeave={e => (e.currentTarget.style.background="none")}
-                  ><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><X size={14} />Close room</span></button>
-                )}
-                <div style={{ height:"1px", background:"var(--color-border)", margin:"4px 0" }} />
-                <button onClick={() => { handleLeave(); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"rgba(255,100,90,0.8)", cursor:"pointer", fontFamily:"inherit" }}
-                  onMouseEnter={e => (e.currentTarget.style.background="rgba(255,59,48,0.07)")}
-                  onMouseLeave={e => (e.currentTarget.style.background="none")}
-                ><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><LogOut size={14} />Leave room</span></button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Living focus orb — members orbit the core, intensifies during a sprint */}
-      <StudyOrb
-        active={!!pomo && pomo.phase === "focus" && !pomo.paused}
-        members={members}
-        speakingNames={activeSpeakerName ? [activeSpeakerName] : []}
-      />
-
-      {/* Focus Sprint — configurable duration, no break phase */}
-      <FocusSprintPanel
-        pomo={pomo}
-        remaining={remaining}
-        isHost={isHost}
-        sprintDuration={sprintDuration}
-        onDurationChange={handleSprintDurationChange}
-        onStart={handlePomoStart}
-        onPause={handlePomoPause}
-        onResume={handlePomoResume}
-        onReset={handlePomoReset}
-        onEnd={handlePomoSkip}
-      />
-
-      {/* Collective focus strip */}
-      {members.length > 1 && (
-        <div style={{
-          background:"rgba(var(--gold-rgb), 0.06)", border:"1px solid rgba(var(--gold-rgb), 0.14)",
-          borderRadius:"10px", padding:"10px 16px", marginBottom:"18px",
-          display:"flex", alignItems:"center", justifyContent:"space-between",
-        }}>
-          <span style={{ fontSize:"12px", color:"var(--text-secondary)" }}>
-            Focus pact · {members.length} people, {totalFocusMins} min total this session
-          </span>
-          <span style={{ fontSize:"12px", fontWeight:"600", color:"var(--color-accent)" }}>Together</span>
-        </div>
-      )}
-
-      {/* Pending requests (host only) */}
-      {isHost && requests.length > 0 && (
-        <div style={{ marginBottom:"18px" }}>
-          <p style={{ ...S.sectionLabel, marginBottom:"10px" }}>Requests to join ({requests.length})</p>
-          <div style={{ display:"flex", flexDirection:"column", gap:"8px" }}>
-            {requests.map(r => (
-              <RequestCard
-                key={r.userId}
-                request={r}
-                onAccept={() => acceptRequest(r.userId)}
-                onDecline={() => declineRequest(r.userId)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Working-on / session goal */}
-      <div style={{ marginBottom:"20px" }}>
-        <p style={{ ...S.sectionLabel, marginBottom:"8px" }}>What I'm working on</p>
-        <input
-          value={workingOn}
-          onChange={e => handleWorkingOnChange(e.target.value)}
-          placeholder="e.g. CDS151 lab question 3…"
-          maxLength={80}
-          style={S.input}
-          onFocus={e => (e.target.style.borderColor="rgba(255,255,255,0.22)")}
-          onBlur={e  => (e.target.style.borderColor="rgba(255,255,255,0.1)")}
-        />
-        <p style={{ fontSize:"11px", color:"var(--text-dim)", marginTop:"4px" }}>
-          Visible to everyone in the room.
-        </p>
-      </div>
-
-      {/* Room code */}
-      {room.join_code && (
-        <div style={{
-          display:"flex", alignItems:"center", justifyContent:"space-between",
-          background:"rgba(255,255,255,0.03)", border:"1px solid var(--color-border)",
-          borderRadius:"10px", padding:"10px 14px", marginBottom:"20px",
-        }}>
-          <div>
-            <span style={{ fontSize:"10px", color:"var(--text-dim)", letterSpacing:"1.5px", textTransform:"uppercase" }}>Room code</span>
-            <p style={{ fontFamily:"var(--font-sans)", fontSize:"18px", fontWeight:"600",
-              color:"var(--color-accent)", letterSpacing:"3px", marginTop:"2px" }}>
-              {room.join_code}
-            </p>
-          </div>
-          <button
-            onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }}
-            style={{ ...S.ghostBtn, marginTop:0, padding:"6px 14px", fontSize:"12px" }}
-          >
-            Copy
-          </button>
-        </div>
-      )}
-
-      {/* Member list */}
-      <p style={{ ...S.sectionLabel, marginBottom:"12px" }}>In this room</p>
-      {members.length === 0 ? (
-        <div style={S.emptyState}>
-          <p style={{ color:"var(--text-secondary)", fontSize:"14px", fontWeight:"500", marginBottom:"5px" }}>You're the first one here</p>
-          <p style={{ color:"var(--text-dim)", fontSize:"12px" }}>Invite friends or share the room code.</p>
-        </div>
-      ) : (
-        <div style={{ display:"flex", flexDirection:"column", gap:"10px" }}>
-          {members.map(m => (
-            <MemberCard key={m.userId} member={m} isMe={m.userId === userId} isSpeaking={activeSpeakerName === m.name} handRaised={!!raisedHands[m.userId]} />
-          ))}
-        </div>
-      )}
-      </>)}
-
-      {/* Voice chat panel — collapses to slim bar when the whiteboard is open */}
-      {showVoice && (
-        <VoiceRoom
-          roomId={room.id}
-          userName={userData?.name ?? ""}
-          onClose={() => { setShowVoice(false); setActiveSpeakerName(null); }}
-          onSpeakingChange={setActiveSpeakerName}
-          handRaised={myHandRaised}
-          onToggleHand={handleToggleHand}
-          forceMinimized={showBoard}
-        />
-      )}
 
       {/* Chat panel — persisted, WhatsApp-style */}
       {showChat && focusMode && (
@@ -3386,6 +4136,50 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RoomMenu — the single overflow menu for all secondary room tools (top-bar ⋯).
+// Consolidates room code, invite, who-can-join, private tutor, music, host join
+// requests, and leave/close — so none of it clutters the main layout.
+// ─────────────────────────────────────────────────────────────────────────────
+function RoomMenu({ room, isHost, requests, onCopyCode, onInvite, onAccess, onPrivateReggie, onMusic, onAccept, onDecline, onLeave }: any) {
+  const [copied, setCopied] = useState(false);
+  const item: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 11px", borderRadius: 9, background: "none", border: "none", fontSize: 13, color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit", textAlign: "left" };
+  return (
+    <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 270, zIndex: 1300, background: "rgba(18,20,28,0.98)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 14, padding: 8, boxShadow: "0 12px 40px rgba(0,0,0,0.55)", backdropFilter: "blur(20px)" }}>
+      {/* Host: pending join requests */}
+      {isHost && requests.length > 0 && (
+        <div style={{ marginBottom: 6, paddingBottom: 6, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#f59e0b", padding: "4px 11px 6px" }}>Wants to join · {requests.length}</div>
+          {requests.map((r: any) => (
+            <div key={r.userId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 11px" }}>
+              <span style={{ flex: 1, fontSize: 13, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name || "Someone"}</span>
+              <button onClick={() => onDecline(r.userId)} style={{ padding: "4px 9px", borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", color: "var(--text-dim)" }}>Deny</button>
+              <button onClick={() => onAccept(r.userId)} style={{ padding: "4px 9px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: "rgba(127,224,160,0.18)", border: "1px solid rgba(127,224,160,0.5)", color: "#7fe0a0" }}>Admit</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Room code + copy */}
+      {room.join_code && (
+        <button onClick={() => { onCopyCode(); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={item}>
+          <KeyRound size={15} style={{ color: "var(--text-dim)" }} />
+          <span style={{ flex: 1 }}>Room code</span>
+          <span style={{ fontFamily: "var(--font-sans)", fontWeight: 700, letterSpacing: 2, color: "#DCE3FF" }}>{room.join_code}</span>
+          <span style={{ fontSize: 11, color: copied ? "#7fe0a0" : "var(--text-dim)" }}>{copied ? "Copied" : "Copy"}</span>
+        </button>
+      )}
+      <button onClick={onInvite} style={item}><Plus size={15} style={{ color: "var(--text-dim)" }} />Invite people</button>
+      {isHost && <button onClick={onAccess} style={item}><Lock size={15} style={{ color: "var(--text-dim)" }} />Who can join</button>}
+      <button onClick={onPrivateReggie} style={item}><Sparkles size={15} style={{ color: "rgb(var(--teal-rgb))" }} />Private tutor</button>
+      <button onClick={onMusic} style={item}><Music size={15} style={{ color: "var(--text-dim)" }} />Focus music</button>
+
+      <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "6px 4px" }} />
+      <button onClick={onLeave} style={{ ...item, color: "#f87171" }}><LogOut size={15} />{isHost ? "Close room" : "Leave room"}</button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // RequestCard
 // ─────────────────────────────────────────────────────────────────────────────
 function RequestCard({ request, onAccept, onDecline }) {
@@ -3669,6 +4463,20 @@ function ChatPanel({ messages, myUserId, input, sending, imageUploading, onInput
       </div>
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RemoteAudio — hidden <audio> sink for one peer's P2P voice stream. srcObject can't
+// be set as a JSX prop, so it's assigned via ref; `muted` follows the speaker toggle.
+// ─────────────────────────────────────────────────────────────────────────────
+function RemoteAudio({ stream, muted }: { stream: MediaStream; muted: boolean }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && el.srcObject !== stream) { el.srcObject = stream; el.play?.().catch(() => {}); }
+  }, [stream]);
+  useEffect(() => { if (ref.current) ref.current.muted = muted; }, [muted]);
+  return <audio ref={ref} autoPlay playsInline style={{ display: "none" }} />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -112,6 +112,13 @@ export type ScribeOptions = {
   onError?: (kind: string, detail?: string) => void;
   /** Socket closed for any reason, including the idle timeout. */
   onClose?: () => void;
+  /**
+   * Auto-close the socket after IDLE_CLOSE_MS with no inbound transcript. Default true —
+   * right for the orb, where auto-listen re-arms per turn. The room transcript mic passes
+   * false so the session stays open across silences for as long as the user is unmuted,
+   * instead of dropping and reconnecting on every quiet gap.
+   */
+  idleClose?: boolean;
 };
 
 /**
@@ -120,6 +127,7 @@ export type ScribeOptions = {
  */
 export async function startScribeSession(opts: ScribeOptions): Promise<ScribeSession> {
   const { stream, onReady, onPartial, onSegment, onTurn, onError, onClose } = opts;
+  const idleEnabled = opts.idleClose !== false;   // default on; room transcript opts out
 
   let stopped = false;
   let ws: WebSocket | null = null;
@@ -144,8 +152,10 @@ export async function startScribeSession(opts: ScribeOptions): Promise<ScribeSes
 
   function stop() { const wasActive = !stopped; cleanup(); if (wasActive) onClose?.(); }
 
-  // Any inbound transcript resets the idle clock. Silence alone never does.
+  // Any inbound transcript resets the idle clock. Silence alone never does. Disabled
+  // when idleClose is false (the room transcript mic stays open while unmuted).
   function touchIdle() {
+    if (!idleEnabled) return;
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => { flushTurn(); stop(); }, IDLE_CLOSE_MS);
   }
@@ -159,14 +169,8 @@ export async function startScribeSession(opts: ScribeOptions): Promise<ScribeSes
 
   // ── Token ────────────────────────────────────────────────────────────────────
   // Single-use, 15-minute TTL, so one mint per connection. The API key stays server
-  // side; see api/stt.ts ?action=token. The endpoint is auth-gated (requireUserOr401),
-  // and this app attaches the Supabase JWT explicitly per call — a bare fetch 401s.
-  const { supabase } = await import("../api/supabase");
-  const { data: { session } } = await supabase.auth.getSession();
-  const tokenRes = await fetch("/api/stt?action=token", {
-    method: "POST",
-    headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-  });
+  // side; see api/stt.ts ?action=token.
+  const tokenRes = await fetch("/api/stt?action=token", { method: "POST" });
   if (!tokenRes.ok) {
     const kind = tokenRes.status === 401 ? "auth_error"
       : tokenRes.status === 503 ? "not_configured"

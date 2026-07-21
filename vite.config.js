@@ -521,39 +521,6 @@ const flashcardsProxyPlugin = {
   },
 };
 
-// Daily-room proxy — runs the real api/daily-room.ts handler under the dev server
-// so the Voice button works with `npm run dev`. Injects DAILY_API_KEY from
-// .env.local; returns 503 if missing (matches prod behaviour).
-const dailyRoomProxyPlugin = {
-  name: "daily-room-proxy",
-  configureServer(server) {
-    server.middlewares.use("/api/daily-room", async (req, res) => {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-      if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
-      injectEnv("DAILY_API_KEY");
-      // Hardened endpoint now verifies the caller + room membership via Supabase.
-      injectEnv("SUPABASE_URL");
-      injectEnv("SUPABASE_SERVICE_KEY");
-      let body = "";
-      req.on("data", c => { body += c; });
-      req.on("end", async () => {
-        try { req.body = body ? JSON.parse(body) : {}; } catch { req.body = {}; }
-        res.status = (code) => { res.statusCode = code; return res; };
-        res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
-        try {
-          const { default: handler } = await import("./api/daily-room.js");
-          await handler(req, res);
-        } catch (err) {
-          res.statusCode = 502; res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: err.message }));
-        }
-      });
-    });
-  },
-};
-
 // Nudge proxy — runs the real api/nudge.ts handler under the dev server so the
 // rate-limited "come study" friend nudge (nudge-row insert + Resend email
 // fallback) works with `npm run dev`. Same module-load env caveat as above →
@@ -656,7 +623,7 @@ const LMS_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY",
   "EXTENSION_AUTH_SECRET"];
 
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, sttProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
+  plugins: [react(), canvasProxyPlugin, sttProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, summarizeProxyPlugin,
     handlerProxy("/api/music",            () => import("./api/music.js")),
     handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
     // OPENAI_API_KEY: session-close.ts now imports rag.js's embed() for the
