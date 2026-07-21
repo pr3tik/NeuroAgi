@@ -25,7 +25,7 @@ export interface ReggieStreamHandlers {
   onToken?: (delta: string) => void;
   onReset?: () => void;
   onToolCall?: (name: string, input: any) => void;
-  onToolResult?: (name: string, ok: boolean) => void;
+  onToolResult?: (name: string, ok: boolean, sources?: any[]) => void;
   onDone?: (result: ReggieDone) => void;
   onError?: (message: string) => void;
 }
@@ -75,7 +75,7 @@ export async function streamReggie(
       case "token":       handlers.onToken?.(data.text ?? ""); break;
       case "reset":       handlers.onReset?.(); break;
       case "tool_call":   handlers.onToolCall?.(data.name, data.input); break;
-      case "tool_result": handlers.onToolResult?.(data.name, !!data.ok); break;
+      case "tool_result": handlers.onToolResult?.(data.name, !!data.ok, data.sources); break;
       case "done":        terminal = true; handlers.onDone?.(data as ReggieDone); break;
       case "error":       terminal = true; handlers.onError?.(data.error || "Reggie failed"); break;
     }
