@@ -1121,7 +1121,7 @@ function GsRichText({ text }: { text: string }) {
                 const isB = isBullet(l);
                 return (
                   <p key={j} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: "var(--text-secondary)", display: "flex", gap: 8 }}>
-                    {isB && <span style={{ color: "#818cf8", flexShrink: 0 }}>•</span>}
+                    {isB && <span style={{ color: "rgb(var(--teal-rgb))", flexShrink: 0 }}>•</span>}
                     <span>{gsInline(l.replace(/^\s*[-•*]\s+/, ""))}</span>
                   </p>
                 );
@@ -2388,20 +2388,24 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const gsCanStart    = gsUsingPicker ? !!gsAssignmentId : !!gsTopic.trim();
 
   return (
-    <div style={{ position: "relative" }}>
-      {/* ══ Redesigned session room — indigo liquid-glass (Pass 1) ══════════════
+    // Fills the shell's viewport-locked column (App.tsx applies .page-locked when a room
+    // is active), so the room fits ONE viewport exactly — no document scroll, no
+    // hardcoded header math. paddingRight restores the breathing room .page-locked's
+    // flush-right treatment removes.
+    <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", paddingRight: 18 }}>
+      {/* ══ Redesigned session room — sage liquid-glass ══════════════
           Wired real: timer, participant count, chat input/send, Chat/Board/Voice/
           Invite controls, whiteboard (Open board), participant tiles from presence,
           Call Reggie (B1), End session. Placeholders (backburnered): live transcript
           feed, real camera video, Focus Mode behavior, toasts, presenting badge. */}
       {/* Ambient purple glow removed — the room now sits on the app's warm-ink ground. */}
 
-      <div style={{ position: "relative", zIndex: 1, height: "calc(100dvh - 92px)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {roomToast && !focusMode && (
-          <div style={{ position: "fixed", top: 18, right: 18, zIndex: 90, display: "flex", alignItems: "center", gap: 8, background: "rgba(129,140,248,0.92)", color: "#fff", padding: "10px 15px", borderRadius: 12, fontSize: 13, fontWeight: 600, boxShadow: "0 10px 34px rgba(30,27,75,0.5)" }}>{roomToast}</div>
+          <div style={{ position: "fixed", top: 18, right: 18, zIndex: 90, display: "flex", alignItems: "center", gap: 8, background: "rgba(var(--teal-rgb),0.92)", color: "#fff", padding: "10px 15px", borderRadius: 12, fontSize: 13, fontWeight: 600, boxShadow: "0 10px 34px rgba(0,0,0,0.5)" }}>{roomToast}</div>
         )}
         {focusMode && (
-          <button onClick={() => setFocusMode(false)} style={{ position: "fixed", top: 20, right: 20, zIndex: 90, display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(129,140,248,0.9)", color: "#fff", border: "none", borderRadius: 999, padding: "8px 15px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 26px rgba(30,27,75,0.45)" }}>Focus Mode · ON — exit</button>
+          <button onClick={() => setFocusMode(false)} style={{ position: "fixed", top: 20, right: 20, zIndex: 90, display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(var(--teal-rgb),0.9)", color: "#fff", border: "none", borderRadius: 999, padding: "8px 15px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 26px rgba(0,0,0,0.45)" }}>Focus Mode · ON — exit</button>
         )}
         {/* Top bar — room controls (left) · session timer (center) · presence (right).
             The control pills moved up here from the deleted left column, so the main
@@ -2415,21 +2419,21 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               { label: "Music", icon: <Music size={13} />, on: musicOpen, act: () => setMusicOpen(o => !o) },
               { label: "Invite", icon: <Plus size={13} />, on: false, act: () => setShowInvite(true) },
             ].map(b => (
-              <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(129,140,248,0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
+              <button key={b.label} onClick={b.act} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: b.on ? "rgba(var(--teal-rgb),0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${b.on ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 12, color: b.on ? "#d3f0dc" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{b.icon}{b.label}</button>
             ))}
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-            <div style={{ fontFamily: "'Fraunces',serif", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#c7d2fe" : "var(--text-primary)" }}>
+            <div style={{ fontFamily: "'Fraunces',serif", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#d3f0dc" : "var(--text-primary)" }}>
               {pomo && pomo.phase === "focus" ? formatPomoTime(remaining) : "00:00"}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {(!pomo || pomo.phase !== "focus") ? (
-                <button onClick={handlePomoStart} style={{ background: "rgba(129,140,248,0.22)", border: "1px solid rgba(129,140,248,0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>▶ Start focus sprint</button>
+                <button onClick={handlePomoStart} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>▶ Start focus sprint</button>
               ) : pomo.paused ? (<>
-                <button onClick={handlePomoResume} style={{ background: "rgba(129,140,248,0.22)", border: "1px solid rgba(129,140,248,0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>▶ Resume</button>
+                <button onClick={handlePomoResume} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>▶ Resume</button>
                 <button onClick={handlePomoReset} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 14px", fontSize: 12, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Reset</button>
               </>) : (<>
-                <button onClick={handlePomoPause} style={{ background: "rgba(129,140,248,0.22)", border: "1px solid rgba(129,140,248,0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>⏸ Pause</button>
+                <button onClick={handlePomoPause} style={{ background: "rgba(var(--teal-rgb),0.22)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>⏸ Pause</button>
                 <button onClick={handlePomoSkip} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 14px", fontSize: 12, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>End</button>
               </>)}
             </div>
@@ -2446,13 +2450,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : "1fr 320px", gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
 
           {/* CENTER — Guided session (default) / Whiteboard / Flashcards */}
-          <div style={{ display: "flex", flexDirection: "column", background: "rgba(129,140,248,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
+          <div style={{ display: "flex", flexDirection: "column", background: "rgba(var(--teal-rgb),0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 16, overflow: "hidden" }}>
             {/* Center tab strip — collaborative board vs. Reggie-guided session */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexShrink: 0 }}>
               {([["board", "Whiteboard"], ["session", "Guided session"], ["flashcards", "Flashcards"]] as const).map(([key, label]) => {
                 const active = centerTab === key;
                 return (
-                  <button key={key} onClick={() => { setCenterTab(key); if (key === "board" && !showBoard) handleOpenBoard(); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
+                  <button key={key} onClick={() => { setCenterTab(key); if (key === "board" && !showBoard) handleOpenBoard(); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(var(--teal-rgb),0.45)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#d3f0dc" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>
                     {key === "session" && <Sparkles size={12} />}{key === "flashcards" && <BookOpen size={12} />}{label}
                     {key === "session" && gs && gs.status !== "done" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
                     {key === "flashcards" && fcCards.length > 0 && !fcDone && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399" }} />}
@@ -2463,7 +2467,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 <button onClick={endGuidedSession} title="Ends this guided lesson — you stay in the room" style={{ marginLeft: "auto", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 999, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>End lesson</button>
               )}
             </div>
-            <div style={{ flex: 1, minHeight: 0, overflow: "hidden", borderRadius: 14, ["--gold" as any]: "#818cf8", ["--gold-rgb" as any]: "129,140,248" }}>
+            <div style={{ flex: 1, minHeight: 0, overflow: "hidden", borderRadius: 14, ["--gold" as any]: "rgb(var(--teal-rgb))", ["--gold-rgb" as any]: "var(--teal-rgb)" }}>
               {centerTab === "board" ? (
                 showBoard ? (
                 <Whiteboard
@@ -2501,7 +2505,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 />
                 ) : (
                   <div style={{ height: "100%", minHeight: 320, borderRadius: 14, background: "rgba(255,255,255,0.96)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <button onClick={() => setShowBoard(true)} style={{ background: "rgba(99,102,241,0.9)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Open board</button>
+                    <button onClick={() => setShowBoard(true)} style={{ background: "rgba(var(--teal-rgb),0.9)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Open board</button>
                   </div>
                 )
               ) : centerTab === "session" ? (
@@ -2510,13 +2514,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   {!gs ? (
                     /* Launcher */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
-                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(129,140,248,0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(129,140,248,0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><Sparkles size={26} color="#c7d2fe" /></div>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><Sparkles size={26} color="#d3f0dc" /></div>
                       <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Start a guided session</h3>
                       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie plans it, teaches you step by step, and tracks your progress — grounded in your own course materials.</p>
                       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", justifyContent: "center" }}>
                         {([["learn", "Learn a topic", "📚"], ["assignment", "Work an assignment", "✍️"], ["exam", "Prep for an exam", "🎯"]] as const).map(([m, label, ic]) => {
                           const active = gsLaunchMode === m;
-                          return <button key={m} onClick={() => { setGsLaunchMode(m); setGsAssignmentId(""); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(129,140,248,0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "9px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#c7d2fe" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}><span>{ic}</span>{label}</button>;
+                          return <button key={m} onClick={() => { setGsLaunchMode(m); setGsAssignmentId(""); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: active ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(var(--teal-rgb),0.5)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "9px 13px", fontSize: 12.5, fontWeight: 600, color: active ? "#d3f0dc" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}><span>{ic}</span>{label}</button>;
                         })}
                       </div>
                       {gsUsingPicker ? (
@@ -2545,7 +2549,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                           <button onClick={() => setGsTopic(courseName)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 11px", fontSize: 11.5, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>{courseName}</button>
                         </div>
                       )}
-                      <button onClick={() => { if (gsUsingPicker) gsStartAssignment(); else beginGuidedSession(gsLaunchMode, gsTopic); }} disabled={!gsCanStart || gsBusy} style={{ background: (!gsCanStart || gsBusy) ? "rgba(129,140,248,0.2)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "12px 26px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!gsCanStart || gsBusy) ? "default" : "pointer", opacity: (!gsCanStart || gsBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(99,102,241,0.35)" }}>{gsBusy ? "Reggie is planning…" : "Start session →"}</button>
+                      <button onClick={() => { if (gsUsingPicker) gsStartAssignment(); else beginGuidedSession(gsLaunchMode, gsTopic); }} disabled={!gsCanStart || gsBusy} style={{ background: (!gsCanStart || gsBusy) ? "rgba(var(--teal-rgb),0.2)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "12px 26px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!gsCanStart || gsBusy) ? "default" : "pointer", opacity: (!gsCanStart || gsBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(var(--teal-rgb),0.35)" }}>{gsBusy ? "Reggie is planning…" : "Start session →"}</button>
                     </div>
                   ) : gs.status === "done" ? (
                     /* Completion */
@@ -2555,7 +2559,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}>{gsNudge || "Great work — you finished every step."}</p>
                       <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{gs.steps.length} steps · {formatPomoTime(gsElapsedSec)} focused · {gs.topic}</p>
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => { setGs(null); setGsTopic(""); setGsStepContent({}); setGsExtra({}); setGsNudge(""); }} style={{ background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Start another</button>
+                        <button onClick={() => { setGs(null); setGsTopic(""); setGsStepContent({}); setGsExtra({}); setGsNudge(""); }} style={{ background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Start another</button>
                         <button onClick={() => setCenterTab("board")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Back to whiteboard</button>
                       </div>
                     </div>
@@ -2577,14 +2581,14 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <div style={{ flex: 1, height: 7, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                            <div style={{ width: `${Math.round(gsProgress * 100)}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #6366f1, #818cf8, #5eead4)", transition: "width 0.4s ease" }} />
+                            <div style={{ width: `${Math.round(gsProgress * 100)}%`, height: "100%", borderRadius: 999, background: "linear-gradient(90deg, rgb(var(--teal-rgb)), #5eead4)", transition: "width 0.4s ease" }} />
                           </div>
                           <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", flexShrink: 0 }}>Step {Math.min(gs.currentIdx + 1, gs.steps.length)} of {gs.steps.length}</span>
                         </div>
                         <div style={{ display: "flex", gap: 5, marginTop: 9, flexWrap: "wrap" }}>
                           {gs.steps.map((s, i) => {
                             const state = i < gs.currentIdx ? "done" : i === gs.currentIdx ? "cur" : "todo";
-                            return <span key={i} title={s.title} style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 999, background: state === "cur" ? "rgba(129,140,248,0.25)" : state === "done" ? "rgba(94,234,212,0.14)" : "rgba(255,255,255,0.04)", border: `1px solid ${state === "cur" ? "rgba(129,140,248,0.5)" : state === "done" ? "rgba(94,234,212,0.3)" : "rgba(255,255,255,0.08)"}`, color: state === "cur" ? "#c7d2fe" : state === "done" ? "#5eead4" : "var(--text-dim)", fontWeight: state === "todo" ? 400 : 600 }}>{state === "done" ? "✓ " : ""}{i + 1}</span>;
+                            return <span key={i} title={s.title} style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 999, background: state === "cur" ? "rgba(var(--teal-rgb),0.25)" : state === "done" ? "rgba(94,234,212,0.14)" : "rgba(255,255,255,0.04)", border: `1px solid ${state === "cur" ? "rgba(var(--teal-rgb),0.5)" : state === "done" ? "rgba(94,234,212,0.3)" : "rgba(255,255,255,0.08)"}`, color: state === "cur" ? "#d3f0dc" : state === "done" ? "#5eead4" : "var(--text-dim)", fontWeight: state === "todo" ? 400 : 600 }}>{state === "done" ? "✓ " : ""}{i + 1}</span>;
                           })}
                         </div>
                       </div>
@@ -2601,7 +2605,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                           <button onClick={() => (gsSpeaking ? gsStopSpeak() : gsSpeak(gsStepContent[gs.currentIdx] || ""))} disabled={!gsStepContent[gs.currentIdx]} title={gsSpeaking ? "Stop reading" : "Read this step aloud"} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, background: gsSpeaking ? "rgba(94,234,212,0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsSpeaking ? "rgba(94,234,212,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 11.5, fontWeight: 600, color: gsSpeaking ? "#5eead4" : "var(--text-secondary)", cursor: gsStepContent[gs.currentIdx] ? "pointer" : "default", opacity: gsStepContent[gs.currentIdx] ? 1 : 0.5, fontFamily: "inherit" }}>{gsSpeaking ? <><VolumeX size={12} />Stop</> : <><Volume2 size={12} />Read aloud</>}</button>
                         </div>
                         <div style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 14 }}>
-                          <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Sparkles size={15} color="#c4b5fd" /></div>
+                          <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(var(--teal-rgb),0.2)", border: "1px solid rgba(var(--teal-rgb),0.35)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Sparkles size={15} color="#c4b5fd" /></div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             {gsStepContent[gs.currentIdx] ? <GsRichText text={gsStepContent[gs.currentIdx]} /> : <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)", fontStyle: "italic" }}>{gsBusyLabel || "Reggie is preparing this step…"}</p>}
                             {(gsExtra[gs.currentIdx] || []).map((t, i) => (
@@ -2614,13 +2618,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       {gsAskOpen && (
                         <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 10 }}>
                           <input value={gsAsk} onChange={e => setGsAsk(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsAsk.trim()) gsAskSend(); }} placeholder="Ask Reggie about this step…" autoFocus style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "9px 12px", color: "var(--text-primary)", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
-                          <button onClick={gsAskSend} disabled={!gsAsk.trim() || gsBusy} style={{ background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (!gsAsk.trim() || gsBusy) ? "default" : "pointer", opacity: (!gsAsk.trim() || gsBusy) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
+                          <button onClick={gsAskSend} disabled={!gsAsk.trim() || gsBusy} style={{ background: "rgba(var(--teal-rgb),0.2)", border: "1px solid rgba(var(--teal-rgb),0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (!gsAsk.trim() || gsBusy) ? "default" : "pointer", opacity: (!gsAsk.trim() || gsBusy) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
                         </div>
                       )}
                       <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 12 }}>
                         <button onClick={gsStuck} disabled={gsBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.6 : 1, fontFamily: "inherit" }}>I'm stuck</button>
-                        <button onClick={() => setGsAskOpen(o => !o)} style={{ background: gsAskOpen ? "rgba(167,139,250,0.15)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsAskOpen ? "rgba(167,139,250,0.35)" : "rgba(255,255,255,0.12)"}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: gsAskOpen ? "#c4b5fd" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Ask a question</button>
-                        <button onClick={gsNext} disabled={gsBusy} style={{ marginLeft: "auto", background: gsBusy ? "rgba(129,140,248,0.25)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.7 : 1, fontFamily: "inherit", boxShadow: "0 6px 18px rgba(99,102,241,0.3)" }}>{gs.currentIdx >= gs.steps.length - 1 ? "Finish ✓" : "Continue →"}</button>
+                        <button onClick={() => setGsAskOpen(o => !o)} style={{ background: gsAskOpen ? "rgba(var(--teal-rgb),0.15)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsAskOpen ? "rgba(var(--teal-rgb),0.35)" : "rgba(255,255,255,0.12)"}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, color: gsAskOpen ? "#c4b5fd" : "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>Ask a question</button>
+                        <button onClick={gsNext} disabled={gsBusy} style={{ marginLeft: "auto", background: gsBusy ? "rgba(var(--teal-rgb),0.25)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: gsBusy ? "default" : "pointer", opacity: gsBusy ? 0.7 : 1, fontFamily: "inherit", boxShadow: "0 6px 18px rgba(var(--teal-rgb),0.3)" }}>{gs.currentIdx >= gs.steps.length - 1 ? "Finish ✓" : "Continue →"}</button>
                       </div>
                     </div>
                   )}
@@ -2631,12 +2635,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   {fcCards.length === 0 ? (
                     /* Launcher */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
-                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(129,140,248,0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(129,140,248,0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#c7d2fe" /></div>
+                      <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#d3f0dc" /></div>
                       <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Flashcards</h3>
                       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie builds a deck on any topic — grounded in your course materials — and quizzes you.</p>
                       <input value={fcTopic} onChange={e => setFcTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && fcTopic.trim()) fcGenerate(fcTopic); }} placeholder="Topic to make cards on…" style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <button onClick={() => fcGenerate(fcTopic)} disabled={!fcTopic.trim() || fcBusy} style={{ background: (!fcTopic.trim() || fcBusy) ? "rgba(129,140,248,0.2)" : "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!fcTopic.trim() || fcBusy) ? "default" : "pointer", opacity: (!fcTopic.trim() || fcBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(99,102,241,0.35)" }}>{fcBusy ? "Building deck…" : "Generate deck →"}</button>
+                        <button onClick={() => fcGenerate(fcTopic)} disabled={!fcTopic.trim() || fcBusy} style={{ background: (!fcTopic.trim() || fcBusy) ? "rgba(var(--teal-rgb),0.2)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!fcTopic.trim() || fcBusy) ? "default" : "pointer", opacity: (!fcTopic.trim() || fcBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(var(--teal-rgb),0.35)" }}>{fcBusy ? "Building deck…" : "Generate deck →"}</button>
                         {room.course_id && <button onClick={fcLoadCourseDeck} disabled={fcBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 18px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: fcBusy ? "default" : "pointer", fontFamily: "inherit" }}>Load my deck</button>}
                       </div>
                     </div>
@@ -2648,7 +2652,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}><span style={{ color: "#5eead4", fontWeight: 600 }}>{fcResults.got} got it</span> · <span style={{ color: "#fca5a5", fontWeight: 600 }}>{fcResults.missed} to review</span></p>
                       <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{fcCards.length} cards</p>
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => { setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }} style={{ background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Study again</button>
+                        <button onClick={() => { setFcIdx(0); setFcFlipped(false); setFcDone(false); setFcResults({ got: 0, missed: 0 }); }} style={{ background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Study again</button>
                         <button onClick={fcReset} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px 20px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", fontFamily: "inherit" }}>New deck</button>
                       </div>
                     </div>
@@ -2657,12 +2661,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
                       <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
                         <div style={{ flex: 1, height: 6, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                          <div style={{ width: `${Math.round((fcIdx / fcCards.length) * 100)}%`, height: "100%", background: "linear-gradient(90deg, #6366f1, #5eead4)", transition: "width 0.3s ease" }} />
+                          <div style={{ width: `${Math.round((fcIdx / fcCards.length) * 100)}%`, height: "100%", background: "linear-gradient(90deg, rgb(var(--teal-rgb)), #5eead4)", transition: "width 0.3s ease" }} />
                         </div>
                         <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", flexShrink: 0 }}>Card {fcIdx + 1} of {fcCards.length}</span>
                         <button onClick={fcReset} title="New deck" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "5px 10px", fontSize: 11, color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Exit</button>
                       </div>
-                      <button onClick={() => setFcFlipped(f => !f)} style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: 12, background: fcFlipped ? "rgba(94,234,212,0.06)" : "rgba(129,140,248,0.07)", border: `1px solid ${fcFlipped ? "rgba(94,234,212,0.25)" : "rgba(129,140,248,0.25)"}`, borderRadius: 16, padding: "24px", cursor: "pointer", fontFamily: "inherit", overflow: "auto" }}>
+                      <button onClick={() => setFcFlipped(f => !f)} style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: 12, background: fcFlipped ? "rgba(94,234,212,0.06)" : "rgba(var(--teal-rgb),0.07)", border: `1px solid ${fcFlipped ? "rgba(94,234,212,0.25)" : "rgba(var(--teal-rgb),0.25)"}`, borderRadius: 16, padding: "24px", cursor: "pointer", fontFamily: "inherit", overflow: "auto" }}>
                         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: fcFlipped ? "#5eead4" : "#a5b4fc" }}>{fcFlipped ? "Answer" : "Question"}</span>
                         <span style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.45, color: "var(--text-primary)", maxWidth: 460 }}>{fcFlipped ? fcCards[fcIdx]?.a : fcCards[fcIdx]?.q}</span>
                         {!fcFlipped && <span style={{ fontSize: 11.5, color: "var(--text-dim)" }}>Tap to reveal</span>}
@@ -2672,7 +2676,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                           <button onClick={() => fcRate(false)} style={{ flex: 1, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fca5a5", cursor: "pointer", fontFamily: "inherit" }}>Missed</button>
                           <button onClick={() => fcRate(true)} style={{ flex: 1, background: "rgba(94,234,212,0.14)", border: "1px solid rgba(94,234,212,0.35)", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#5eead4", cursor: "pointer", fontFamily: "inherit" }}>Got it</button>
                         </>) : (
-                          <button onClick={() => setFcFlipped(true)} style={{ flex: 1, background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Reveal answer</button>
+                          <button onClick={() => setFcFlipped(true)} style={{ flex: 1, background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Reveal answer</button>
                         )}
                       </div>
                     </div>
@@ -2683,10 +2687,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           </div>
 
           {/* RIGHT — Group session */}
-          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(129,140,248,0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
+          <div style={{ display: focusMode ? "none" : "flex", flexDirection: "column", background: "rgba(var(--teal-rgb),0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", padding: 20, overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>Group session</p>
-              <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "5px 10px", fontSize: 11, color: focusMode ? "#c7d2fe" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Focus Mode{focusMode ? " · ON" : ""}</button>
+              <button onClick={() => setFocusMode(f => !f)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: focusMode ? "rgba(var(--teal-rgb),0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${focusMode ? "rgba(var(--teal-rgb),0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: 999, padding: "5px 10px", fontSize: 11, color: focusMode ? "#d3f0dc" : "var(--text-dim)", cursor: "pointer", fontFamily: "inherit" }}>Focus Mode{focusMode ? " · ON" : ""}</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignContent: "start" }}>
               {(members.length ? members : [{ userId, name: userData?.name || "You" }]).map((m, i) => {
@@ -2698,12 +2702,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     gridColumn: isMe ? "1 / -1" : "auto",
                     aspectRatio: isMe ? "16 / 10" : "1 / 1",
                     borderRadius: 14,
-                    background: "linear-gradient(160deg, rgba(129,140,248,0.16), rgba(255,255,255,0.03))",
+                    background: "linear-gradient(160deg, rgba(var(--teal-rgb),0.16), rgba(255,255,255,0.03))",
                     border: `1.5px solid ${speaking ? "rgba(94,234,212,0.75)" : "rgba(255,255,255,0.12)"}`,
                     boxShadow: speaking ? "0 0 0 3px rgba(94,234,212,0.18)" : "none",
                     display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden",
                   }}>
-                    <div style={{ width: isMe ? 62 : 48, height: isMe ? 62 : 48, borderRadius: "50%", background: "rgba(129,140,248,0.3)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMe ? 24 : 18, fontWeight: 600, color: "#e0e7ff" }}>{initial}</div>
+                    <div style={{ width: isMe ? 62 : 48, height: isMe ? 62 : 48, borderRadius: "50%", background: "rgba(var(--teal-rgb),0.3)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMe ? 24 : 18, fontWeight: 600, color: "#e6f4ea" }}>{initial}</div>
                     <span style={{ position: "absolute", bottom: 9, left: 12, fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)" }}>{isMe ? "You" : (m.name || "Guest")}</span>
                     <div style={{ position: "absolute", bottom: 9, right: 12, display: "flex", gap: 7, color: speaking ? "#5eead4" : "var(--text-dim)" }}>
                       
@@ -2720,9 +2724,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "10px 14px" }}>
                   <div>
                     <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 2 }}>Room code</div>
-                    <div style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, letterSpacing: 3, color: "#c7d2fe" }}>{room.join_code}</div>
+                    <div style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, letterSpacing: 3, color: "#d3f0dc" }}>{room.join_code}</div>
                   </div>
-                  <button onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }} style={{ background: "rgba(129,140,248,0.16)", border: "1px solid rgba(129,140,248,0.3)", borderRadius: 9, padding: "6px 13px", fontSize: 12, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
+                  <button onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }} style={{ background: "rgba(var(--teal-rgb),0.16)", border: "1px solid rgba(var(--teal-rgb),0.3)", borderRadius: 9, padding: "6px 13px", fontSize: 12, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
                 </div>
               </div>
             )}
@@ -2761,7 +2765,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><MessageCircle size={13} />Chat</span></button>
           <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(var(--gold-rgb), 0.1)" : "none", borderColor: showBoard ? "rgba(var(--gold-rgb), 0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "var(--gold)" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Pen size={13} />Board</span></button>
           <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Mic size={13} />Voice</span></button>
-          <button onClick={() => setShowReggie(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showReggie ? "rgba(167,139,250,0.12)" : "none", borderColor: showReggie ? "rgba(167,139,250,0.35)" : "rgba(255,255,255,0.09)", color: showReggie ? "#a78bfa" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Sparkles size={13} />Reggie</span></button>
+          <button onClick={() => setShowReggie(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showReggie ? "rgba(var(--teal-rgb),0.12)" : "none", borderColor: showReggie ? "rgba(var(--teal-rgb),0.35)" : "rgba(255,255,255,0.09)", color: showReggie ? "rgb(var(--teal-rgb))" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Sparkles size={13} />Reggie</span></button>
           <button onClick={() => setShowInvite(true)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Plus size={13} />Invite</span></button>
 
           {/* ⋯ overflow — admin actions + leave */}
@@ -2941,9 +2945,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 
       {/* In-room private Reggie (B1) — your own 1-on-1 tutor; only you see this thread */}
       {showReggie && (
-        <div style={{ position: "fixed", right: 20, bottom: 20, width: 360, maxWidth: "calc(100vw - 40px)", height: 460, maxHeight: "70vh", display: "flex", flexDirection: "column", background: "var(--card, #16151c)", border: "1px solid rgba(167,139,250,0.25)", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.45)", zIndex: 60, overflow: "hidden" }}>
+        <div style={{ position: "fixed", right: 20, bottom: 20, width: 360, maxWidth: "calc(100vw - 40px)", height: 460, maxHeight: "70vh", display: "flex", flexDirection: "column", background: "var(--card, #16151c)", border: "1px solid rgba(var(--teal-rgb),0.25)", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.45)", zIndex: 60, overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
-            <Sparkles size={15} color="#a78bfa" />
+            <Sparkles size={15} color="rgb(var(--teal-rgb))" />
             <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text, #ECEBF0)" }}>Reggie</span>
             <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 2 }}>· private to you</span>
             <button onClick={() => setShowReggie(false)} aria-label="Close Reggie" style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", display: "inline-flex" }}><X size={16} /></button>
@@ -2955,7 +2959,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               </div>
             )}
             {reggieMsgs.map((m, i) => (
-              <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", padding: "8px 11px", borderRadius: 12, fontSize: 13, lineHeight: 1.5, whiteSpace: m.role === "user" ? "pre-wrap" : "normal", background: m.role === "user" ? "rgba(167,139,250,0.16)" : "rgba(255,255,255,0.05)", color: "var(--text, #ECEBF0)" }}>
+              <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", padding: "8px 11px", borderRadius: 12, fontSize: 13, lineHeight: 1.5, whiteSpace: m.role === "user" ? "pre-wrap" : "normal", background: m.role === "user" ? "rgba(var(--teal-rgb),0.16)" : "rgba(255,255,255,0.05)", color: "var(--text, #ECEBF0)" }}>
                 {/* Assistant replies are markdown-ish (##/---/bullets/**bold**) — render them,
                     don't leak raw syntax. User messages stay literal. */}
                 {m.role === "user" ? m.content : <GsRichText text={m.content} />}
@@ -2972,34 +2976,34 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               disabled={reggieBusy}
               style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "9px 11px", color: "var(--text, #ECEBF0)", fontSize: 13, fontFamily: "inherit", outline: "none" }}
             />
-            <button onClick={askRoomReggie} disabled={reggieBusy || !reggieInput.trim()} style={{ background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (reggieBusy || !reggieInput.trim()) ? "default" : "pointer", opacity: (reggieBusy || !reggieInput.trim()) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
+            <button onClick={askRoomReggie} disabled={reggieBusy || !reggieInput.trim()} style={{ background: "rgba(var(--teal-rgb),0.2)", border: "1px solid rgba(var(--teal-rgb),0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (reggieBusy || !reggieInput.trim()) ? "default" : "pointer", opacity: (reggieBusy || !reggieInput.trim()) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
           </div>
         </div>
       )}
 
       {/* Focus music — floating mini-player (iTunes 30s previews) */}
       {musicOpen && (
-        <div style={{ position: "fixed", left: 20, bottom: 20, width: 300, maxWidth: "calc(100vw - 40px)", background: "var(--card, #16151c)", border: "1px solid rgba(129,140,248,0.25)", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.45)", zIndex: 60, overflow: "hidden" }}>
+        <div style={{ position: "fixed", left: 20, bottom: 20, width: 300, maxWidth: "calc(100vw - 40px)", background: "var(--card, #16151c)", border: "1px solid rgba(var(--teal-rgb),0.25)", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.45)", zIndex: 60, overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 13px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
-            <Music size={15} color="#818cf8" />
+            <Music size={15} color="rgb(var(--teal-rgb))" />
             <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text-primary)" }}>Focus music</span>
             <button onClick={() => setMusicOpen(false)} aria-label="Close music" style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", display: "inline-flex" }}><X size={15} /></button>
           </div>
           <div style={{ padding: 13 }}>
             {musicTracks.length === 0 ? (
-              <button onClick={() => toggleMusic()} disabled={musicLoading} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "linear-gradient(135deg, #6366f1, #818cf8)", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: musicLoading ? "default" : "pointer", opacity: musicLoading ? 0.7 : 1, fontFamily: "inherit" }}>{musicLoading ? "Finding tracks…" : <><Play size={14} />Play focus music</>}</button>
+              <button onClick={() => toggleMusic()} disabled={musicLoading} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "linear-gradient(135deg, rgb(var(--teal-rgb)), #5eead4)", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 600, color: "#fff", cursor: musicLoading ? "default" : "pointer", opacity: musicLoading ? 0.7 : 1, fontFamily: "inherit" }}>{musicLoading ? "Finding tracks…" : <><Play size={14} />Play focus music</>}</button>
             ) : (<>
               <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
                 {musicTracks[musicIdx]?.artwork
                   ? <img src={musicTracks[musicIdx].artwork} alt="" style={{ width: 46, height: 46, borderRadius: 8, flexShrink: 0, objectFit: "cover" }} />
-                  : <div style={{ width: 46, height: 46, borderRadius: 8, background: "rgba(129,140,248,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Music size={20} color="#818cf8" /></div>}
+                  : <div style={{ width: 46, height: 46, borderRadius: 8, background: "rgba(var(--teal-rgb),0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Music size={20} color="rgb(var(--teal-rgb))" /></div>}
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{musicTracks[musicIdx]?.title}</div>
                   <div style={{ fontSize: 11.5, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{musicTracks[musicIdx]?.artist}</div>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <button onClick={() => toggleMusic()} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, background: "rgba(129,140,248,0.18)", border: "1px solid rgba(129,140,248,0.4)", borderRadius: 10, padding: "9px", fontSize: 13, fontWeight: 600, color: "#c7d2fe", cursor: "pointer", fontFamily: "inherit" }}>{musicPlaying ? <><Pause size={14} />Pause</> : <><Play size={14} />Play</>}</button>
+                <button onClick={() => toggleMusic()} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, background: "rgba(var(--teal-rgb),0.18)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 10, padding: "9px", fontSize: 13, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>{musicPlaying ? <><Pause size={14} />Pause</> : <><Play size={14} />Play</>}</button>
                 <button onClick={nextMusic} title="Next track" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "9px 12px", color: "var(--text-secondary)", cursor: "pointer", display: "inline-flex", alignItems: "center" }}><SkipForward size={14} /></button>
               </div>
               <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "9px 0 0", textAlign: "center" }}>30-second previews · Apple Music</p>
