@@ -13,6 +13,7 @@
 // PR2 upgrades subjectForUser() to the global neuro_person id shared across products.)
 import { requireUserOr401 } from "./_auth.js";
 import { postgrestStore, remember, recall, forget, reinforce, tickDecay } from "./_brain/kernel.js";
+import { brainConn } from "./_brain/conn.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
 
 function conn() {
@@ -25,7 +26,8 @@ export default async function handler(req: any, res: any) {
   const action = String(req.query?.action || (req.method === "GET" ? "recall" : ""));
   const c = conn();
   if (!c) return res.status(503).json({ error: "brain store not configured" });
-  const s = postgrestStore(c.url, c.key);
+  const bc = brainConn() ?? c;                         // memory log → NeuroAGI project if configured
+  const s = postgrestStore(bc.url, bc.key);
 
   try {
     // Cron decay sweep: a valid x-cron-secret sweeps the scopes it names, no per-user auth.

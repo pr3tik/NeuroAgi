@@ -13,6 +13,7 @@
 // window is a no-op), matching every other jobs-worker handler.
 import { resolveFschoolPerson } from "./_brain/identity.js";
 import { postgrestStore, recall, remember, renderStudentBrainState, type Store } from "./_brain/kernel.js";
+import { brainConn } from "./_brain/conn.js";
 
 export const DIGEST_KIND = "digest";
 export const DIGEST_FRESH_MS = 10 * 60 * 1000; // a digest younger than this is "warm enough"
@@ -54,7 +55,8 @@ export async function warmBrainContext(payload: any): Promise<string | null> {
   if (!url || !key || !userId) return null;
   const personId = await resolveFschoolPerson({ url, key }, String(userId));
   if (!personId) return null;
-  const store: Store = postgrestStore(url, key);
+  const bc = brainConn() ?? { url, key };            // memory log → NeuroAGI project if configured
+  const store: Store = postgrestStore(bc.url, bc.key);
   await materializeDigestIfStale(store, `person:${personId}`);
   return personId;
 }

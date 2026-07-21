@@ -46,6 +46,7 @@
 import { requireUserOr401 } from "./_auth.js";
 // Safe to import statically — these build no Supabase client at module load (raw fetch only).
 import { postgrestStore, recall, renderStudentBrainState } from "./_brain/kernel.js";
+import { brainConn } from "./_brain/conn.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
 import { courseSourceBoost, courseSourceLabel } from "./course-source.js";
 import { deriveUniversityId } from "./_reggie/canvasLive.js";
@@ -131,7 +132,8 @@ export default async function handler(req, res) {
         try {
           const pid = (await brainPersonIdP) ?? await resolveFschoolPerson({ url: supabaseUrl, key: supabaseKey }, userId);
           if (!pid) return null;
-          const store = postgrestStore(supabaseUrl, supabaseKey);
+          const bc = brainConn() ?? { url: supabaseUrl, key: supabaseKey };   // memory log → NeuroAGI project if configured
+          const store = postgrestStore(bc.url, bc.key);
           const mems = await recall(store, [`person:${pid}`], { limit: 15, reinforce: false });
           return mems.length ? mems : null;
         } catch { return null; }

@@ -11,6 +11,7 @@
 //     body: JSON.stringify({ signalType:'behavioral', source:'fschoolai_chat', payload:{...} }) })
 import { requireUserOr401 } from "./_auth.js";
 import { postgrestStore, remember } from "./_brain/kernel.js";
+import { brainConn } from "./_brain/conn.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
 
 // Base importance by signal class (then decays over time). Behavioral chatter fades fast; academic
@@ -32,7 +33,8 @@ export default async function handler(req: any, res: any) {
     const personId = await resolveFschoolPerson({ url, key }, userId);
     if (!personId) return res.status(200).json({ ok: false, reason: "no brain identity" });
 
-    const store = postgrestStore(url, key);
+    const bc = brainConn() ?? { url, key };            // memory log → NeuroAGI project if configured
+    const store = postgrestStore(bc.url, bc.key);
     const m = await remember(store, {
       subject: `person:${personId}`,
       kind: "signal",

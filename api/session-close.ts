@@ -31,6 +31,7 @@
 import { embed } from "./rag.js";
 import { awardTechniqueTypeIfEligible } from "./_achievements.js";
 import { postgrestStore, remember } from "./_brain/kernel.js";
+import { brainConn } from "./_brain/conn.js";
 import { resolveFschoolPerson } from "./_brain/identity.js";
 import { runHypothesisPass } from "./_brain/hypothesis.js";
 import { runTraitPass } from "./_brain/traits.js";
@@ -206,7 +207,8 @@ RULES:
     try {
       const personId = await resolveFschoolPerson({ url: supabaseUrl, key: supabaseKey }, userId);
       if (personId) {
-        const store = postgrestStore(supabaseUrl, supabaseKey);
+        const bc = brainConn() ?? { url: supabaseUrl, key: supabaseKey };   // memory log → NeuroAGI project if configured
+        const store = postgrestStore(bc.url, bc.key);
         const subject = `person:${personId}`;
         await remember(store, {
           subject, kind: "signal", source: "fschoolai",
