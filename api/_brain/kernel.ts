@@ -39,13 +39,23 @@ export type NewMemory = {
   happened_at?: string;
 };
 
+export type Role = "reader" | "writer" | "owner";
+export type Membership = { space: string; subject: string; role: Role };
+
 export interface Store {
   insert(row: NewMemory & { now: string }): Promise<Memory>;
-  /** live (non-forgotten) memories whose subject ∈ subjects, optionally filtered by kind */
-  bySubjects(subjects: string[], kinds?: string[], limit?: number): Promise<Memory[]>;
+  /** Live (non-forgotten) memories whose subject ∈ subjects. With includeAudience, ALSO those whose
+   *  `audience` overlaps subjects (directed shares) or contains '*' (public). */
+  bySubjects(subjects: string[], kinds?: string[], limit?: number, includeAudience?: boolean): Promise<Memory[]>;
   touch(ids: string[], now: string): Promise<void>;   // reinforce: bump last_seen_at
   forget(ids: string[], now: string): Promise<void>;  // soft-forget
   reinforce(id: string, now: string, boost?: number): Promise<void>;
+  // Sharing/membership: a shared "space" scope (course:/room:/prof:) has explicit members; a
+  // personal 'person:<id>' scope needs none — its sole owner is the subject itself.
+  addMember(space: string, subject: string, role: Role, now: string): Promise<void>;
+  removeMember(space: string, subject: string): Promise<void>;
+  spacesFor(subject: string): Promise<Membership[]>;   // spaces this subject belongs to (+ role)
+  membersOf(space: string): Promise<Membership[]>;     // members of this space (+ role)
 }
 
 function clamp01(n: number) { return Math.max(0, Math.min(1, Number.isFinite(n) ? n : 1)); }
@@ -109,7 +119,7 @@ export async function recall(store: Store, scopes: string[], opts: RecallOpts = 
   scopes.forEach((s) => assertIdent(s, "subject"));
   // Fetch at least the requested limit (floor 2000) so the top-N slice below — and the ownership
   // set built in api/brain.ts via recall({limit:N}) — reflect the full owned set, not a 2000 cap.
-  const rows = await store.bySubjects(scopes, kinds, Math.max(opts.limit ?? 0, 2000));
+  const rows = await store.bySubjects(scopes, kinds, Math.max(opts.limit ?? 0, 2000), true);
   const scored = rows
     .map((m) => ({ m, e: effective(m, nowMs) }))
     .filter((x) => x.e >= threshold)
@@ -158,10 +168,42 @@ export async function tickDecay(store: Store, scopes: string[], nowMs = Date.now
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Sharing — shared-space scopes with explicit membership + read authorization.
+// Personal 'person:<id>' scopes need no membership; the subject IS the owner. Shared scopes
+// (course:/room:/prof:) are read only by members and their memories only shared via audience.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The scopes a person may READ: their own subject + every space they belong to. Callers MUST
+ *  restrict recall to these — never let a caller name an arbitrary space they aren't a member of. */
+export async function readableScopes(store: Store, personSubject: string): Promise<string[]> {
+  assertIdent(personSubject, "subject");
+  const spaces = await store.spacesFor(personSubject);
+  return [personSubject, ...spaces.map((m) => m.space)];
+}
+
+/** May `personSubject` WRITE to `target`? Own personal scope always; a shared space needs writer/owner. */
+export async function canWrite(store: Store, target: string, personSubject: string): Promise<boolean> {
+  if (target === personSubject) return true;
+  const spaces = await store.spacesFor(personSubject);
+  const m = spaces.find((s) => s.space === target);
+  return !!m && (m.role === "writer" || m.role === "owner");
+}
+
+export async function addMember(store: Store, space: string, subject: string, role: Role = "reader", nowMs = Date.now()): Promise<void> {
+  assertIdent(space, "space"); assertIdent(subject, "subject");
+  await store.addMember(space, subject, role, new Date(nowMs).toISOString());
+}
+export async function removeMember(store: Store, space: string, subject: string): Promise<void> {
+  assertIdent(space, "space"); assertIdent(subject, "subject");
+  await store.removeMember(space, subject);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // InMemoryStore — zero-dependency store for tests and quick local runs.
 // ─────────────────────────────────────────────────────────────────────────────
 export class InMemoryStore implements Store {
   rows: Memory[] = [];
+  members: Membership[] = [];
   private seq = 0;
 
   async insert(r: NewMemory & { now: string }): Promise<Memory> {
@@ -181,10 +223,12 @@ export class InMemoryStore implements Store {
     this.rows.push(m);
     return { ...m };
   }
-  async bySubjects(subjects: string[], kinds?: string[], _limit?: number): Promise<Memory[]> {
+  async bySubjects(subjects: string[], kinds?: string[], _limit?: number, includeAudience?: boolean): Promise<Memory[]> {
     const s = new Set(subjects);
     return this.rows
-      .filter((m) => !m.forgotten_at && s.has(m.subject) && (!kinds || kinds.includes(m.kind)))
+      .filter((m) => !m.forgotten_at
+        && (s.has(m.subject) || (!!includeAudience && (m.audience ?? []).some((a) => s.has(a) || a === "*")))
+        && (!kinds || kinds.includes(m.kind)))
       .map((m) => ({ ...m }));
   }
   async touch(ids: string[], now: string): Promise<void> {
@@ -199,6 +243,19 @@ export class InMemoryStore implements Store {
     const m = this.rows.find((x) => x.id === id);
     if (m) { m.last_seen_at = now; m.salience = clamp01(m.salience + boost); }
   }
+  async addMember(space: string, subject: string, role: Role): Promise<void> {
+    const ex = this.members.find((x) => x.space === space && x.subject === subject);
+    if (ex) ex.role = role; else this.members.push({ space, subject, role });
+  }
+  async removeMember(space: string, subject: string): Promise<void> {
+    this.members = this.members.filter((x) => !(x.space === space && x.subject === subject));
+  }
+  async spacesFor(subject: string): Promise<Membership[]> {
+    return this.members.filter((x) => x.subject === subject).map((x) => ({ ...x }));
+  }
+  async membersOf(space: string): Promise<Membership[]> {
+    return this.members.filter((x) => x.space === space).map((x) => ({ ...x }));
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,6 +265,7 @@ export class InMemoryStore implements Store {
 // ─────────────────────────────────────────────────────────────────────────────
 export function postgrestStore(url: string, key: string): Store {
   const base = `${url.replace(/\/+$/, "")}/rest/v1/neuro_memory`;
+  const memberBase = `${url.replace(/\/+$/, "")}/rest/v1/neuro_membership`;
   const headers = (extra?: Record<string, string>) => ({
     apikey: key,
     Authorization: `Bearer ${key}`,
@@ -250,9 +308,17 @@ export function postgrestStore(url: string, key: string): Store {
       const rows = await res.json();
       return Array.isArray(rows) ? rows[0] : rows;
     },
-    async bySubjects(subjects, kinds, limit) {
+    async bySubjects(subjects, kinds, limit, includeAudience) {
       if (!subjects.length) return [];
-      let q = `${base}?forgotten_at=is.null&subject=in.(${inList(subjects)})&select=*&limit=${Math.max(1, limit ?? 2000)}`;
+      const lim = Math.max(1, limit ?? 2000);
+      let q;
+      if (includeAudience) {
+        // subject ∈ scopes  OR  audience overlaps {scopes, '*'} (directed shares + public).
+        const arr = encodeURIComponent("{" + [...subjects.map((s) => assertIdent(s, "subject")), "*"].map((v) => `"${v}"`).join(",") + "}");
+        q = `${base}?forgotten_at=is.null&or=(subject.in.(${inList(subjects)}),audience.ov.${arr})&select=*&limit=${lim}`;
+      } else {
+        q = `${base}?forgotten_at=is.null&subject=in.(${inList(subjects)})&select=*&limit=${lim}`;
+      }
       if (kinds && kinds.length) q += `&kind=in.(${inList(kinds)})`;
       const res = await fetch(q, { headers: headers() });
       if (!res.ok) throw new Error(`neuro recall ${res.status}: ${await res.text().catch(() => "")}`);
@@ -271,6 +337,29 @@ export function postgrestStore(url: string, key: string): Store {
       const rows = await res.json();
       const cur = Array.isArray(rows) && rows[0] ? Number(rows[0].salience) : 1;
       await patchIds([id], { last_seen_at: now, salience: clamp01(cur + boost) });
+    },
+    async addMember(space, subject, role, now) {
+      const res = await fetch(memberBase, {
+        method: "POST",
+        headers: headers({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+        body: JSON.stringify({ space: assertIdent(space, "space"), subject: assertIdent(subject, "subject"), role, added_at: now }),
+      });
+      if (!res.ok) throw new Error(`neuro addMember ${res.status}: ${await res.text().catch(() => "")}`);
+    },
+    async removeMember(space, subject) {
+      const res = await fetch(`${memberBase}?space=eq.${encodeURIComponent(assertIdent(space, "space"))}&subject=eq.${encodeURIComponent(assertIdent(subject, "subject"))}`,
+        { method: "DELETE", headers: headers({ Prefer: "return=minimal" }) });
+      if (!res.ok) throw new Error(`neuro removeMember ${res.status}: ${await res.text().catch(() => "")}`);
+    },
+    async spacesFor(subject) {
+      const res = await fetch(`${memberBase}?subject=eq.${encodeURIComponent(assertIdent(subject, "subject"))}&select=space,subject,role`, { headers: headers() });
+      if (!res.ok) throw new Error(`neuro spacesFor ${res.status}: ${await res.text().catch(() => "")}`);
+      return await res.json();
+    },
+    async membersOf(space) {
+      const res = await fetch(`${memberBase}?space=eq.${encodeURIComponent(assertIdent(space, "space"))}&select=space,subject,role`, { headers: headers() });
+      if (!res.ok) throw new Error(`neuro membersOf ${res.status}: ${await res.text().catch(() => "")}`);
+      return await res.json();
     },
   };
 }
