@@ -27,6 +27,7 @@ export type Memory = {
   last_seen_at: string;
   forgotten_at: string | null;
   created_at: string;
+  idem?: string | null;
 };
 
 export type NewMemory = {
@@ -37,6 +38,7 @@ export type NewMemory = {
   audience?: string[];
   source?: string | null;
   happened_at?: string;
+  idem?: string;   // idempotency key: repeated remember() with same (subject, idem) updates in place
 };
 
 export type Role = "reader" | "writer" | "owner";
@@ -142,6 +144,7 @@ export async function remember(store: Store, m: NewMemory, nowMs = Date.now()): 
     audience: m.audience ?? [],
     source: m.source ?? null,
     happened_at: m.happened_at,
+    idem: m.idem,
     now: new Date(nowMs).toISOString(),
   });
 }
@@ -207,6 +210,10 @@ export class InMemoryStore implements Store {
   private seq = 0;
 
   async insert(r: NewMemory & { now: string }): Promise<Memory> {
+    if (r.idem != null) {
+      const ex = this.rows.find((x) => x.subject === r.subject && x.idem === r.idem && !x.forgotten_at);
+      if (ex) { ex.body = r.body ?? {}; ex.salience = r.salience ?? ex.salience; ex.last_seen_at = r.now; return { ...ex }; }
+    }
     const m: Memory = {
       id: `m${++this.seq}`,
       subject: r.subject,
@@ -219,6 +226,7 @@ export class InMemoryStore implements Store {
       last_seen_at: r.now,
       forgotten_at: null,
       created_at: r.now,
+      idem: r.idem ?? null,
     };
     this.rows.push(m);
     return { ...m };
@@ -289,9 +297,13 @@ export function postgrestStore(url: string, key: string): Store {
 
   return {
     async insert(r) {
-      const res = await fetch(base, {
+      const idem = r.idem ?? null;
+      // With an idem key, upsert on (subject, idem) so a repeat is an update, not a duplicate.
+      const target = idem != null ? `${base}?on_conflict=subject,idem` : base;
+      const prefer = idem != null ? "resolution=merge-duplicates,return=representation" : "return=representation";
+      const res = await fetch(target, {
         method: "POST",
-        headers: headers({ Prefer: "return=representation" }),
+        headers: headers({ Prefer: prefer }),
         body: JSON.stringify({
           subject: r.subject,
           kind: r.kind,
@@ -302,6 +314,7 @@ export function postgrestStore(url: string, key: string): Store {
           happened_at: r.happened_at ?? r.now,
           last_seen_at: r.now,
           created_at: r.now,
+          idem,
         }),
       });
       if (!res.ok) throw new Error(`neuro insert ${res.status}: ${await res.text().catch(() => "")}`);
