@@ -50,8 +50,6 @@ export default async function handler(req, res) {
   const supabaseUrl  = process.env.SUPABASE_URL;
   const supabaseKey  = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
   // Brain DB env vars (NeuroAGI) — optional, gracefully skipped if not configured
-  const brainUrl = process.env.BRAIN_SUPABASE_URL;
-  const brainKey = process.env.BRAIN_SUPABASE_KEY;
 
   // Fail silently — never surface errors to UI
   if (!anthropicKey || !supabaseUrl || !supabaseKey) {
@@ -236,59 +234,8 @@ RULES:
       } catch (e: any) { console.error("[session-close] digest write failed:", e?.message); }
     }
 
-    // ── 7. Write signal to NeuroAGI Brain DB (fire-and-forget) ─────────────
-    // Only fires if brain env vars are set AND user has a brain_person_id
-    if (brainUrl && brainKey && userProfile?.brain_person_id) {
-      const brainHeaders = {
-        "apikey":          brainKey,
-        "Authorization":   `Bearer ${brainKey}`,
-        "Content-Type":    "application/json",
-        "Prefer":          "return=minimal",
-        "Accept-Profile":  "brain",   // signals + context_window live in brain schema
-        "Content-Profile": "brain",
-      };
-
-      // Write session_end signal to brain.signals
-      const brainSignal = {
-        person_id:   userProfile.brain_person_id,
-        signal_type: "academic",
-        source:      "fschoolai",
-        payload: {
-          event:               "session_end",
-          session_messages:    msgs.length,
-          duration_mins:       Math.round(msgs.length * 1.5),
-          living_mind_updated: true,
-          user_gpa:            userProfile.gpa,
-          user_streak:         userProfile.streak,
-          school:              userProfile.school,
-        },
-        intensity:   Math.min(1.0, msgs.length / 20),
-        confidence:  0.8,
-        created_at:  new Date().toISOString(),
-      };
-
-      fetch(`${brainUrl}/rest/v1/signals`, {
-        method: "POST", headers: brainHeaders, body: JSON.stringify(brainSignal),
-      }).catch(err => console.error("[session-close] brain signal write failed:", err.message));
-
-      // Update brain.context_window with the latest mind summary ONLY.
-      // Do NOT write stress_level / momentum_state here: those are owned by the brain
-      // schedulers on a 0–10 scale, and this used to overwrite them with a constant 0.5
-      // (a 0–1-scale value) + "neutral" every session close, which pinned stress below the
-      // intervention threshold (>=7) forever. Omitting them preserves the scheduler's values
-      // (merge-duplicates only updates the fields we send).
-      const contextUpdate = {
-        person_id:      userProfile.brain_person_id,
-        written_at:     new Date().toISOString(),
-        expires_at:     new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
-        recent_summary: mindDoc.slice(0, 300).replace(/\n/g, " ").trim(),
-      };
-      fetch(`${brainUrl}/rest/v1/context_window`, {
-        method: "POST",
-        headers: { ...brainHeaders, "Prefer": "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify(contextUpdate),
-      }).catch(err => console.error("[session-close] context_window update failed:", err.message));
-    }
+    // (§7 legacy Brain-DB signal + context_window writes retired — the kernel writes in blocks 4a/6b
+    // above are the single source of truth now; the session_end signal + living-mind digest land there.)
 
     // ── 8. Pattern-recognition harvest ──────────────────────────────────────
     // Detect a genuine confusion→understanding shift and, if found, save a

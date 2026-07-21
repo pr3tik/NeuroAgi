@@ -175,15 +175,9 @@ describe("session-close handler — pinned core behavior", () => {
     expect(upsert?.body).toMatchObject({ user_id: "user-1", mind_doc: "WHO THEY ARE\nAnn is a UofT student." });
     expect(typeof upsert?.body.updated_at).toBe("string");
 
-    // WRITE: fire-and-forget brain.signals + brain.context_window, only fired because
-    // BRAIN_SUPABASE_URL/KEY are set AND the user row has a brain_person_id.
-    const signal = calls.find(c => c.url.includes("/rest/v1/signals") && c.method === "POST");
-    expect(signal?.body).toMatchObject({ person_id: "person-1", signal_type: "academic", source: "fschoolai" });
-    expect(signal?.body.payload).toMatchObject({ event: "session_end", session_messages: 2 });
-
-    const contextWindow = calls.find(c => c.url.includes("/rest/v1/context_window") && c.method === "POST");
-    expect(contextWindow?.body).toMatchObject({ person_id: "person-1" });
-    expect(contextWindow?.body.recent_summary).toContain("Ann is a UofT student");
+    // (Legacy brain.signals + context_window writes retired — the session becomes kernel memories
+    // via blocks 4a/6b; the E1 resilience test covers the kernel-write path directly.)
+    expect(calls.some(c => c.url.includes("/rest/v1/context_window"))).toBe(false);
   });
 
   it("E1 resilience: writes the kernel signal + runs reflection even when the living-mind rewrite fails", async () => {

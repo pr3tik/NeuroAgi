@@ -51,24 +51,19 @@ describe("api/brain-sync (F-5)", () => {
     expect(calls.some((c) => c.url.includes("fschool_"))).toBe(false); // never touches the legacy DB
   });
 
-  it("writes under the SERVER-derived person_id and ignores a body-supplied person_id", async () => {
+  it("ignores a body-supplied person_id (security invariant); no legacy fschool_ writes remain", async () => {
     const res = mockRes();
     await handler({ method: "POST", headers: {}, __internalUserId: "u1", body: {
-      person_id: "ATTACKER", brainPersonId: "ATTACKER", // must be ignored
+      person_id: "ATTACKER", brainPersonId: "ATTACKER", userId: "ATTACKER", // must all be ignored
       courses: [{ id: 111, name: "Bio", courseCode: "BIO1", currentScore: 90 }],
       assignments: [{ id: 5, courseId: 111, name: "Lab", dueAt: "2026-07-01T00:00:00Z", submission: { score: 8, missing: false } }],
     } }, res);
     expect(res.statusCode).toBe(200);
     expect(res.body.ok).toBe(true);
-
-    const courseWrite = calls.find((c) => c.url.includes("fschool_courses"))!;
-    const courseRows = JSON.parse(courseWrite.opts.body);
-    expect(courseRows[0].person_id).toBe("person-XYZ");   // server-derived
-    expect(courseRows[0].person_id).not.toBe("ATTACKER");
-    expect(courseWrite.opts.headers.Authorization).toContain("brain-svc"); // service key only server-side
-
-    const assignWrite = calls.find((c) => c.url.includes("fschool_assignments"))!;
-    expect(JSON.parse(assignWrite.opts.body)[0].person_id).toBe("person-XYZ");
+    // The person is always SERVER-derived: no outgoing request ever carries a body-supplied id.
+    expect(calls.some((c) => JSON.stringify(c.opts?.body ?? "").includes("ATTACKER"))).toBe(false);
+    // The legacy Brain-DB fschool_* path is retired — the kernel canvas_sync bridge replaces it.
+    expect(calls.some((c) => c.url.includes("fschool_"))).toBe(false);
   });
 
   it("no-ops when the caller has no brain_person_id (not linked)", async () => {

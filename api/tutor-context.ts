@@ -57,10 +57,6 @@ export default async function handler(req, res) {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const supabaseUrl  = process.env.SUPABASE_URL;
   const supabaseKey  = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
-  // Brain DB env vars (NeuroAGI) — optional, gracefully skipped if not configured
-  const brainUrl = process.env.BRAIN_SUPABASE_URL;
-  const brainKey = process.env.BRAIN_SUPABASE_KEY;
-
   if (!anthropicKey || !supabaseUrl || !supabaseKey) {
     return res.status(200).json({ context: null, reason: "missing env" });
   }
@@ -98,35 +94,12 @@ export default async function handler(req, res) {
     "Content-Profile": "public",
   };
 
-  // ── 0a. Fetch brain.context_window in parallel with classification ─────────
-  // Pre-cached by brain_scheduler — no 600ms Brain DB penalty on hot path
-  let brainContext = null;
-  const brainFetch = (brainUrl && brainKey)
-    ? (async () => {
-        try {
-          const brainPersonId = await brainPersonIdP;
-          if (!brainPersonId) return null;
-          const r = await fetch(
-            `${brainUrl}/rest/v1/context_window?person_id=eq.${encodeURIComponent(brainPersonId)}&select=stress_level,momentum_state,active_deadline,recent_summary,what_to_focus_on,what_not_to_mention&limit=1`,
-            {
-              headers: {
-                "apikey":         brainKey,
-                "Authorization":  `Bearer ${brainKey}`,
-                "Content-Type":   "application/json",
-                "Accept-Profile": "brain",   // context_window lives in brain schema
-              },
-            }
-          );
-          return r.ok ? await r.json() : null;
-        } catch { return null; }
-      })()
-    : Promise.resolve(null);
-
-  // ── 0a′. NeuroAGI kernel recall — the LIVE brain (product DB). Runs in parallel. ─────
-  // Pulls the person's most-salient recent memories (digest / traits / focus / signals) via the
-  // kernel and folds them into STUDENT BRAIN STATE. This is the real brain read now; the legacy
-  // context_window fetch above stays only as a fallback until PR7. Ambient read → reinforce:false
-  // (recalling the firehose every message must NOT keep everything alive and defeat decay).
+  // ── 0a. NeuroAGI kernel recall — the LIVE brain (the memory store). Runs in parallel with
+  // classification. Pulls the person's most-salient recent memories (digest / traits / focus /
+  // signals) and folds them into STUDENT BRAIN STATE. Ambient read → reinforce:false (recalling the
+  // firehose every message must NOT keep everything alive and defeat decay). The legacy
+  // brain.context_window fallback was retired once the kernel became the single source of truth.
+  let brainContext: string | null = null;
   const kernelFetch = (supabaseUrl && supabaseKey)
     ? (async () => {
         try {
@@ -357,21 +330,7 @@ Examples:
   } catch { /* fall through to none */ }
 
   // Await brain context, kernel recall, library, and the strategy hint (all in parallel)
-  const [brainRows, kernelMems, librarySnippets, strategyHint] = await Promise.all([brainFetch, kernelFetch, libraryFetch, strategyHintFetch]);
-  const brainWindow = brainRows?.[0] ?? null;
-  if (brainWindow) {
-    const parts = [];
-    if (brainWindow.stress_level != null)  parts.push(`stress level: ${Math.round(brainWindow.stress_level)}/10`);
-    if (brainWindow.momentum_state)        parts.push(`momentum: ${brainWindow.momentum_state}`);
-    if (brainWindow.active_deadline)       parts.push(`active deadline: ${brainWindow.active_deadline}`);
-    if (brainWindow.recent_summary)        parts.push(`\nRecent student context: ${brainWindow.recent_summary}`);
-    if (brainWindow.what_to_focus_on)      parts.push(`\nFocus on: ${brainWindow.what_to_focus_on}`);
-    if (brainWindow.what_not_to_mention)   parts.push(`\nAvoid mentioning: ${brainWindow.what_not_to_mention}`);
-    if (parts.length) {
-      brainContext = `STUDENT BRAIN STATE (NeuroAGI):\n${parts.join(" | ")}`;
-    }
-  }
-  // Live kernel memories take precedence over the (legacy, usually-empty) context_window.
+  const [kernelMems, librarySnippets, strategyHint] = await Promise.all([kernelFetch, libraryFetch, strategyHintFetch]);
   const kernelState = renderStudentBrainState(kernelMems ?? []);
   if (kernelState) brainContext = kernelState;
 
