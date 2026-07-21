@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { calendarDaysUntil } from "../lib/dueDate";
 import { useApp } from "../context/AppContext";
-import { Flame, Layers, MessageCircle, GraduationCap } from "lucide-react";
+import { Flame, Layers, MessageCircle, GraduationCap, AlertCircle, CalendarClock } from "lucide-react";
 import { supabase } from "../api/supabase";
 import { SectionHeader, ObjectCard, MetaLine } from "../components/uikit";
 import { coursesToGpa } from "../lib/gpa";
-import DailyBriefing from "../components/DailyBriefing";
 import SchoolPrompt from "../components/SchoolPrompt";
+import { deriveNextActions } from "../lib/nextActions";
 
 
 function formatDue(dateStr) {
@@ -484,72 +484,79 @@ export default function Work() {
           </div>
         </div>
 
-        {/* ── Daily briefing ── */}
-        <div style={{ maxWidth: "1400px", width: "100%", boxSizing: "border-box" as const, marginBottom: isMobile ? "20px" : "28px", animation: "workRise 0.6s ease both", animationDelay: "120ms" }}>
-          <DailyBriefing isMobile={isMobile} />
-        </div>
-
-        {/* ── Proactive study plan (exam-mastery cron) — an imminent exam outranks everything ── */}
-        {homeExtras.plan && Array.isArray(homeExtras.plan.sessions) && homeExtras.plan.sessions.length > 0 && (() => {
-          const plan = homeExtras.plan;
-          const course: any = (courses ?? []).find((x: any) => String(x.dbId ?? x.id) === String(plan.course_id));
-          const courseLabel = course?.courseCode || course?.name || "Upcoming exam";
-          const examLabel = new Date(plan.exam_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-          const fmtDay = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-          const shown = plan.sessions.slice(0, 3);
+        {/* ── TODAY — the one decision panel. Every proactive engine (deadlines, the
+            exam-plan cron, SRS) feeds ONE ranked top-3 via deriveNextActions instead of
+            owning its own card; the page opens with the synthesis, reference lives below. ── */}
+        {(() => {
+          const nowD = new Date();
+          const overdueCount = assignments.filter((a: any) => a?.dueAt && !a.submission?.submittedAt && new Date(a.dueAt) < nowD && new Date(a.dueAt).toDateString() !== nowD.toDateString()).length;
+          const plan = homeExtras.plan && Array.isArray(homeExtras.plan.sessions) && homeExtras.plan.sessions.length > 0 ? homeExtras.plan : null;
+          const planCourse: any = plan ? (courses ?? []).find((x: any) => String(x.dbId ?? x.id) === String(plan.course_id)) : null;
+          const examLabel = plan ? new Date(plan.exam_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" }) : null;
+          const actions = deriveNextActions({ assignments, plan, srsDue: homeExtras.srsDue, now: nowD });
+          const status = overdueCount > 0 ? `Behind — ${overdueCount} overdue` : "On track";
+          const desc = `${overdueCount > 0 ? `${overdueCount} assignment${overdueCount === 1 ? "" : "s"} overdue` : "Nothing overdue"}${plan ? ` · ${planCourse?.courseCode || planCourse?.name || "exam"} ${examLabel}` : ""}`;
+          const ICONS: Record<string, any> = { overdue: AlertCircle, due_today: AlertCircle, due_tomorrow: CalendarClock, plan_session: GraduationCap, srs: Layers };
+          const urgentKind = (k: string) => k === "overdue" || k === "due_today";
           return (
-            <div style={{ marginBottom: isMobile ? "24px" : "32px", animation: "workRise 0.6s ease both", animationDelay: "120ms" }}>
-              <SectionHeader title="Your study plan" desc={`${courseLabel} · exam ${examLabel} — built from your review data, weakest topics first`} />
+            <div style={{ maxWidth: "1400px", width: "100%", boxSizing: "border-box" as const, marginBottom: isMobile ? "24px" : "32px", animation: "workRise 0.6s ease both", animationDelay: "120ms" }}>
+              <SectionHeader
+                title="Today"
+                desc={desc}
+                right={<span style={{
+                  fontSize: 11.5, fontWeight: 600, padding: "5px 12px", borderRadius: 20,
+                  background: overdueCount > 0 ? "var(--color-urgent-bg)" : "var(--color-success-bg)",
+                  color: overdueCount > 0 ? "var(--color-urgent-text)" : "var(--color-success-text)",
+                  whiteSpace: "nowrap" as const,
+                }}>{status}</span>}
+              />
               <div style={{
-                background: "rgba(var(--teal-rgb),0.06)", border: "1px solid rgba(var(--teal-rgb),0.22)",
-                borderRadius: "16px", padding: "18px 20px", maxWidth: 560,
+                background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 16, padding: "6px 8px",
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                  <GraduationCap size={18} color="rgb(var(--teal-rgb))" />
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{plan.sessions.length} session{plan.sessions.length === 1 ? "" : "s"} to exam day</span>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                  {shown.map((s: any, i: number) => (
-                    <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 10, fontSize: 13.5 }}>
-                      <span style={{ color: "var(--text-secondary)", minWidth: 92, fontVariantNumeric: "tabular-nums" }}>{fmtDay(s.date)}</span>
-                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.topic}</span>
-                      <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{s.estimatedMinutes ?? 60} min</span>
+                {actions.length === 0 && (
+                  <div style={{ padding: "16px 14px", fontSize: 13.5, color: "var(--text-secondary)" }}>
+                    You're all caught up — nothing needs you right now.
+                  </div>
+                )}
+                {actions.map((a, i) => {
+                  const Icon = ICONS[a.kind] ?? CalendarClock;
+                  const urgent = urgentKind(a.kind);
+                  return (
+                    <div key={a.key} style={{
+                      display: "flex", alignItems: "center", gap: 14, padding: "12px 14px",
+                      borderTop: i > 0 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                    }}>
+                      <Icon size={17} color={urgent ? "rgba(255,100,90,0.85)" : "rgb(var(--teal-rgb))"} style={{ flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: 14, fontWeight: 550, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-dim)" }}>{a.detail}</p>
+                      </div>
+                      {a.minutes != null && (
+                        <span style={{ fontSize: 12, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{a.minutes} min</span>
+                      )}
+                      <button onClick={goPage(a.page)} style={{
+                        flexShrink: 0, background: urgent ? "rgba(255,255,255,0.06)" : "rgba(var(--teal-rgb),0.14)",
+                        border: `1px solid ${urgent ? "rgba(255,255,255,0.14)" : "rgba(var(--teal-rgb),0.3)"}`,
+                        color: urgent ? "var(--text-primary)" : "rgb(var(--teal-rgb))",
+                        borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                      }}>{a.kind === "plan_session" ? "Start with Reggie" : "Open"}</button>
                     </div>
-                  ))}
-                  {plan.sessions.length > shown.length && (
-                    <span style={{ fontSize: 12, color: "var(--text-dim)" }}>+{plan.sessions.length - shown.length} more session{plan.sessions.length - shown.length === 1 ? "" : "s"}</span>
-                  )}
-                </div>
-                <button
-                  onClick={goPage("studyAssistant")}
-                  style={{
-                    background: "rgba(var(--teal-rgb),0.14)", border: "1px solid rgba(var(--teal-rgb),0.3)",
-                    color: "rgb(var(--teal-rgb))", borderRadius: "10px", padding: "8px 16px",
-                    fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-                  }}
-                >
-                  Work through it with Reggie
-                </button>
+                  );
+                })}
               </div>
             </div>
           );
         })()}
 
         {/* ── Pick up where you left off + Your materials (spec v2 sections) ── */}
-        {(homeExtras.srsDue > 0 || homeExtras.materials.length > 0) && (
+        {homeExtras.materials.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 26, marginBottom: isMobile ? "24px" : "32px", animation: "workRise 0.6s ease both", animationDelay: "140ms" }}>
             <div>
               <SectionHeader title="Pick up where you left off" desc="Jump back into what you were working on" />
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(250px, 330px))", gap: 12 }}>
-                {homeExtras.srsDue > 0 && (
-                  <ObjectCard
-                    icon={<Layers size={18} color="rgb(var(--teal-rgb))" />}
-                    typeLabel="Review"
-                    title={`${homeExtras.srsDue} flashcard${homeExtras.srsDue === 1 ? "" : "s"} due`}
-                    meta={["Spaced repetition", "5 min"]}
-                    onClick={goPage("study")}
-                  />
-                )}
+                {/* Flashcards-due lives in the Today panel now (deriveNextActions) —
+                    repeating it here was exactly the scatter the panel consolidates. */}
                 {homeExtras.materials[0] && (() => {
                   // Prefer a real course for the resume card; unlinked docs read awkwardly.
                   const top = homeExtras.materials.find(m => m.id !== "other") ?? homeExtras.materials[0];
