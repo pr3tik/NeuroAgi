@@ -65,3 +65,36 @@ describe("reggie router", () => {
     expect(ROUTES).toContain(await classifyIntent("zzz gibberish qqq", ROUTES));
   });
 });
+
+// ── Grounding directive (orb auto-retrieval) ─────────────────────────────────
+// The product's "grounded in YOUR course" difference hinges on rag_search running by
+// default for course-shaped questions. Pin the prompt contract so a future prompt edit
+// can't silently regress to the old "don't call tools for general knowledge" behavior.
+import { SPECIALISTS } from "../api/_reggie/specialists";
+
+describe("specialist grounding directive", () => {
+  const sys = (k: string) => SPECIALISTS[k].system({ brainContext: null });
+
+  it("rag_search-carrying specialists are told to retrieve FIRST for course questions", () => {
+    for (const key of Object.keys(SPECIALISTS)) {
+      const s = SPECIALISTS[key];
+      if (!s.tools.includes("rag_search")) continue;
+      expect(sys(key)).toContain("call rag_search FIRST");
+      expect(sys(key)).not.toContain("do not call a tool for general-knowledge");
+    }
+  });
+
+  it("data-only specialists (no rag_search) are not told to call it", () => {
+    for (const key of Object.keys(SPECIALISTS)) {
+      const s = SPECIALISTS[key];
+      if (s.tools.includes("rag_search")) continue;
+      expect(sys(key)).not.toContain("rag_search");
+    }
+  });
+
+  it("all specialists still skip tools for small talk", () => {
+    for (const key of Object.keys(SPECIALISTS)) {
+      expect(sys(key)).toMatch(/greetings, small talk/);
+    }
+  });
+});
