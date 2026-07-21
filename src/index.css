@@ -106,7 +106,7 @@ html.warm-ink body {
    live here (the visible ground) to show. background-attachment:fixed anchors them. */
 html.warm-ink .app-shell {
   background-image:
-    radial-gradient(58% 55% at 14% 4%,  rgba(96, 170, 122, 0.22) 0%, rgba(96, 170, 122, 0) 58%),
+    radial-gradient(58% 55% at 14% 4%,  rgba(122, 140, 245, 0.22) 0%, rgba(122, 140, 245, 0) 58%),
     radial-gradient(62% 62% at 94% 96%, rgba(124, 134, 224, 0.16) 0%, rgba(124, 134, 224, 0) 60%);
   background-attachment: fixed;
   background-repeat: no-repeat;
