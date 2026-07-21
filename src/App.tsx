@@ -166,6 +166,14 @@ const SHELL_STYLES = `
   .nav-tabs.page-immersive .app-header { display: none; }
   /* The mockup ground: royal periwinkle with a centre lift + deep corner pool.
      White-alpha panels on top read as liquid glass automatically. */
+  /* Text on the blue ground needs more punch than the near-black-tuned alphas. */
+  .nav-tabs.page-immersive .app-main,
+  :root[data-theme="light"] .app-shell {
+    --text-primary: #FFFFFF;
+    --text-secondary: rgba(255, 255, 255, 0.86);
+    --text-dim: rgba(255, 255, 255, 0.72);
+    --text-tertiary: rgba(255, 255, 255, 0.62);
+  }
   .nav-tabs.page-immersive .app-main {
     background: #4657CE;
     background-image:
