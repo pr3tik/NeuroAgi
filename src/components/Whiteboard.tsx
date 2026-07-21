@@ -18,6 +18,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Point, Stroke, PenStyle } from "../api/whiteboard";
+import BoardCards, { type BoardCard } from "./BoardCards";
 import { uploadWhiteboardImage } from "../api/chat";
 import { Pen, Pencil, Highlighter, Feather, PenTool, Eraser, Circle, Crosshair, Type, Image as ImageIcon, Download, Trash2, MousePointer2, Square, Minus, MoveRight, Shapes, Undo2, Redo2, Grid3x3, X } from "lucide-react";
 
@@ -312,6 +313,7 @@ export default function Whiteboard({
   canUndo, canRedo, onUndo, onRedo,
   peerCursors, laserPositions, onCursorMove, onLaserMove,
   onClose, activeSpeaker, roomId,
+  boardCards, onCardMove, onCardDelete, onCardAnswer,
 }: {
   strokes: Stroke[];
   liveStrokes?: Record<string, { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }>;
@@ -341,6 +343,11 @@ export default function Whiteboard({
   activeSpeaker?: string | null;
   /** Room ID — required to upload images to the correct storage path. */
   roomId?: string;
+  /** Structured study cards (shared via Yjs, rendered above strokes). */
+  boardCards?: BoardCard[];
+  onCardMove?: (id: string, x: number, y: number) => void;
+  onCardDelete?: (id: string) => void;
+  onCardAnswer?: (id: string, optionIndex: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
@@ -1478,6 +1485,13 @@ export default function Whiteboard({
               touchAction: "none", cursor, display: "block",
             }}
           />
+          {/* Structured study cards — shared layer above the ink, below overlays */}
+          {boardCards && boardCards.length > 0 && onCardMove && onCardDelete && onCardAnswer && (
+            <BoardCards
+              cards={boardCards} boardW={BOARD_W} boardH={BOARD_H}
+              onMove={onCardMove} onDelete={onCardDelete} onAnswer={onCardAnswer}
+            />
+          )}
           {/* Image uploading overlay */}
           {imgUploading && (
             <div style={{

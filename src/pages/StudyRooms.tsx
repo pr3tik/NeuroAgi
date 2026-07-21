@@ -1280,6 +1280,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const yjsProviderRef  = useRef<SupabaseBroadcastProvider | null>(null);
   const yjsStrokesRef   = useRef<Y.Array<any> | null>(null);
   const yjsMetaRef      = useRef<Y.Map<any> | null>(null);
+  const yjsCardsRef     = useRef<Y.Array<any> | null>(null);
+  const [boardCards,        setBoardCards]        = useState<any[]>([]);
   const wbSnapTimerRef    = useRef<any>(null);
   const wbSnapInFlightRef = useRef(false);
 
@@ -1735,10 +1737,14 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     const doc = new Y.Doc();
     const yStrokes = doc.getArray<any>("strokes");
     const yMeta    = doc.getMap<any>("meta");
+    const yCards   = doc.getArray<any>("cards");   // structured study cards (notes/quizzes)
 
     yjsDocRef.current      = doc;
     yjsStrokesRef.current  = yStrokes;
     yjsMetaRef.current     = yMeta;
+    yjsCardsRef.current    = yCards;
+
+    yCards.observe(() => { setBoardCards(yCards.toArray()); });
 
     // When the strokes array changes, update React state and clear the live
     // preview for any peer whose stroke just committed.
@@ -2680,6 +2686,77 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     setCanRedo(false);
   }
 
+  // ── Board cards — structured notes/quizzes on the shared whiteboard (Yjs "cards").
+  //    Reggie materializes cards through the same array, so one write syncs everyone.
+  function addBoardCards(cards: any[], createdBy = "Reggie") {
+    const arr = yjsCardsRef.current;
+    if (!arr || !cards.length) return;
+    const stamped = cards.map((c, i) => ({
+      ...c,
+      id: `card-${Date.now()}-${Math.floor(Math.random() * 1e6)}-${i}`,
+      createdBy, createdAt: Date.now(),
+    }));
+    arr.doc?.transact(() => { arr.push(stamped); });
+    setShowBoard(true); setCenterTab("board"); // cards landing off-screen helps nobody
+  }
+  // Dev-only: lets local verification inject cards without an AI turn (the Reggie
+  // path needs live API credits). import.meta.env.DEV in EXACT form — Vite statically
+  // replaces it, so this whole effect is dead code in production builds.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    (window as any).__fschoolAddCards = addBoardCards;
+    console.log("[dev] __fschoolAddCards registered");
+    return () => { delete (window as any).__fschoolAddCards; };
+  }, []);
+  const cardIndex = (id: string) => (yjsCardsRef.current?.toArray() ?? []).findIndex((c: any) => c?.id === id);
+  function replaceBoardCard(id: string, patch: any) {
+    const arr = yjsCardsRef.current;
+    if (!arr) return;
+    const i = cardIndex(id);
+    if (i < 0) return;
+    const cur = arr.get(i);
+    arr.doc?.transact(() => { arr.delete(i, 1); arr.insert(i, [{ ...cur, ...patch }]); });
+  }
+  const handleCardMove   = (id: string, x: number, y: number) => replaceBoardCard(id, { x, y });
+  const handleCardAnswer = (id: string, optionIndex: number) => replaceBoardCard(id, { answeredIndex: optionIndex, answeredBy: userData?.name ?? "Someone" });
+  function handleCardDelete(id: string) {
+    const arr = yjsCardsRef.current;
+    const i = cardIndex(id);
+    if (arr && i >= 0) arr.doc?.transact(() => { arr.delete(i, 1); });
+  }
+
+  // ── Text-to-Reggie (group, non-streamed) — the typed sibling of the voice ask.
+  //    Uses allowCards so "put a quiz on the board" materializes cards for everyone.
+  const [reggieTextInput, setReggieTextInput] = useState("");
+  const [reggieTextBusy,  setReggieTextBusy]  = useState(false);
+  async function askReggieText(question: string, opts: { silent?: boolean } = {}) {
+    const q = question.trim();
+    if (!q || reggieTextBusy) return;
+    setReggieTextBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("no auth");
+      await ensureRoomAiSession(token);
+      if (!opts.silent) {
+        transcriptRef.current?.add({ id: `ask:${Date.now()}`, speakerId: userId, speakerName: userData?.name ?? "You", text: q, ts: Date.now(), seq: 0 });
+      }
+      const r = await fetch("/api/room-ai?action=group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ roomId: room.id, message: q, allowCards: true }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d?.message) {
+        broadcastAiMessage(String(d.message));
+        if (Array.isArray(d.cards) && d.cards.length) addBoardCards(d.cards);
+      } else if (!r.ok) {
+        setRoomToast("Reggie couldn't answer that one — try again.");
+      }
+    } catch { setRoomToast("Reggie couldn't answer that one — try again."); }
+    finally { setReggieTextBusy(false); }
+  }
+
   // ── In-room private Reggie (B1) — your own 1-on-1 tutor inside the room. Scoped
   //    server-side to YOUR Brain + your own thread; the reply returns only in your HTTP
   //    response (never broadcast), so nothing leaks to the group. Group @Reggie is later.
@@ -2898,6 +2975,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       const active = { mode, topic: t, steps, currentIdx: 0, status: "active" as const, startedAt: Date.now() };
       setGs(active);
       setGsNudge(pickGsNudge("start"));
+      // Opener — Reggie greets the room in the transcript (grounded in the topic) and
+      // seeds the board with a goal card + warm-up quiz. Fire-and-forget: only the
+      // session starter runs this, and the broadcast/Yjs writes reach everyone.
+      askReggieText(
+        `The group just started a ${mode} session on "${t}". In 2-3 sentences, welcome the room and say what matters most about this topic based on the course materials. Then put on the board: one note card titled "🎯 ${t}" summarizing the session goal, and one warm-up quiz card on the topic's most fundamental concept.`,
+        { silent: true },
+      );
       await gsTeachStep(0, active);
     } catch (err) {
       const steps = normalizeStepMinutes(defaultGsPlan(mode, t));
@@ -3401,6 +3485,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   onClose={() => setShowBoard(false)}
                   activeSpeaker={activeSpeakerName}
                   roomId={room.id}
+                  boardCards={boardCards}
+                  onCardMove={handleCardMove}
+                  onCardDelete={handleCardDelete}
+                  onCardAnswer={handleCardAnswer}
                 />
                 ) : (
                   <div style={{ height: "100%", minHeight: 320, borderRadius: 14, background: "rgba(255,255,255,0.96)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -3682,6 +3770,40 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 <div ref={transcriptEndRef} />
               </div>
             </div>
+
+            {/* ── Text-to-Reggie — the typed sibling of the voice ask. Same room-ai
+                turn, replies land in the transcript for everyone; "put a quiz on the
+                board" materializes shared cards. ─────────────────────────────────── */}
+            <form
+              onSubmit={e => { e.preventDefault(); const q = reggieTextInput; setReggieTextInput(""); askReggieText(q); }}
+              style={{ flexShrink: 0, display: "flex", gap: 7, marginBottom: 8 }}
+            >
+              <input
+                value={reggieTextInput}
+                onChange={e => setReggieTextInput(e.target.value)}
+                placeholder={reggieTextBusy ? "Reggie is thinking…" : "Ask Reggie… (try: put a quiz on the board)"}
+                disabled={reggieTextBusy}
+                style={{
+                  flex: 1, minWidth: 0, padding: "9px 12px", borderRadius: 11, fontSize: 12.5, fontFamily: "inherit",
+                  background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.16)",
+                  color: "var(--text-primary)", outline: "none",
+                }}
+                className="gs-topic-input"
+              />
+              <button
+                type="submit"
+                disabled={reggieTextBusy || !reggieTextInput.trim()}
+                title="Ask Reggie"
+                style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", width: 38, borderRadius: 11,
+                  cursor: reggieTextBusy || !reggieTextInput.trim() ? "default" : "pointer", fontFamily: "inherit",
+                  background: reggieTextInput.trim() ? "rgba(var(--teal-rgb),0.22)" : "rgba(255,255,255,0.05)",
+                  border: `1px solid ${reggieTextInput.trim() ? "rgba(var(--teal-rgb),0.5)" : "rgba(255,255,255,0.12)"}`,
+                  color: reggieTextInput.trim() ? "#DCE3FF" : "var(--text-dim)",
+                  opacity: reggieTextBusy ? 0.6 : 1,
+                }}
+              ><Sparkles size={15} /></button>
+            </form>
 
             {/* ── Voice control bar — every voice control in one place ─────────── */}
             <div style={{ flexShrink: 0 }}>
