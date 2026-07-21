@@ -2,6 +2,11 @@
   "buildCommand": "npm run build",
   "devCommand": "vite --port $PORT",
   "outputDirectory": "dist",
+  "git": {
+    "deploymentEnabled": {
+      "frontend/dev": false
+    }
+  },
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
