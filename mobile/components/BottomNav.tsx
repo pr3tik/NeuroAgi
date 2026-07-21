@@ -9,7 +9,7 @@
 // follows the finger at 60fps off the JS thread.
 
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, useWindowDimensions, Animated as RNAnimated } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
@@ -44,7 +44,12 @@ function Icon({ tab, color }: { tab: TabKey; color: string }) {
   }
 }
 
-export default function BottomNav({ current, colors }: { current: PageKey; colors: ThemeColors }) {
+export default function BottomNav({ current, colors, progress }: {
+  current: PageKey;
+  colors: ThemeColors;
+  /** 0 = dark, 1 = light — cross-fades the bar fill/hairline with the theme toggle. */
+  progress: RNAnimated.Value | RNAnimated.AnimatedInterpolation<number>;
+}) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -114,20 +119,29 @@ export default function BottomNav({ current, colors }: { current: PageKey; color
     opacity: capOpacity.value,
   }));
 
-  const baseFill  = isLight ? "rgba(255,255,255,0.55)" : "rgba(24,22,27,0.42)";
-  const hairline  = isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.14)";
+  // Light (periwinkle) mode: a translucent white frost over the royal ground — the
+  // web nav's rgba(255,255,255,0.10) glass. Paired with the dark blur it stays deep
+  // enough that the LIGHT tab icons/labels still read (a bright white bar would
+  // swallow them). Dark mode: the near-black glass pill. Interpolated on `progress`
+  // so the bar cross-fades with the toggle instead of snapping.
+  const baseFill = progress.interpolate({
+    inputRange: [0, 1], outputRange: ["rgba(24,22,27,0.42)", "rgba(255,255,255,0.10)"],
+  });
+  const hairline = progress.interpolate({
+    inputRange: [0, 1], outputRange: ["rgba(255,255,255,0.14)", "rgba(255,255,255,0.22)"],
+  });
 
   return (
     <View style={[styles.wrap, { bottom: insets.bottom + BAR_GAP }]} pointerEvents="box-none">
       <GestureDetector gesture={pan}>
         <View style={[styles.shadow, { width: barW }]}>
-          <View style={[styles.clip, { backgroundColor: baseFill }]}>
+          <RNAnimated.View style={[styles.clip, { backgroundColor: baseFill }]}>
             <BlurView
-              intensity={isLight ? 55 : 34}
-              tint={isLight ? "systemChromeMaterialLight" : "systemChromeMaterialDark"}
+              intensity={isLight ? 40 : 34}
+              tint="systemChromeMaterialDark"
               style={StyleSheet.absoluteFill}
             />
-            <View style={[styles.hairline, { borderColor: hairline }]} pointerEvents="none" />
+            <RNAnimated.View style={[styles.hairline, { borderColor: hairline }]} pointerEvents="none" />
 
             {/* moving selection capsule (sage) */}
             <Animated.View
@@ -148,7 +162,7 @@ export default function BottomNav({ current, colors }: { current: PageKey; color
                 );
               })}
             </View>
-          </View>
+          </RNAnimated.View>
         </View>
       </GestureDetector>
     </View>

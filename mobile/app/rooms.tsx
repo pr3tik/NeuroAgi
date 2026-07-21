@@ -36,12 +36,12 @@ import { useTheme, ThemeColors } from "../constants/appTheme";
 
 const MONO = Platform.select({ ios: "Menlo", android: "monospace" });
 
-// Semantic colors that aren't part of the base theme (private/danger). Tuned to
-// read on both grounds; picked by mode so light mode doesn't wash them out.
-function semantics(mode: "light" | "dark") {
-  return mode === "light"
-    ? { danger: "#B4462F", dangerSoft: "rgba(180,70,47,0.10)", dangerLine: "rgba(180,70,47,0.28)" }
-    : { danger: "rgba(224,132,116,0.95)", dangerSoft: "rgba(224,132,116,0.10)", dangerLine: "rgba(224,132,116,0.26)" };
+// Semantic colors that aren't part of the base theme (private/danger). Both the
+// dark and the periwinkle-light ground are DEEP grounds carrying light text, so the
+// same warm salmon reads on both — the dark brick-red was tuned for a white ground,
+// which this app no longer uses.
+function semantics(_mode: "light" | "dark") {
+  return { danger: "rgba(224,132,116,0.95)", dangerSoft: "rgba(224,132,116,0.10)", dangerLine: "rgba(224,132,116,0.26)" };
 }
 
 // Stable, muted avatar tints (work on both themes) — indexed by a hash of the id.

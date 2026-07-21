@@ -12,6 +12,7 @@ import {
 } from "lucide-react-native";
 import { supabase } from "../services/supabase";
 import { useUserId } from "../context/AuthContext";
+import { ThemeColors } from "../constants/appTheme";
 
 type AppNotification = {
   id: string;
@@ -42,13 +43,21 @@ function relativeTime(iso: string): string {
 }
 
 export default function NotificationPanel({
-  visible, onClose, onUnreadChange,
+  visible, colors, onClose, onUnreadChange,
 }: {
   visible: boolean;
+  colors?: ThemeColors;
   onClose: () => void;
   onUnreadChange: (n: number) => void;
 }) {
   const userId = useUserId();
+  // Both grounds are deep with light text, so only the sheet's own fill changes:
+  // a deep periwinkle glass in light mode (matches the web notif panel over the blue
+  // ground), the near-black sheet in dark. Text/icons stay light on both.
+  const light = colors?.scheme === "light";
+  const sheetTheme = light
+    ? { backgroundColor: "rgba(28,36,92,0.94)", borderColor: "rgba(255,255,255,0.20)" }
+    : null;
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -89,7 +98,7 @@ export default function NotificationPanel({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={styles.sheet}>
+      <View style={[styles.sheet, sheetTheme]}>
         <View style={styles.header}>
           <Text style={styles.title}>Notifications</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>

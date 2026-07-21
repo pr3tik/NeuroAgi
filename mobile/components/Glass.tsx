@@ -39,14 +39,15 @@ type Props = {
 };
 
 export default function Glass({ colors = DARK, children, style, radius = 16, intensity, tint, onPress, disabled }: Props) {
-  // Light mode: a frosted WHITE panel on the near-white ground — a bright glass lift
-  // with a dark hairline (so the edge reads on white) and the iOS light chrome blur.
-  // Dark mode: a subtle white lift over the near-black ground, as before.
-  const light     = colors.scheme === "light";
-  const fill      = light ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.06)";
-  const border    = light ? "rgba(26,34,52,0.10)"    : "rgba(255,255,255,0.12)";
-  const blurTint  = tint ?? (light ? "systemChromeMaterialLight" : "systemChromeMaterialDark");
-  const blurAmt   = intensity ?? (light ? 46 : 42);
+  // Both themes carry light text, so glass is a WHITE lift over the ground in both
+  // — never a light near-white fill (that would swallow the white text). The blue
+  // "light" theme gets a slightly stronger frost + cooler hairline so panels read
+  // as the mockups' translucent glass over the royal ground; dark stays as it was.
+  const blue      = colors.scheme === "light";
+  const fill      = blue ? "rgba(255,255,255,0.11)" : "rgba(255,255,255,0.06)";
+  const border    = blue ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.12)";
+  const blurTint  = tint ?? "systemChromeMaterialDark";
+  const blurAmt   = intensity ?? (blue ? 44 : 42);
 
   const base: ViewStyle = { borderRadius: radius, overflow: "hidden", borderWidth: 1, borderColor: border };
 
