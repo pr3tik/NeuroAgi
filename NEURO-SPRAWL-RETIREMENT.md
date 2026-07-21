@@ -29,16 +29,24 @@ parallel system) and need Ryan's explicit go.
 ## ⚠️ The legacy system is LOAD-BEARING (retirement ≠ a flip)
 Correction after checking consumers: `brain.context_window` is read by LIVE features, so you can't
 just stop writing it — those consumers must move onto the kernel FIRST, or they break:
-| Live consumer | Reads | Kernel migration needed before retiring legacy |
+| Live consumer | Reads | Status |
 |---|---|---|
-| `brain-intervention.ts` (*/30 cron, proactive nudges) | `context_window` | re-point onto kernel focuses + the E2 policy gate |
-| `brain-scheduler-fast.ts` (*/5, real-time stress) | `context_window` | derive stress from kernel signals |
-| `tutor-context.ts` (fallback) | `context_window` | already kernel-primary — just drop the fallback read |
-| `brain-scheduler.ts` (hourly synth) | `brain.signals`, `fschool_*` → writes `context_window` | obsolete once the above move |
+| `brain-intervention.ts` (*/30 cron, proactive nudges) | `context_window` | ✅ **MIGRATED (PR #305)** — now reads `synthesizeContext` (kernel); audit is a kernel `intervention` memory. No longer reads `context_window`. |
+| `brain-scheduler-fast.ts` (*/5, real-time stress) | writes `context_window` for intervention | its only consumer (intervention) is migrated → now **dead-output**, safe to retire in the pass below |
+| `tutor-context.ts` (fallback) | `context_window.recent_summary` | still reads it as a SECONDARY fallback (kernel recall is primary) — drop in the pass below |
+| `brain-scheduler.ts` (hourly synth) | `brain.signals`, `fschool_*` → writes `context_window` | feeds only the tutor-context fallback now → retire once that's dropped |
 
-So retirement is a real **consumer-migration project** (move intervention + fast-scheduler onto the
-kernel), NOT a same-day cleanup — and attempting it now would break proactive interventions + stress
-tracking during demo week. Sequencing: migrate consumers → bake → stop writers → DROP.
+The hard part — migrating the main consumer (intervention) onto the kernel — is **done**. What
+remains is one **bake-gated retirement pass** (below), not a project. Doing it *this instant* would
+rip out the legacy fallback the same hour the kernel-intervention went live (zero prod bake) — bad
+sequencing. Correct order: **bake the intervention migration → then the single retirement pass.**
+
+### The remaining retirement pass (one PR, after the bake)
+Drop `tutor-context`'s `context_window` fallback read; remove the `session-close` legacy
+`brain.signals`/`context_window` block; remove `brain-sync`'s `fschool_*` writes (the kernel
+`canvas_sync` bridge replaces them); migrate `office-hours`' `brain.signals` write to a kernel
+signal; retire the `brain-scheduler` + `brain-scheduler-fast` crons (vercel.json). Then DROP the
+legacy tables (gated, cross-repo).
 
 ## ⚠️ Identity ambiguity to resolve FIRST
 `users.brain_person_id` is written by BOTH `resolveFschoolPerson` (the **kernel** neuro_person id) and
