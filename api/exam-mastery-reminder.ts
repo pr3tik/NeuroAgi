@@ -17,11 +17,14 @@
 import { proposeProactive } from "./_notify.js";
 import { fetchDeckData, generateProfile, sbHeaders } from "./deck-profile.js";
 import { callModel } from "./_gateway.js";
+import { generatePlanCore } from "./exam.js";
 
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-const REMINDER_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // remind for quizzes due within 3 days
+// 5 days covers the canonical "it's Monday, the test is Friday" case — a 3-day window
+// only caught exams the student should already be deep into studying for.
+const REMINDER_WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
 
 function parseJsonLoose(text: any, fallback: any) {
   const stripped = String(text || "").replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
@@ -73,11 +76,14 @@ Return JSON: {"testedTopics":["..."],"masteryPct":0,"weakestTopics":["...","..."
   };
 }
 
-function composeMessage(quiz: any, courseLabel: string, daysUntil: number, assessment: { masteryPct: number; weakestTopics: string[] }) {
+function composeMessage(quiz: any, courseLabel: string, daysUntil: number, assessment: { masteryPct: number; weakestTopics: string[] }, sessionCount = 0) {
   const dayWord = daysUntil <= 0 ? "today" : daysUntil === 1 ? "1 day" : `${daysUntil} days`;
   let body = `You have ${dayWord} for ${quiz.title} (${courseLabel}) and an estimated mastery of ${assessment.masteryPct}% on the topics being tested.`;
   if (assessment.weakestTopics.length) {
     body += ` Weakest: ${assessment.weakestTopics.join(", ")}.`;
+  }
+  if (sessionCount > 0) {
+    body += ` I've drafted a ${sessionCount}-session study plan leading up to it — it's waiting on your home page.`;
   }
   return body;
 }
@@ -138,15 +144,33 @@ export default async function handler(req: any, res: any) {
         const assessment = await assessMastery(quiz.title, courseLabel, profile);
         if (!assessment) { results.errors++; continue; }
 
-        const body = composeMessage(quiz, courseLabel, daysUntil, assessment);
+        // The proactive half of "proactive study planning": generate the dated plan
+        // UNPROMPTED, weakest topics first so the plan spends the early days where the
+        // student's review data says they're behind. Same generator the planner
+        // specialist uses on request. Plan failure degrades to the plain reminder —
+        // an honest nudge without a plan still beats silence.
+        const planTopics = [
+          ...assessment.weakestTopics,
+          ...assessment.testedTopics.filter((t: string) => !assessment.weakestTopics.includes(t)),
+        ];
+        const examDate = String(quiz.due_at).slice(0, 10);
+        let plan: { planId: string; sessions: any[] } | null = null;
+        try {
+          const p = await generatePlanCore({ userId: quiz.user_id, courseId: quiz.course_id, examDate, topics: planTopics, sbUrl: SB_URL!, sbKey: SB_KEY! });
+          if (!("error" in p) && p.sessions.length) plan = p;
+        } catch { /* plain reminder */ }
+
+        const body = composeMessage(quiz, courseLabel, daysUntil, assessment, plan?.sessions.length ?? 0);
         const outcome = await proposeProactive(quiz.user_id, {
           agentSource: "exam_mastery", type: "exam_mastery",
           urgencyScore: urgencyFor(daysUntil), valueScore: 0.8,
-          title: `${courseLabel} exam in ${daysUntil <= 1 ? "1 day" : daysUntil + " days"}`,
+          title: plan
+            ? `${courseLabel}: study plan for your exam in ${daysUntil <= 1 ? "1 day" : daysUntil + " days"}`
+            : `${courseLabel} exam in ${daysUntil <= 1 ? "1 day" : daysUntil + " days"}`,
           body,
           channelHint: "in_app",
           dedupKey: `exam_mastery:${quiz.id}`,
-          data: { quizId: quiz.id, masteryPct: assessment.masteryPct, testedTopics: assessment.testedTopics },
+          data: { quizId: quiz.id, masteryPct: assessment.masteryPct, testedTopics: assessment.testedTopics, planId: plan?.planId ?? null, sessionCount: plan?.sessions.length ?? 0 },
           expiresInHours: 24,
         });
 
