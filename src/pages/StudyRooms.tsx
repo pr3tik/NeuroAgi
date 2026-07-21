@@ -796,7 +796,7 @@ function RoomCard({ room, liveCount, joining, pendingStatus, courseLabel, onJoin
       {/* Room name + type badge */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", marginBottom: "8px" }}>
         <p style={{
-          fontSize: "15px", fontWeight: "600", fontFamily: "'Fraunces', serif",
+          fontSize: "15px", fontWeight: "600", fontFamily: "var(--font-sans)",
           color: "var(--text-primary)", lineHeight: "1.3",
           flex: 1, minWidth: 0, wordBreak: "break-word", margin: 0,
         }}>
@@ -2423,7 +2423,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             ))}
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-            <div style={{ fontFamily: "'Fraunces',serif", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#d3f0dc" : "var(--text-primary)" }}>
+            <div style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontSize: 42, fontWeight: 600, letterSpacing: 1, color: pomo && pomo.phase === "focus" && !pomo.paused ? "#d3f0dc" : "var(--text-primary)" }}>
               {pomo && pomo.phase === "focus" ? formatPomoTime(remaining) : "00:00"}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -2441,7 +2441,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           {/* Right — room identity + presence + Focus Mode (#258: the room's name previously
               rendered nowhere; its only copy was stranded in the disabled block below). */}
           <div style={{ position: "absolute", right: 0, top: 4, display: "flex", alignItems: "center", gap: 8, maxWidth: "32%" }}>
-            <span title={room.name} style={{ fontFamily: "'Fraunces',serif", fontSize: 15, fontWeight: 600, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{room.name}</span>
+            <span title={room.name} style={{ fontFamily: "var(--font-sans)", fontSize: 15, fontWeight: 600, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{room.name}</span>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "6px 12px", fontSize: 12, color: "var(--text-secondary)", flexShrink: 0 }}>
               <Users size={13} /> {members.length}
             </div>
@@ -2521,7 +2521,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     /* Launcher */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
                       <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><Sparkles size={26} color="#d3f0dc" /></div>
-                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Start a guided session</h3>
+                      <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Start a guided session</h3>
                       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie plans it, teaches you step by step, and tracks your progress — grounded in your own course materials.</p>
                       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", justifyContent: "center" }}>
                         {([["learn", "Learn a topic", "📚"], ["assignment", "Work an assignment", "✍️"], ["exam", "Prep for an exam", "🎯"]] as const).map(([m, label, ic]) => {
@@ -2561,7 +2561,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     /* Completion */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
                       <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
-                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Session complete</h3>
+                      <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Session complete</h3>
                       <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}>{gsNudge || "Great work — you finished every step."}</p>
                       <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{gs.steps.length} steps · {formatPomoTime(gsElapsedSec)} focused · {gs.topic}</p>
                       <div style={{ display: "flex", gap: 8 }}>
@@ -2605,7 +2605,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
                         <div style={{ marginBottom: 10, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
                           <div style={{ minWidth: 0 }}>
-                            <h4 style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 3px" }}>{gs.steps[gs.currentIdx]?.title}</h4>
+                            <h4 style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 3px" }}>{gs.steps[gs.currentIdx]?.title}</h4>
                             <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: 0 }}>{gs.steps[gs.currentIdx]?.goal}</p>
                           </div>
                           <button onClick={() => (gsSpeaking ? gsStopSpeak() : gsSpeak(gsStepContent[gs.currentIdx] || ""))} disabled={!gsStepContent[gs.currentIdx]} title={gsSpeaking ? "Stop reading" : "Read this step aloud"} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, background: gsSpeaking ? "rgba(94,234,212,0.16)" : "rgba(255,255,255,0.05)", border: `1px solid ${gsSpeaking ? "rgba(94,234,212,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: 999, padding: "6px 11px", fontSize: 11.5, fontWeight: 600, color: gsSpeaking ? "#5eead4" : "var(--text-secondary)", cursor: gsStepContent[gs.currentIdx] ? "pointer" : "default", opacity: gsStepContent[gs.currentIdx] ? 1 : 0.5, fontFamily: "inherit" }}>{gsSpeaking ? <><VolumeX size={12} />Stop</> : <><Volume2 size={12} />Read aloud</>}</button>
@@ -2642,7 +2642,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     /* Launcher */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
                       <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(94,234,212,0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#d3f0dc" /></div>
-                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Flashcards</h3>
+                      <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Flashcards</h3>
                       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie builds a deck on any topic — grounded in your course materials — and quizzes you.</p>
                       <input value={fcTopic} onChange={e => setFcTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && fcTopic.trim()) fcGenerate(fcTopic); }} placeholder="Topic to make cards on…" style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -2654,7 +2654,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                     /* Summary */
                     <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "20px 18px" }}>
                       <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
-                      <h3 style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Deck complete</h3>
+                      <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Deck complete</h3>
                       <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "0 0 4px" }}><span style={{ color: "#5eead4", fontWeight: 600 }}>{fcResults.got} got it</span> · <span style={{ color: "#fca5a5", fontWeight: 600 }}>{fcResults.missed} to review</span></p>
                       <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 20px" }}>{fcCards.length} cards</p>
                       <div style={{ display: "flex", gap: 8 }}>
@@ -2729,7 +2729,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 12, padding: "10px 14px" }}>
                   <div>
                     <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 2 }}>Room code</div>
-                    <div style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 600, letterSpacing: 3, color: "#d3f0dc" }}>{room.join_code}</div>
+                    <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 600, letterSpacing: 3, color: "#d3f0dc" }}>{room.join_code}</div>
                   </div>
                   <button onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }} style={{ background: "rgba(var(--teal-rgb),0.16)", border: "1px solid rgba(var(--teal-rgb),0.3)", borderRadius: 9, padding: "6px 13px", fontSize: 12, fontWeight: 600, color: "#d3f0dc", cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
                 </div>
@@ -2890,7 +2890,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         }}>
           <div>
             <span style={{ fontSize:"10px", color:"var(--text-dim)", letterSpacing:"1.5px", textTransform:"uppercase" }}>Room code</span>
-            <p style={{ fontFamily:"'Fraunces',serif", fontSize:"18px", fontWeight:"600",
+            <p style={{ fontFamily:"var(--font-sans)", fontSize:"18px", fontWeight:"600",
               color:"var(--color-accent)", letterSpacing:"3px", marginTop:"2px" }}>
               {room.join_code}
             </p>
@@ -3669,7 +3669,7 @@ function MemberCard({ member, isMe, isSpeaking = false, handRaised = false }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const styles: Record<string, React.CSSProperties> = {
   sectionLabel:   { fontSize:"11px", color:"var(--text-dim)", letterSpacing:"2px", textTransform:"uppercase", marginBottom:"6px" },
-  pageTitle:      { fontSize:"26px", fontWeight:"600", color:"var(--text-primary)", letterSpacing:"-0.3px", fontFamily:"'Fraunces', serif" },
+  pageTitle:      { fontSize:"26px", fontWeight:"600", color:"var(--text-primary)", letterSpacing:"-0.3px", fontFamily:"var(--font-sans)" },
   card:           { background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"var(--radius-card)", boxShadow:"var(--depth-line)", padding:"16px 18px", display:"flex", alignItems:"center", gap:"14px" },
   emptyState:     { background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"var(--radius-card)", padding:"32px 24px", textAlign:"center" },
   input:          { display:"block", width:"100%", background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"10px", padding:"11px 14px", color:"var(--text-primary)", fontSize:"14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box", marginTop:"6px", marginBottom:"14px", transition:"border-color 0.15s" },
