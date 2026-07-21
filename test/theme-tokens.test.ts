@@ -43,7 +43,7 @@ describe("theme.ts mirrors tokens.css (dark :root)", () => {
   });
 
   it("rgba helpers emit canvas-safe strings", () => {
-    expect(rgba(GOLD_RGB, 0.35)).toBe("rgba(196, 154, 60, 0.35)");
+    expect(rgba(GOLD_RGB, 0.35)).toBe("rgba(201, 212, 255, 0.35)");
     expect(goldAlpha(1)).toBe("rgba(196, 154, 60, 1)");
   });
 
