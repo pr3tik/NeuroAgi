@@ -939,7 +939,10 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
   const messagesEndRef          = useRef(null);
   const inputRef                = useRef(null);
   const attachInputRef          = useRef(null);
+  const photoInputRef           = useRef(null);
+  const cameraInputRef          = useRef(null);
   const [attachStatus, setAttachStatus] = useState<string | null>(null);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   // Mic dictation for the text input (tap to talk -> words land in the box, user edits
   // then sends). Separate from full voice mode; works in classic AND Reggie mode.
   const [dictState, setDictState] = useState<"idle" | "listening" | "processing">("idle");
@@ -3547,23 +3550,84 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                 {attachStatus && (
                   <div style={{ padding: "0 16px 6px", fontSize: "12px", color: "rgba(255,255,255,0.55)", flexShrink: 0 }}>{attachStatus}</div>
                 )}
-              <div style={{ display: "flex", gap: "10px", padding: "12px 14px 28px", borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0, alignItems: "flex-end" }}>
-                {/* Hidden file input + "+" attach button — ingests the file so the tutor can use it */}
+              <div style={{ display: "flex", gap: "10px", padding: "12px 14px 28px", borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0, alignItems: "flex-end", position: "relative" }}>
+                {/* Hidden file inputs — all three feed handleAttachFile (extract → RAG ingest).
+                    Separate elements because accept/capture must differ per source. */}
                 <input
                   ref={attachInputRef} type="file" style={{ display: "none" }}
                   accept=".pdf,.txt,.md,.docx,.pptx,.png,.jpg,.jpeg,.webp"
                   onChange={e => { const f = e.target.files?.[0]; e.currentTarget.value = ""; handleAttachFile(f); }}
                 />
+                <input
+                  ref={photoInputRef} type="file" style={{ display: "none" }}
+                  accept="image/*"
+                  onChange={e => { const f = e.target.files?.[0]; e.currentTarget.value = ""; handleAttachFile(f); }}
+                />
+                <input
+                  ref={cameraInputRef} type="file" style={{ display: "none" }}
+                  accept="image/*" capture="environment"
+                  onChange={e => { const f = e.target.files?.[0]; e.currentTarget.value = ""; handleAttachFile(f); }}
+                />
+
+                {/* "+" — opens the attach sheet (Claude-app style) instead of jumping
+                    straight into a file picker. */}
+                {attachMenuOpen && (
+                  <>
+                    {/* click-away backdrop */}
+                    <div onClick={() => setAttachMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 20 }} />
+                    <div style={{
+                      position: "absolute", left: 10, bottom: "calc(100% + 8px)", zIndex: 21,
+                      minWidth: 230, padding: "6px",
+                      background: "rgba(22,22,26,0.98)", border: "1px solid rgba(255,255,255,0.12)",
+                      borderRadius: "16px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)",
+                      backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                      animation: "nrAttachIn 0.16s var(--ease-apple) both",
+                    }}>
+                      <style>{`@keyframes nrAttachIn{from{opacity:0;transform:translateY(6px) scale(0.98)}to{opacity:1;transform:none}}`}</style>
+                      {[
+                        { label: "Camera",            icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>, act: () => { setAttachMenuOpen(false); cameraInputRef.current?.click(); } },
+                        { label: "Add photos",        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" /></svg>, act: () => { setAttachMenuOpen(false); photoInputRef.current?.click(); } },
+                        { label: "Add files",         icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M13 2v7h7" /></svg>, act: () => { setAttachMenuOpen(false); attachInputRef.current?.click(); } },
+                        { label: "Study materials",   icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="13" height="12" rx="2" /><path d="M8 4h11a2 2 0 0 1 2 2v9" /></svg>, hint: "big files", act: () => { setAttachMenuOpen(false); setPendingNav({ page: "files" }); setChatOpen(false); } },
+                      ].map(row => (
+                        <button
+                          key={row.label}
+                          onClick={row.act}
+                          style={{
+                            display: "flex", alignItems: "center", gap: "11px", width: "100%",
+                            background: "transparent", border: "none", borderRadius: "11px",
+                            padding: "11px 12px", cursor: "pointer", fontFamily: "inherit",
+                            color: "rgba(255,255,255,0.82)", fontSize: "13.5px", fontWeight: 500,
+                            textAlign: "left", outline: "none",
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.07)"}
+                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                        >
+                          <span style={{ display: "flex", color: "rgba(255,255,255,0.55)" }}>{row.icon}</span>
+                          <span style={{ flex: 1 }}>{row.label}</span>
+                          {row.hint && <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.32)" }}>{row.hint}</span>}
+                        </button>
+                      ))}
+                      <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "4px 10px" }} />
+                      <p style={{ margin: 0, padding: "8px 12px 6px", fontSize: "11px", color: "rgba(255,255,255,0.35)" }}>
+                        Files are indexed so Reggie can answer about them.
+                      </p>
+                    </div>
+                  </>
+                )}
                 <button
-                  onClick={() => attachInputRef.current?.click()}
-                  title="Attach a file"
+                  onClick={() => setAttachMenuOpen(o => !o)}
+                  title="Add to chat"
+                  aria-label="Add to chat"
+                  aria-expanded={attachMenuOpen}
                   style={{
                     background: "none", border: "none", padding: "6px 4px",
-                    cursor: "pointer", flexShrink: 0, color: "rgba(255,255,255,0.4)",
-                    fontSize: "24px", lineHeight: 1, outline: "none", transition: "color 0.15s",
+                    cursor: "pointer", flexShrink: 0, color: attachMenuOpen ? "var(--gold)" : "rgba(255,255,255,0.4)",
+                    fontSize: "24px", lineHeight: 1, outline: "none", transition: "color 0.15s, transform 0.18s var(--ease-apple)",
+                    transform: attachMenuOpen ? "rotate(45deg)" : "none",
                   }}
                   onMouseEnter={e => e.currentTarget.style.color = "var(--gold)"}
-                  onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.4)"}
+                  onMouseLeave={e => { if (!attachMenuOpen) e.currentTarget.style.color = "rgba(255,255,255,0.4)"; }}
                 ><Plus size={20} strokeWidth={2.2} /></button>
                 {/* Subtle waveform glyph — enters voice mode */}
                 <button
