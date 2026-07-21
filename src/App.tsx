@@ -917,10 +917,10 @@ export default function App() {
 
   const PageComponent = PAGES[currentPage];
 
-  // page-wide: only INSIDE a room (activeRoomId set by RoomView on enter, cleared on
+  // page-locked: INSIDE a room (activeRoomId set by RoomView on enter, cleared on
   // leave) — the room list keeps the readable 1240px cap like every other page.
   return (
-    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${navHover ? " nav-hover" : ""}${currentPage === "rooms" && activeRoomId ? " page-wide" : ""}${currentPage === "studyAssistant" ? " page-locked" : ""}`}>
+    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${navHover ? " nav-hover" : ""}${currentPage === "rooms" && activeRoomId || currentPage === "studyAssistant" ? " page-locked" : ""}`}>
       {overlays}
       <TokenToast />
 
