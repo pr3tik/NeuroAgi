@@ -115,7 +115,8 @@ export async function generatePlanCore({ userId, courseId, examDate, topics, syl
   sbUrl?: string; sbKey?: string;
 }): Promise<{ planId: string; sessions: any[] } | { error: string; status?: number }> {
   const sys = "You are a study planner. Given an exam date, topics, and a daily study budget, produce a dated spaced-study plan. Respond with STRICT JSON only, no prose.";
-  const prompt = `Exam date: ${examDate}
+  const prompt = `Today's date: ${new Date().toISOString().slice(0, 10)}
+Exam date: ${examDate}
 Daily study budget: ${dailyMinutes ?? 60} minutes
 Topics: ${(topics ?? []).join(", ") || "(derive from the scope text below)"}
 ${syllabusText ? `Scope/syllabus:\n${String(syllabusText).slice(0, 6000)}` : ""}
