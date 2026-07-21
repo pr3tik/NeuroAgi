@@ -26,6 +26,20 @@ parallel system) and need Ryan's explicit go.
 | `brain-sync.ts` legacy block | `fschool_courses/_assignments` | kernel `canvas_sync` signal (the bridge) |
 | `tutor-context.ts` legacy read | reads `brain.context_window` (fallback) | kernel recall (primary, already wired) |
 
+## ⚠️ The legacy system is LOAD-BEARING (retirement ≠ a flip)
+Correction after checking consumers: `brain.context_window` is read by LIVE features, so you can't
+just stop writing it — those consumers must move onto the kernel FIRST, or they break:
+| Live consumer | Reads | Kernel migration needed before retiring legacy |
+|---|---|---|
+| `brain-intervention.ts` (*/30 cron, proactive nudges) | `context_window` | re-point onto kernel focuses + the E2 policy gate |
+| `brain-scheduler-fast.ts` (*/5, real-time stress) | `context_window` | derive stress from kernel signals |
+| `tutor-context.ts` (fallback) | `context_window` | already kernel-primary — just drop the fallback read |
+| `brain-scheduler.ts` (hourly synth) | `brain.signals`, `fschool_*` → writes `context_window` | obsolete once the above move |
+
+So retirement is a real **consumer-migration project** (move intervention + fast-scheduler onto the
+kernel), NOT a same-day cleanup — and attempting it now would break proactive interventions + stress
+tracking during demo week. Sequencing: migrate consumers → bake → stop writers → DROP.
+
 ## ⚠️ Identity ambiguity to resolve FIRST
 `users.brain_person_id` is written by BOTH `resolveFschoolPerson` (the **kernel** neuro_person id) and
 consumed by `brain-sync`/`session-close` as the **legacy** `fschool_*`/`brain.signals` person id. The
