@@ -704,9 +704,9 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
           .hero-fade { opacity:1!important; animation:none!important; transform:none!important; }
         }
         @media(max-width:767px){
-          .hero-section{min-height:100svh!important;height:100svh!important;justify-content:flex-start!important;padding-bottom:28px!important;}
-          .hero-copy{flex-shrink:0!important;padding-top:72px!important;padding-bottom:12px!important;z-index:30!important;}
-          .hero-countdown-mobile{display:block!important;flex:1 1 auto!important;min-height:200px!important;max-height:46svh!important;}
+          .hero-section{min-height:100svh!important;height:100svh!important;justify-content:flex-start!important;padding-bottom:36px!important;overflow:visible!important;}
+          .hero-copy{flex-shrink:0!important;padding-top:64px!important;padding-bottom:8px!important;z-index:30!important;}
+          .hero-countdown-mobile{display:block!important;flex:1 1 auto!important;min-height:280px!important;max-height:none!important;overflow:visible!important;}
           .hero-countdown-desktop{display:none!important;}
         }
         @media(min-width:768px){
@@ -740,8 +740,8 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
           <p className="hero-fade" style={{ fontSize:13, color:t.textFaint, marginTop:10, marginBottom:4, opacity:0, animation:"heroFadeIn 1s ease 3.1s both", position:"relative", zIndex:2 }}>Free · takes under a minute</p>
         </div>
 
-        {/* Cards animation — mobile only, fills remaining space below text */}
-        <div className="hero-countdown-mobile" style={{ display:"none", position:"relative", zIndex:10, width:"100%", flex:1, minHeight:0, overflow:"hidden" }}>
+        {/* Cards animation — mobile only; taller slot, overflow visible so fan tops aren't clipped */}
+        <div className="hero-countdown-mobile" style={{ display:"none", position:"relative", zIndex:10, width:"100%", flex:1, minHeight:0, overflow:"visible" }}>
           <CardHeroAnimation dark={dark} />
         </div>
 

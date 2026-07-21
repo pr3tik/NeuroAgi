@@ -18,17 +18,17 @@ const DESKTOP_CARDS = [
   { id:"white",  stack:{ x:612, y:304, r:0   }, fan:{ x:663, y:180, r:0   } },
 ];
 
-// Mobile canvas: 440×400 — larger cards for phone hero presence
+// Mobile canvas: taller + cards shifted down so the fan never clips the top edge
 const MOBILE_W = 440;
-const MOBILE_H = 400;
+const MOBILE_H = 480;
 const MOBILE_CARD_W = 172;
 const MOBILE_CARD_H = 262;
 const MOBILE_CARDS = [
-  { id:"pink",   stack:{ x:180, y:210, r:-9  }, fan:{ x:58,  y:128, r:-84 } },
-  { id:"blue",   stack:{ x:192, y:212, r:-7  }, fan:{ x:88,  y:84,  r:-64 } },
-  { id:"green",  stack:{ x:200, y:216, r:-5  }, fan:{ x:134, y:46,  r:-44 } },
-  { id:"violet", stack:{ x:208, y:218, r:-3  }, fan:{ x:190, y:22,  r:-22 } },
-  { id:"white",  stack:{ x:216, y:222, r:0   }, fan:{ x:248, y:14,  r:0   } },
+  { id:"pink",   stack:{ x:180, y:248, r:-9  }, fan:{ x:58,  y:176, r:-84 } },
+  { id:"blue",   stack:{ x:192, y:250, r:-7  }, fan:{ x:88,  y:132, r:-64 } },
+  { id:"green",  stack:{ x:200, y:254, r:-5  }, fan:{ x:134, y:94,  r:-44 } },
+  { id:"violet", stack:{ x:208, y:256, r:-3  }, fan:{ x:190, y:70,  r:-22 } },
+  { id:"white",  stack:{ x:216, y:260, r:0   }, fan:{ x:248, y:62,  r:0   } },
 ];
 
 const CARD_SHADOW = "inset 1px 1px 2px 2px rgba(0,0,0,0.25)";
@@ -50,8 +50,8 @@ export default function CardHeroAnimation({ dark = false, scale = 0.38 }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
   const desktopScale = Math.min(vp.w / 1440, vp.h / 960) * scale;
-  // Bigger on phones: fill most of the width, up to ~58% of viewport height
-  const mobileScale = Math.min(vp.w / 300, (vp.h * 0.58) / MOBILE_H);
+  // Fill most of the width; height budget matches the expanded mobile hero slot
+  const mobileScale = Math.min(vp.w / 300, (vp.h * 0.62) / MOBILE_H);
 
   return (
     <div ref={containerRef} style={{ position:"absolute", inset:0 }}>
@@ -80,14 +80,17 @@ export default function CardHeroAnimation({ dark = false, scale = 0.38 }) {
         ))}
       </div>
 
-      {/* ── MOBILE canvas (hidden on desktop) ── */}
+      {/* ── MOBILE canvas (hidden on desktop) ──
+          Anchored toward the bottom so the fan opens upward into the taller slot
+          instead of getting clipped at the top of the overflow box. */}
       <div style={{
         position:"absolute",
         width:MOBILE_W, height:MOBILE_H,
-        top:"50%", left:"50%",
-        marginLeft:-MOBILE_W / 2, marginTop:-MOBILE_H / 2,
+        left:"50%",
+        bottom:"2%",
+        marginLeft:-MOBILE_W / 2,
         transform:`scale(${mobileScale})`,
-        transformOrigin:"center center",
+        transformOrigin:"center bottom",
         filter:"drop-shadow(-20px 40px 30px rgba(0,0,0,0.35))",
         display:"var(--mobile-show, none)",
       }} className="anim-mobile">
