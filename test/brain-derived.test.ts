@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { InMemoryStore, remember } from "../api/_brain/kernel.ts";
-import { verifySkills, brainHealth, exportBrain } from "../api/_brain/derived.ts";
+import { verifySkills, brainHealth, exportBrain, synthesizeContext } from "../api/_brain/derived.ts";
 
 describe("derived layers: skill-verification + brain-health", () => {
   it("verifySkills marks a skill verified at >=3 demonstrations and >=0.7 success", async () => {
@@ -30,5 +30,29 @@ describe("derived layers: skill-verification + brain-health", () => {
     await remember(s, { subject: "person:a", kind: "signal", body: {} });
     await remember(s, { subject: "person:b", kind: "signal", body: {} });
     expect((await exportBrain(s, "person:a")).length).toBe(1);
+  });
+});
+
+describe("synthesizeContext (kernel context synthesis)", () => {
+  it("derives stress from stressed/confused-tone density + dominant tone", async () => {
+    const s = new InMemoryStore();
+    for (let i = 0; i < 3; i++) await remember(s, { subject: "person:a", kind: "signal", body: { emotional_tone: "stressed" } });
+    const ctx = await synthesizeContext(s, "person:a");
+    expect(ctx.stressLevel).toBe(6); // 3 stressed × 2
+    expect(ctx.tone).toBe("stressed");
+  });
+  it("surfaces the top focus and the living-mind digest summary", async () => {
+    const s = new InMemoryStore();
+    await remember(s, { subject: "person:a", kind: "focus", salience: 0.9, body: { text: "stressed about midterms" } });
+    await remember(s, { subject: "person:a", kind: "digest", body: { summary: "Strong in calculus" } });
+    const ctx = await synthesizeContext(s, "person:a");
+    expect(ctx.focus).toBe("stressed about midterms");
+    expect(ctx.recentSummary).toBe("Strong in calculus");
+  });
+  it("empty brain → zero stress, steady momentum", async () => {
+    const s = new InMemoryStore();
+    const ctx = await synthesizeContext(s, "person:a");
+    expect(ctx.stressLevel).toBe(0);
+    expect(ctx.momentum).toBe("steady");
   });
 });
