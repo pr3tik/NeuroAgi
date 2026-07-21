@@ -799,7 +799,7 @@ export default function Files() {
   return (
     <div>
       <h1 style={{ fontSize:26, fontWeight:600, color:"var(--text-primary)",
-        marginBottom:4, letterSpacing:"-0.3px", fontFamily:"'Fraunces',serif" }}>
+        marginBottom:4, letterSpacing:"-0.3px", fontFamily:"var(--font-sans)" }}>
         Files
       </h1>
       <p style={{ color:"var(--text-dim)", fontSize:14, marginBottom:24 }}>

@@ -274,7 +274,7 @@ export default function Work() {
 
   useEffect(() => {
     const link = document.createElement("link");
-    link.href = "https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300;400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,300;1,9..144,400&family=DM+Sans:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap";
+    link.href = "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap";
     link.rel = "stylesheet";
     document.head.appendChild(link);
 
@@ -425,7 +425,7 @@ export default function Work() {
         }}>
           <p
             style={{
-              fontFamily: "'Funnel Display', sans-serif",
+              fontFamily: "var(--font-sans)",
               fontWeight: 300,
               fontSize: isMobile ? "clamp(32px, 8vw, 48px)" : "72px",
               lineHeight: 1,
@@ -434,16 +434,16 @@ export default function Work() {
               margin: 0,
             }}
           >
-            <span style={{ fontFamily: "'Funnel Display', sans-serif", fontWeight: 300, color: "#E3E2E2" }}>
+            <span style={{ fontFamily: "var(--font-sans)", fontWeight: 300, color: "#E3E2E2" }}>
               {greetingWord},{" "}
             </span>
             {name && (
-              <span style={{ fontFamily: "'Fraunces', serif", fontStyle: "italic", fontWeight: 300, color: "var(--text-tertiary)" }}>
+              <span style={{ fontFamily: "var(--font-sans)", fontStyle: "italic", fontWeight: 300, color: "var(--text-tertiary)" }}>
                 {name}.
               </span>
             )}
             {!name && (
-              <span style={{ fontFamily: "'Funnel Display', sans-serif", fontWeight: 300, color: "#E3E2E2" }}>.</span>
+              <span style={{ fontFamily: "var(--font-sans)", fontWeight: 300, color: "#E3E2E2" }}>.</span>
             )}
           </p>
           <p style={{
@@ -679,7 +679,7 @@ export default function Work() {
 
                   {/* Title */}
                   <p style={{
-                    fontFamily: isMobile ? "var(--font-sans)" : "'Space Grotesk', sans-serif",
+                    fontFamily: isMobile ? "var(--font-sans)" : "var(--font-sans)",
                     fontWeight: isMobile ? 600 : 400,
                     fontSize: isMobile ? "18px" : "42px",
                     lineHeight: isMobile ? "22px" : "52px",

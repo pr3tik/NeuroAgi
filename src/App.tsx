@@ -160,6 +160,19 @@ const SHELL_STYLES = `
       margin-left: 232px;
     }
   }
+  /* Immersive pages (inside a study room): the room OWNS the screen — no app
+     header, no nav rail, edge-to-edge like the reference mockup. Leave/Close in
+     the room's own bar are the exit paths. */
+  .nav-tabs.page-immersive .app-header { display: none; }
+  .nav-tabs.page-immersive aside,
+  .nav-tabs.page-immersive > nav { display: none !important; }
+  @media (min-width: 768px) {
+    .nav-tabs.page-immersive .app-page-transition {
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+    }
+    .nav-tabs.page-immersive .app-main { padding: 14px 18px 18px; }
+  }
   /* ── Light mode (periwinkle glass) ────────────────────────────────────────
      The ground gets the mobile AmbientBackground treatment: centre lift + a deep
      indigo pool in the far corner. The nav rail/bar are the only opaque-dark
@@ -945,7 +958,7 @@ export default function App() {
   // page-locked: INSIDE a room (activeRoomId set by RoomView on enter, cleared on
   // leave) — the room list keeps the readable 1240px cap like every other page.
   return (
-    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${navHover ? " nav-hover" : ""}${currentPage === "rooms" && activeRoomId || currentPage === "studyAssistant" ? " page-locked" : ""}`}>
+    <div className={`app-shell nav-tabs${navCollapsed ? " nav-collapsed" : ""}${navHover ? " nav-hover" : ""}${currentPage === "rooms" && activeRoomId || currentPage === "studyAssistant" ? " page-locked" : ""}${currentPage === "rooms" && activeRoomId ? " page-immersive" : ""}`}>
       {overlays}
       <TokenToast />
 

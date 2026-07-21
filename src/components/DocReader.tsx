@@ -303,7 +303,7 @@ export default function DocReader({ file, onBack, onNavigate }: Props) {
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{
-            fontFamily: "'Fraunces', serif",
+            fontFamily: "var(--font-sans)",
             fontSize: "19px", fontWeight: "600",
             color: "var(--text-primary)",
             letterSpacing: "-0.2px", lineHeight: "1.3",

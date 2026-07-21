@@ -156,7 +156,7 @@ function ConnectCanvas({
       {/* ── Not-connected state (the only state that renders — see early return) ── */}
       <>
           <p style={{
-            fontFamily: "'Funnel Display', sans-serif", fontWeight: 400,
+            fontFamily: "var(--font-sans)", fontWeight: 400,
             fontSize: "32px", lineHeight: "40px", letterSpacing: "-0.32px",
             color: "#E3E2E2", margin: "0 0 16px",
           }}>
@@ -237,7 +237,7 @@ function ConnectCanvas({
               style={{
                 padding: "13px 32px", borderRadius: "12px",
                 background: "#C8C5CB", color: "#121414",
-                fontFamily: "'Space Grotesk', sans-serif", fontSize: "16px",
+                fontFamily: "var(--font-sans)", fontSize: "16px",
                 border: "none", display: "flex", alignItems: "center", gap: "12px",
                 cursor: !url.trim() || !token.trim() || saving ? "not-allowed" : "pointer",
                 opacity: !url.trim() || !token.trim() || saving ? 0.5 : 1,
@@ -256,7 +256,7 @@ function ConnectCanvas({
               style={{
                 padding: "13px 32px", borderRadius: "12px",
                 background: "transparent", border: "1px solid rgba(255,255,255,0.1)",
-                color: "#E3E2E2", fontFamily: "'Space Grotesk', sans-serif", fontSize: "16px",
+                color: "#E3E2E2", fontFamily: "var(--font-sans)", fontSize: "16px",
                 display: "flex", alignItems: "center", gap: "12px", cursor: "pointer",
               }}
             >
@@ -641,7 +641,7 @@ export default function Canvas() {
   // Inject fonts
   useEffect(() => {
     const link = document.createElement("link");
-    link.href = "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Funnel+Display:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap";
+    link.href = "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap";
     link.rel = "stylesheet";
     document.head.appendChild(link);
     return () => { document.head.removeChild(link); };
@@ -738,7 +738,7 @@ export default function Canvas() {
       {/* Page header */}
       <div style={{ textAlign: "center", marginBottom: "64px" }}>
         <h1 style={{
-          fontFamily: "'Funnel Display', sans-serif", fontWeight: 300,
+          fontFamily: "var(--font-sans)", fontWeight: 300,
           fontSize: "48px", lineHeight: "56px", letterSpacing: "-1.2px",
           color: "#E3E2E2", textAlign: "center", margin: "0 0 16px",
         }}>

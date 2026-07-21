@@ -91,8 +91,8 @@ html.warm-ink {
   --text-dim:        rgba(236, 232, 225, 0.42);
   --text-tertiary:   rgba(236, 232, 225, 0.28);
   --color-border:    rgba(255, 255, 255, 0.11);
-  --color-accent:    rgb(90, 165, 116);
-  --teal-rgb:        90, 165, 116;   /* sage — re-skins every accent usage */
+  --color-accent:    rgb(122, 140, 245);
+  --teal-rgb:        122, 140, 245;  /* periwinkle — re-skins every accent usage */
 }
 html.warm-ink body {
   background-image:

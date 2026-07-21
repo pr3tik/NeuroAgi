@@ -675,7 +675,7 @@ function InlineQuiz({ cards, userId, courseId }) {
         {!flipped ? (
           <>
             <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>Question</p>
-            <p style={{ color: "var(--text-primary)", fontSize: "14px", lineHeight: "1.6", fontFamily: "'Fraunces',Georgia,serif" }}>{card.q}</p>
+            <p style={{ color: "var(--text-primary)", fontSize: "14px", lineHeight: "1.6", fontFamily: "var(--font-sans)" }}>{card.q}</p>
           </>
         ) : (
           <>
@@ -3436,7 +3436,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
                     pointerEvents: "none",
                   }}>
-                    <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "10px", fontVariant: "small-caps", letterSpacing: "0.14em", color: "rgba(var(--gold-rgb),0.65)" }}>
+                    <span style={{ fontFamily: "var(--font-sans)", fontSize: "10px", fontVariant: "small-caps", letterSpacing: "0.14em", color: "rgba(var(--gold-rgb),0.65)" }}>
                       question {voiceQuizProgress.current} / {voiceQuizProgress.total}
                     </span>
                     <div style={{ display: "flex", gap: "5px" }}>
@@ -3491,7 +3491,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
 
                 {/* Tiny small-caps Fraunces caption — crossfades, orb carries the state */}
                 <p style={{
-                  fontFamily: "'Fraunces',Georgia,serif",
+                  fontFamily: "var(--font-sans)",
                   fontSize: "11px", fontWeight: "300",
                   fontVariant: "small-caps",
                   letterSpacing: "0.14em",
