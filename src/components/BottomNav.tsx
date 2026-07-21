@@ -5,6 +5,8 @@
 // width must match the 254px content offset there = 232 + 22 gutter).
 
 import { useState, useEffect, useRef } from "react";
+import { useApp }  from "../context/AppContext";
+import { signOut } from "../api/auth";
 
 const ACCENT   = "rgba(var(--teal-rgb), 0.95)";
 const INACTIVE = "rgba(255,255,255,0.42)";
@@ -131,7 +133,18 @@ function BarItem({ pageKey, iconName, label, active, onClick }: any) {
 
 export default function BottomNav({ currentPage, onNavigate, collapsed = false, onToggleCollapse }) {
   const isWide = useIsWide();
+  // `|| {}` — tests render BottomNav without AppProvider (useApp() → null).
+  const { userData } = useApp() || ({} as any);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const profileName  = userData?.name || (typeof localStorage !== "undefined" && localStorage.getItem("fschool_name")) || "Student";
+  const profileEmail = userData?.email || "";
+  const handleSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    await signOut(); // clears the Supabase session + all fschool_* keys (never throws)
+    window.location.assign("/"); // full reload → boots logged-out onto Landing
+  };
   const [hover, setHover] = useState(false); // hover-expand: when pin-collapsed, revealing on hover
   // Close with a grace period: an instant collapse on mouseleave feels finicky — a
   // cursor that clips the edge (or overshoots toward the content) slams the rail shut.
@@ -239,6 +252,60 @@ export default function BottomNav({ currentPage, onNavigate, collapsed = false, 
             ))}
           </>
         )}
+
+        {/* ── Profile / sign out — pinned to the rail's bottom ─────────────── */}
+        <div style={{ marginTop: "auto", paddingTop: 8 }}>
+          <div style={{ height: 1, background: "var(--color-border)", margin: vis ? "0 10px 8px" : "0 12px 8px" }} />
+          <div style={{
+            display: "flex", alignItems: "center", gap: vis ? 0 : 10,
+            justifyContent: vis ? "center" : "flex-start",
+            padding: vis ? "6px 0" : "6px 8px",
+          }}>
+            <div
+              title={vis ? profileName : undefined}
+              style={{
+                width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "rgba(var(--teal-rgb), 0.16)",
+                border: "1px solid rgba(var(--teal-rgb), 0.3)",
+                color: ACCENT, fontSize: 13, fontWeight: 700, userSelect: "none",
+              }}
+            >
+              {profileName.trim().charAt(0).toUpperCase() || "S"}
+            </div>
+            {!vis && (
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p style={{ margin: 0, color: "var(--text-primary)", fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {profileName}
+                </p>
+                {profileEmail && (
+                  <p style={{ margin: 0, color: INACTIVE, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {profileEmail}
+                  </p>
+                )}
+              </div>
+            )}
+            {!vis && (
+              <button
+                onClick={handleSignOut}
+                disabled={signingOut}
+                title="Sign out"
+                aria-label="Sign out"
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 30, height: 30, flexShrink: 0, borderRadius: 8,
+                  background: "rgba(255,255,255,0.05)", border: "1px solid var(--color-border)",
+                  cursor: signingOut ? "default" : "pointer", outline: "none",
+                  opacity: signingOut ? 0.5 : 1,
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.65)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
       </aside>
     );
   }
