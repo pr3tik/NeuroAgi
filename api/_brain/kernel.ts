@@ -28,6 +28,7 @@ export type Memory = {
   forgotten_at: string | null;
   created_at: string;
   idem?: string | null;
+  embedding?: any;   // pgvector (write-only; excluded from normal recall payloads)
 };
 
 export type NewMemory = {
@@ -39,6 +40,7 @@ export type NewMemory = {
   source?: string | null;
   happened_at?: string;
   idem?: string;   // idempotency key: repeated remember() with same (subject, idem) updates in place
+  embedding?: number[];   // optional 1536-d vector for semantic recall (caller embeds; kernel stores)
 };
 
 export type Role = "reader" | "writer" | "owner";
@@ -53,6 +55,7 @@ export interface Store {
   forget(ids: string[], now: string): Promise<void>;  // soft-forget
   reinforce(id: string, now: string, boost?: number): Promise<void>;
   sweepDue(subjects: string[], now: string): Promise<string[]>;  // set-based decay sweep → forgotten ids
+  bySimilarity(subjects: string[], queryEmbedding: number[], limit: number): Promise<Memory[]>;  // cosine NN over embeddings
   // Sharing/membership: a shared "space" scope (course:/room:/prof:) has explicit members; a
   // personal 'person:<id>' scope needs none — its sole owner is the subject itself.
   addMember(space: string, subject: string, role: Role, now: string): Promise<void>;
@@ -146,8 +149,20 @@ export async function remember(store: Store, m: NewMemory, nowMs = Date.now()): 
     source: m.source ?? null,
     happened_at: m.happened_at,
     idem: m.idem,
+    embedding: m.embedding,
     now: new Date(nowMs).toISOString(),
   });
+}
+
+/**
+ * Semantic recall: the memories in `scopes` nearest (cosine) to a query embedding. The kernel is
+ * embed-free — the caller supplies the query vector (embedding lives in the RAG layer). Only rows
+ * that were stored WITH an embedding participate; complements (not replaces) decay-ranked recall().
+ */
+export async function semanticRecall(store: Store, scopes: string[], queryEmbedding: number[], opts: { limit?: number } = {}): Promise<Memory[]> {
+  scopes.forEach((s) => assertIdent(s, "subject"));
+  if (!scopes.length || !queryEmbedding?.length) return [];
+  return store.bySimilarity(scopes, queryEmbedding, opts.limit ?? 10);
 }
 
 export async function forget(store: Store, ids: string[], nowMs = Date.now()): Promise<void> {
@@ -227,6 +242,7 @@ export class InMemoryStore implements Store {
       forgotten_at: null,
       created_at: r.now,
       idem: r.idem ?? null,
+      embedding: r.embedding ?? null,
     };
     this.rows.push(m);
     return { ...m };
@@ -258,6 +274,20 @@ export class InMemoryStore implements Store {
     }
     return dead;
   }
+  async bySimilarity(subjects: string[], queryEmbedding: number[], limit: number): Promise<Memory[]> {
+    const s = new Set(subjects);
+    const cos = (a: number[], b: number[]) => {
+      let d = 0, na = 0, nb = 0;
+      for (let i = 0; i < Math.min(a.length, b.length); i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+      return d / ((Math.sqrt(na) * Math.sqrt(nb)) || 1);
+    };
+    return this.rows
+      .filter((m) => !m.forgotten_at && s.has(m.subject) && Array.isArray(m.embedding))
+      .map((m) => ({ m, sim: cos(m.embedding as number[], queryEmbedding) }))
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, limit)
+      .map((x) => ({ ...x.m }));
+  }
   async addMember(space: string, subject: string, role: Role): Promise<void> {
     const ex = this.members.find((x) => x.space === space && x.subject === subject);
     if (ex) ex.role = role; else this.members.push({ space, subject, role });
@@ -282,6 +312,9 @@ export function postgrestStore(url: string, key: string): Store {
   const base = `${url.replace(/\/+$/, "")}/rest/v1/neuro_memory`;
   const memberBase = `${url.replace(/\/+$/, "")}/rest/v1/neuro_membership`;
   const rpcBase = `${url.replace(/\/+$/, "")}/rest/v1/rpc`;
+  // Recall payload columns — deliberately EXCLUDES `embedding` (a 1536-d vector) so normal recall
+  // doesn't drag megabytes; semantic recall goes through the RPC instead.
+  const COLS = "id,subject,kind,body,salience,audience,source,happened_at,last_seen_at,forgotten_at,created_at,idem";
   const headers = (extra?: Record<string, string>) => ({
     apikey: key,
     Authorization: `Bearer ${key}`,
@@ -323,6 +356,7 @@ export function postgrestStore(url: string, key: string): Store {
           last_seen_at: r.now,
           created_at: r.now,
           idem,
+          embedding: r.embedding ? `[${r.embedding.join(",")}]` : null,
         }),
       });
       if (!res.ok) throw new Error(`neuro insert ${res.status}: ${await res.text().catch(() => "")}`);
@@ -336,9 +370,9 @@ export function postgrestStore(url: string, key: string): Store {
       if (includeAudience) {
         // subject ∈ scopes  OR  audience overlaps {scopes, '*'} (directed shares + public).
         const arr = encodeURIComponent("{" + [...subjects.map((s) => assertIdent(s, "subject")), "*"].map((v) => `"${v}"`).join(",") + "}");
-        q = `${base}?forgotten_at=is.null&or=(subject.in.(${inList(subjects)}),audience.ov.${arr})&select=*&limit=${lim}`;
+        q = `${base}?forgotten_at=is.null&or=(subject.in.(${inList(subjects)}),audience.ov.${arr})&select=${COLS}&limit=${lim}`;
       } else {
-        q = `${base}?forgotten_at=is.null&subject=in.(${inList(subjects)})&select=*&limit=${lim}`;
+        q = `${base}?forgotten_at=is.null&subject=in.(${inList(subjects)})&select=${COLS}&limit=${lim}`;
       }
       if (kinds && kinds.length) q += `&kind=in.(${inList(kinds)})`;
       const res = await fetch(q, { headers: headers() });
@@ -368,6 +402,15 @@ export function postgrestStore(url: string, key: string): Store {
       if (!res.ok) throw new Error(`neuro sweepDue ${res.status}: ${await res.text().catch(() => "")}`);
       const rows = await res.json();
       return (Array.isArray(rows) ? rows : []).map((r: any) => (typeof r === "string" ? r : r?.id ?? r?.neuro_sweep_due)).filter(Boolean);
+    },
+    async bySimilarity(subjects, queryEmbedding, limit) {
+      if (!subjects.length || !queryEmbedding?.length) return [];
+      const res = await fetch(`${rpcBase}/neuro_semantic_recall`, {
+        method: "POST", headers: headers(),
+        body: JSON.stringify({ p_subjects: subjects, p_query: `[${queryEmbedding.join(",")}]`, p_limit: limit }),
+      });
+      if (!res.ok) throw new Error(`neuro semantic ${res.status}: ${await res.text().catch(() => "")}`);
+      return await res.json();
     },
     async addMember(space, subject, role, now) {
       const res = await fetch(memberBase, {
