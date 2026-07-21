@@ -43,7 +43,7 @@ const FONT = '-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","H
 //   true  (on)  → "Join the waitlist"  — opens the waitlist modal   (default)
 //   false (off) → "Claim your card"    — routes to the /card funnel
 // Flip this one line to switch every hero / nav / banner / footer CTA at once.
-const WAITLIST_MODE: boolean = true;
+const WAITLIST_MODE: boolean = false;
 const PRIMARY_CTA_LABEL = WAITLIST_MODE ? "Join the waitlist" : "Claim your card";
 
 // ── Hooks ──────────────────────────────────────────────────────────────────────
