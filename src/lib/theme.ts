@@ -6,20 +6,20 @@
 // there, change it here too. Plain CSS/JSX styles should keep using
 // var(--gold) / rgba(var(--gold-rgb), α) from tokens.css instead of this file.
 
-export const GOLD = "#C49A3C";
-export const GOLD_RGB = { r: 196, g: 154, b: 60 } as const;
+export const GOLD = "#C9D4FF";
+export const GOLD_RGB = { r: 201, g: 212, b: 255 } as const;
 
-export const GOLD_BRIGHT_RGB = { r: 255, g: 215, b: 80 } as const;
+export const GOLD_BRIGHT_RGB = { r: 230, g: 236, b: 255 } as const;
 
-export const CREAM = "#F6F2E9";
-export const CREAM_RGB = { r: 246, g: 242, b: 233 } as const;
+export const CREAM = "#F0F3FF";
+export const CREAM_RGB = { r: 240, g: 243, b: 255 } as const;
 
-export const TEAL_RGB = { r: 0, g: 210, b: 190 } as const;
+export const TEAL_RGB = { r: 122, g: 140, b: 245 } as const;
 
 export const AMBER_RGB = { r: 255, g: 190, b: 0 } as const;
 
 /** Warm near-black used by legacy brand surfaces (NeuralRing prompt, ShareCard). */
-export const INK_WARM = "#1a1814";
+export const INK_WARM = "#1A1D33";
 
 /** rgba() string for a token triplet at the given alpha — canvas-safe. */
 export const rgba = (c: { r: number; g: number; b: number }, a: number) =>
