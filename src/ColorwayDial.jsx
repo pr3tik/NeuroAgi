@@ -99,11 +99,11 @@ function lerpPose(a, b, t) {
   };
 }
 
-function sunrisePose(slot, { isHovered = false, vis = 1 } = {}) {
+function sunrisePose(slot, { isHovered = false, vis = 1, spacing = SPACING } = {}) {
   const abs = Math.abs(slot);
   const centerBlend = Math.max(0, 1 - abs / 0.65);
 
-  const x = slot * SPACING;
+  const x = slot * spacing;
   const rotate = slot * TILT_STEP;
   const y = Math.pow(abs, 1.3) * ARC_DROP - centerBlend * CENTER_LIFT;
   let scale = 0.84 + centerBlend * 0.26;
@@ -196,7 +196,8 @@ export default function ColorwayDial({
   const [spinProgress, setSpinProgress] = useState(0);
   const [spinFrom, setSpinFrom] = useState(null);
   const [spinEnd, setSpinEnd] = useState(null);
-  const [dialScale, setDialScale] = useState(1);
+  // Mobile: larger cards + tighter arc so the fan doesn't shrink to a postage stamp
+  const [layout, setLayout] = useState({ spacing: SPACING, width: cardWidth, scale: 1 });
   const [, bump] = useState(0);
   const forceRender = useCallback(() => bump(n => n + 1), []);
 
@@ -205,12 +206,24 @@ export default function ColorwayDial({
   useEffect(() => {
     const update = () => {
       const w = window.innerWidth;
-      setDialScale(w < 640 ? Math.min(1, (w - 32) / (SPACING * 4 + cardWidth)) : 1);
+      if (w >= 640) {
+        setLayout({ spacing: SPACING, width: cardWidth, scale: 1 });
+        return;
+      }
+      const width = Math.round(Math.min(180, Math.max(160, w * 0.46)));
+      const spacing = Math.round(Math.min(122, Math.max(98, (w - 20 - width) / 3.05)));
+      const canvasW = spacing * 4 + width;
+      const scale = Math.min(1.18, (w - 8) / canvasW);
+      setLayout({ spacing, width, scale });
     };
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, [cardWidth]);
+
+  const dialScale = layout.scale;
+  const activeCardWidth = layout.width;
+  const activeSpacing = layout.spacing;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -344,9 +357,10 @@ export default function ColorwayDial({
   }, [activeColor, runSpin]);
 
   function cardStyle(i) {
+    const spacing = activeSpacing;
     if (isSpinning && spinFrom && spinEnd) {
       const { slot, vis } = interpolateSlotWithTunnel(spinFrom[i], spinEnd[i], spinProgress);
-      const pose = sunrisePose(slot, { isHovered: false, vis });
+      const pose = sunrisePose(slot, { isHovered: false, vis, spacing });
       return {
         ...pose,
         pointerEvents: "none",
@@ -355,7 +369,7 @@ export default function ColorwayDial({
     }
 
     const slot = slots[i] ?? 0;
-    const spread = sunrisePose(slot, { isHovered: hovered === i && expandT > 0.85 });
+    const spread = sunrisePose(slot, { isHovered: hovered === i && expandT > 0.85, spacing });
 
     if (expandT < 0.995) {
       const stack = stackPose(i);
@@ -382,7 +396,7 @@ export default function ColorwayDial({
         ref={containerRef}
         style={{
           position: "relative",
-          minHeight: "clamp(420px, 55vw, 520px)",
+          minHeight: "clamp(380px, 72vw, 560px)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -394,9 +408,9 @@ export default function ColorwayDial({
       >
         <div style={{
           position: "relative",
-          width: SPACING * 4 + cardWidth,
+          width: activeSpacing * 4 + activeCardWidth,
           maxWidth: "100%",
-          height: cardWidth * 2.85,
+          height: activeCardWidth * 2.85,
           transform: `scale(${dialScale})`,
           transformOrigin: "center center",
           overflow: "visible",
@@ -421,8 +435,8 @@ export default function ColorwayDial({
                   position: "absolute",
                   left: "50%",
                   top: "62%",
-                  marginLeft: -cardWidth / 2,
-                  marginTop: -cardWidth * 1.15,
+                  marginLeft: -activeCardWidth / 2,
+                  marginTop: -activeCardWidth * 1.15,
                   transform: `translate3d(${s.x}px, ${s.y}px, 0) rotate(${s.rotate}deg) scale(${s.scale})`,
                   opacity: s.opacity,
                   zIndex: s.zIndex,
@@ -434,7 +448,7 @@ export default function ColorwayDial({
                   backfaceVisibility: "hidden",
                 }}
               >
-                <DialCardFace id={c.id} width={cardWidth} images={images} />
+                <DialCardFace id={c.id} width={activeCardWidth} images={images} />
               </div>
             );
           })}

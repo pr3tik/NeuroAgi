@@ -391,20 +391,6 @@ const EngravedCardPreview = ({
   );
 };
 
-// ── Countdown ─────────────────────────────────────────────────────────────────
-const useCountdown = (target) => {
-  const [time, setTime] = useState({ d: 0, h: 0, m: 0, s: 0 });
-  useEffect(() => {
-    const tick = () => {
-      const diff = new Date(target) - Date.now();
-      if (diff <= 0) return;
-      setTime({ d: Math.floor(diff/86400000), h: Math.floor((diff%86400000)/3600000), m: Math.floor((diff%3600000)/60000), s: Math.floor((diff%60000)/1000) });
-    };
-    tick(); const id = setInterval(tick, 1000); return () => clearInterval(id);
-  }, [target]);
-  return time;
-};
-
 // ── Scroll reveal (GSAP ScrollTrigger; Lenis-synced via useSmoothScroll) ──────
 const Reveal = ({ children, delay = 0, style = {} }) => {
   const ref = useRef(null);
@@ -537,9 +523,7 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
   const [honeypot, setHoneypot] = useState("");
   const nameInputRef = useRef(null);
   const { scrollTo: scrollToId } = useSmoothScroll();
-  const countdown = useCountdown("2026-06-30T23:59:59");
   const cw = COLORWAYS[activeColor];
-  const pad = n => String(n).padStart(2,"0");
 
   const nameOk = form.name.trim().length >= 2;
   const schoolOk = form.school.trim().length >= 2;
@@ -720,8 +704,9 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
           .hero-fade { opacity:1!important; animation:none!important; transform:none!important; }
         }
         @media(max-width:767px){
-          .hero-section{min-height:100svh!important;height:100svh!important;justify-content:space-between!important;padding-bottom:40px!important;}
-          .hero-countdown-mobile{display:block!important;}
+          .hero-section{min-height:100svh!important;height:100svh!important;justify-content:flex-start!important;padding-bottom:28px!important;}
+          .hero-copy{flex-shrink:0!important;padding-top:72px!important;padding-bottom:12px!important;z-index:30!important;}
+          .hero-countdown-mobile{display:block!important;flex:1 1 auto!important;min-height:200px!important;max-height:46svh!important;}
           .hero-countdown-desktop{display:none!important;}
         }
         @media(min-width:768px){
@@ -739,8 +724,8 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
           <CardHeroAnimation dark={dark} scale={0.64} />
         </div>
 
-        {/* Text */}
-        <div style={{ position:"relative", zIndex:20, textAlign:"center", padding:"80px 20px 0", width:"100%" }}>
+        {/* Text — flex-shrink:0 so mobile card animation can't crush the CTA copy */}
+        <div className="hero-copy" style={{ position:"relative", zIndex:20, textAlign:"center", padding:"80px 20px 0", width:"100%", flexShrink:0 }}>
           <p className="hero-fade" style={{ fontSize:12, fontWeight:600, letterSpacing:"0.2em", color:t.textFaint, marginBottom:16, textTransform:"uppercase", opacity:0, animation:"heroFadeIn 1s ease 2s both" }}>Founding Edition · Only 500</p>
           <h1 className="hero-fade" style={{ fontSize:"clamp(32px,5vw,64px)", fontWeight:700, lineHeight:1.05, margin:"0 0 16px", letterSpacing:"-0.02em", color:t.text, opacity:0, animation:"heroFadeIn 1s ease 2.3s both" }}>FschoolAI<br />Founding Card</h1>
           <p className="hero-fade" style={{ fontSize:17, color:t.textMuted, opacity:0, animation:"heroFadeIn 1s ease 2.6s both" }}>Free for founding members. Ships Q4 2026.</p>
@@ -752,11 +737,11 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
               Claim card
             </button>
           </div>
-          <p className="hero-fade" style={{ fontSize:13, color:t.textFaint, marginTop:10, opacity:0, animation:"heroFadeIn 1s ease 3.1s both" }}>Free · takes under a minute</p>
+          <p className="hero-fade" style={{ fontSize:13, color:t.textFaint, marginTop:10, marginBottom:4, opacity:0, animation:"heroFadeIn 1s ease 3.1s both", position:"relative", zIndex:2 }}>Free · takes under a minute</p>
         </div>
 
         {/* Cards animation — mobile only, fills remaining space below text */}
-        <div className="hero-countdown-mobile" style={{ display:"none", position:"relative", zIndex:20, width:"100%", flex:1, minHeight:0, overflow:"visible" }}>
+        <div className="hero-countdown-mobile" style={{ display:"none", position:"relative", zIndex:10, width:"100%", flex:1, minHeight:0, overflow:"hidden" }}>
           <CardHeroAnimation dark={dark} />
         </div>
 
@@ -923,7 +908,7 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
           <h2 style={{ fontSize:"clamp(38px,6vw,64px)", fontWeight:700, letterSpacing:"-0.02em", marginBottom:12 }}>Make it yours.</h2>
           <p style={{ color:t.textMuted, fontSize:17, marginBottom:12 }}>Laser-engraved on the back. Free. Delivers just as fast.</p>
           <p style={{ fontSize:13, fontWeight:600, letterSpacing:"0.08em", color:t.textFaint, textTransform:"uppercase", marginBottom:36 }}>
-            Applications close June 30 · {countdown.d}d {pad(countdown.h)}h {pad(countdown.m)}m left · only 500 cards
+            Only 500 cards · Ships Q4 2026
           </p>
         </Reveal>
 
@@ -1111,7 +1096,7 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
                         {delivery === "founder" ? "Titanium Black" : cw.name} Founding Card is ready to ship.
                       </p>
                       <p style={{ fontSize:13, color:t.formTextMuted, marginBottom:20 }}>
-                        Next: watch your inbox · ships Q4 2026 · applications close June 30
+                        Next: watch your inbox · ships Q4 2026
                       </p>
                       <div style={{ display:"flex", flexWrap:"wrap", gap:10, justifyContent:"center" }}>
                         <button
@@ -1149,27 +1134,65 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
       </>)}
 
       {!isClaim && (<>
-      {/* TITANIUM BLACK */}
-      <section style={{ padding:"120px 40px", background:dark?"#080808":"#e8e8e8", position:"relative", overflow:"hidden", transition:"background 0.3s ease" }}>
+      {/* TITANIUM BLACK — headline left, benefits right (fills the empty image column) */}
+      <section className="founder-section" style={{ padding:"clamp(72px,12vw,120px) clamp(20px,4vw,40px)", background:dark?"#080808":"#e8e8e8", position:"relative", overflow:"hidden", transition:"background 0.3s ease" }}>
+        <style>{`
+          .founder-grid {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+            gap: clamp(28px, 5vw, 60px);
+            align-items: center;
+          }
+          @media (max-width: 640px) {
+            .founder-grid {
+              grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+              gap: 20px;
+              align-items: start;
+            }
+            .founder-headline {
+              font-size: clamp(28px, 8.2vw, 40px) !important;
+              margin-bottom: 0 !important;
+            }
+            .founder-benefits {
+              gap: 10px !important;
+              margin-bottom: 20px !important;
+            }
+            .founder-benefits span:last-child {
+              font-size: 13px !important;
+              line-height: 1.4 !important;
+            }
+            .founder-cta {
+              width: 100%;
+              text-align: center;
+            }
+          }
+        `}</style>
         <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse at 65% 50%, rgba(80,80,80,0.3) 0%, transparent 65%)", pointerEvents:"none" }} />
-        <div style={{ maxWidth:1100, margin:"0 auto", display:"grid", gridTemplateColumns:"1fr 1fr", gap:60, alignItems:"center" }}>
+        <div className="founder-grid">
           <Reveal>
-            <p style={{ fontSize:12, fontWeight:600, letterSpacing:"0.16em", color:t.label, marginBottom:24, textTransform:"uppercase" }}>One More Thing.</p>
-            <h2 style={{ fontSize:"clamp(48px,7vw,80px)", fontWeight:700, lineHeight:1.05, letterSpacing:"-0.02em", marginBottom:40 }}>
+            <p style={{ fontSize:12, fontWeight:600, letterSpacing:"0.16em", color:t.label, marginBottom:16, textTransform:"uppercase" }}>One More Thing.</p>
+            <h2 className="founder-headline" style={{ fontSize:"clamp(40px,6.5vw,72px)", fontWeight:700, lineHeight:1.05, letterSpacing:"-0.02em", marginBottom:0 }}>
               The rarest card<br />in the world.<br />Only 5 exist.<br /><span style={{ color:t.textFaint }}>Ever.</span>
             </h2>
-            <div style={{ display:"flex", flexDirection:"column", gap:14, marginBottom:40 }}>
+          </Reveal>
+          <Reveal delay={0.12}>
+            <div className="founder-benefits" style={{ display:"flex", flexDirection:"column", gap:14, marginBottom:28 }}>
               {["Titanium Black — exclusive, never sold separately","Guaranteed founding number #0001–#0005","White-glove premium packaging + express delivery","1-on-1 onboarding session with Vincent","Lifetime Pro + priority support forever"].map((item,i) => (
-                <div key={i} style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
-                  <span style={{ color:t.label, fontSize:18, lineHeight:"22px" }}>—</span>
+                <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                  <span style={{ color:t.label, fontSize:16, lineHeight:"22px", flexShrink:0 }}>—</span>
                   <span style={{ color:t.textMuted, fontSize:15, lineHeight:1.5 }}>{item}</span>
                 </div>
               ))}
             </div>
-            <button onClick={() => { setDelivery("founder"); goToClaim({ founder: true }); }} style={{ background:dark?"#fff":"#000", color:dark?"#000":"#fff", border:"none", borderRadius:50, padding:"16px 36px", fontSize:15, fontWeight:600, cursor:"pointer" }}>Apply for Founder Delivery</button>
-          </Reveal>
-          <Reveal delay={0.2} style={{ display:"flex", justifyContent:"center" }}>
-            {/* TODO: replacement image goes here */}
+            <button
+              className="founder-cta"
+              onClick={() => { setDelivery("founder"); goToClaim({ founder: true }); }}
+              style={{ background:dark?"#fff":"#000", color:dark?"#000":"#fff", border:"none", borderRadius:50, padding:"14px 28px", fontSize:15, fontWeight:600, cursor:"pointer" }}
+            >
+              Apply for Founder Delivery
+            </button>
           </Reveal>
         </div>
       </section>
@@ -1222,7 +1245,7 @@ export default function FschoolAILanding({ onBack, mode = "learn" } = {}) {
           {/* Product info */}
           <div style={{ background:t.formSection, borderRadius:20, padding:"24px", boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
             <h3 style={{ fontSize:22, fontWeight:700, color:t.formText, marginBottom:20 }}>Product Information</h3>
-            {[{ label:"Overview", text:"The FschoolAI Founding Card is a physical NFC card that serves as your identity in the FschoolAI ecosystem. It unlocks Lifetime Pro access, your NeuroAGI Brain ID, and the ability to share your academic profile with a single tap." }, { label:"Availability", text:"500 cards total. Applications close June 30, 2026. Ships Q4 2026." }, { label:"Note", text:"The FschoolAI Founding Card is a physical NFC card. Not a financial product." }].map((item,i) => (
+            {[{ label:"Overview", text:"The FschoolAI Founding Card is a physical NFC card that serves as your identity in the FschoolAI ecosystem. It unlocks Lifetime Pro access, your NeuroAGI Brain ID, and the ability to share your academic profile with a single tap." }, { label:"Availability", text:"500 cards total. Ships Q4 2026." }, { label:"Note", text:"The FschoolAI Founding Card is a physical NFC card. Not a financial product." }].map((item,i) => (
               <div key={i} style={{ marginBottom:20 }}>
                 <p style={{ fontSize:12, color:t.formTextMuted, marginBottom:4 }}>{item.label}</p>
                 <p style={{ fontSize:14, color:t.formText, lineHeight:1.6 }}>{item.text}</p>
