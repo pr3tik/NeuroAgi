@@ -173,6 +173,32 @@ async function clearMemory(userId: string) {
   ]);
 }
 
+// Compact digest of the student's SYNCED Canvas data for the system prompt. Without
+// this the model truthfully-but-wrongly concludes it "can't access Canvas" and tells
+// the student to go check Quercus themselves — the exact opposite of the product.
+function buildAssignmentDigest(assignments: any[], courses: any[]): string | null {
+  if (!Array.isArray(assignments) || assignments.length === 0) return null;
+  const now = new Date();
+  const courseLabel = (cid: any) => {
+    const c = (courses ?? []).find((x: any) => String(x.dbId ?? x.id) === String(cid));
+    return c?.courseCode || c?.name || "";
+  };
+  const fmt = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const unsub = assignments.filter((a: any) => a?.dueAt && !a.submission?.submittedAt);
+  const overdue = unsub.filter((a: any) => new Date(a.dueAt) < now);
+  const upcoming = unsub
+    .filter((a: any) => { const d = new Date(a.dueAt); return d >= now && d.getTime() - now.getTime() < 14 * 86_400_000; })
+    .sort((a: any, b: any) => +new Date(a.dueAt) - +new Date(b.dueAt))
+    .slice(0, 15);
+  const lines = [
+    overdue.length ? `OVERDUE (${overdue.length}): ${overdue.slice(0, 5).map((a: any) => `${a.name ?? a.title} (${courseLabel(a.courseId)}, was due ${fmt(new Date(a.dueAt))})`).join("; ")}${overdue.length > 5 ? "; …" : ""}` : "Nothing overdue.",
+    upcoming.length
+      ? `DUE NEXT 14 DAYS:\n${upcoming.map((a: any) => `- ${a.name ?? a.title} — ${courseLabel(a.courseId)} — due ${fmt(new Date(a.dueAt))}`).join("\n")}`
+      : "Nothing due in the next 14 days.",
+  ];
+  return lines.join("\n");
+}
+
 async function ragQuery(userId: string, query: string) {
   try {
     const res = await fetch("/api/rag?action=query", {
@@ -435,7 +461,7 @@ function ThinkingBubble() {
 }
 
 export default function StudyAssistant() {
-  const { userId, userData, activeRoomId, whiteboardSnapshot } = useApp();
+  const { userId, userData, activeRoomId, whiteboardSnapshot, assignments, courses } = useApp();
   const [messages, setMessages] = useState<Message[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [input, setInput] = useState("");
@@ -628,9 +654,13 @@ export default function StudyAssistant() {
         }
       }
 
+      const asgDigest = buildAssignmentDigest(assignments as any[], courses as any[]);
       const system = [
         "You are Reggie — the student's private, main academic tutor. You know this student across sessions: their patterns, work habits, and any study materials they've uploaded.",
         "Only help with the student's own enrolled courses, university curriculum, and their own imported materials, or general study skills — politely decline or redirect clearly off-topic, non-academic requests.",
+        asgDigest
+          ? `\nLIVE CANVAS DATA — FschoolAI syncs the student's Canvas/Quercus account automatically; the data below IS from their real account, kept fresh by the app. You DO have Canvas access through the platform. NEVER tell the student to log into Canvas/Quercus to check deadlines (answer from this data), never claim you lack Canvas access, and never lecture about Canvas tokens — the app manages the connection. If earlier turns in this conversation said you cannot see Canvas or told the student to check Quercus themselves, that was WRONG — briefly correct yourself and answer directly from this data now. Factual schedule questions ("what's due", "what homework do I have") are ALWAYS answered directly from this data — teaching independence never means withholding the student's own deadlines, whatever your student model suggests.\n${asgDigest}`
+          : "\nNOTE: the student's Canvas sync hasn't loaded any assignments yet this session. If asked about deadlines, say the sync is still loading and suggest checking the Home page — do NOT claim you fundamentally lack Canvas access; the platform syncs it automatically.",
         "Be concise, clear, and academically rigorous. Avoid unnecessary filler. Answer in 2-4 sentences unless the student asks for more detail.",
         hasSources
           ? `\n\nSOURCE MATERIAL (retrieved from the student's own library):\n${ragContext}\n\nBase your answer primarily on this material. Cite source numbers like [1] when relevant.`
@@ -684,7 +714,7 @@ export default function StudyAssistant() {
       setThinking(false);
       setLiveSteps([]);
     }
-  }, [userId, userData, thinking, activeRoomId, whiteboardSnapshot, livingMind, impressions]);
+  }, [userId, userData, thinking, activeRoomId, whiteboardSnapshot, livingMind, impressions, assignments, courses]);
 
   /** Picks a command from the "/" popup — opens the confirm step, doesn't execute yet. */
   const selectCommand = useCallback((cmd: SlashCommand) => {
