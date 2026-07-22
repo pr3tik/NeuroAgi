@@ -609,6 +609,29 @@ const planDateLabel = (dateStr) => {
 };
 const examInLabel = (n) => n == null ? "" : n <= 0 ? "exam today" : n === 1 ? "exam in 1 day" : `exam in ${n} days`;
 
+// Compress a session's activities into a short, framework-only line (~16 words). Each
+// activity is reduced to its leading label — the text before the first ":", "—", "–" or
+// "(" — with the leading verb ("Review"/"Final"/…) stripped, then joined by " · ". The
+// detailed how-to after the label is dropped so the plan reads as a digestible overview;
+// full detail still lives in the session itself (and "Start with Reggie"). Anything past
+// the word budget collapses to "+N more" so a student sees the shape, not a wall of text.
+function summarizeActivities(activities, maxWords = 16) {
+  if (!Array.isArray(activities) || !activities.length) return "";
+  const heads = activities
+    .map((a) => String(a).split(/[:—–(]/)[0].trim().replace(/^(review|final|practice|complete|do)\s+/i, "").trim())
+    .filter(Boolean);
+  const out = [];
+  let words = 0;
+  for (const h of heads) {
+    const w = h.split(/\s+/).length;
+    if (out.length && words + w > maxWords) break;
+    out.push(h);
+    words += w;
+  }
+  const extra = heads.length - out.length;
+  return extra > 0 ? `${out.join(" · ")} · +${extra} more` : out.join(" · ");
+}
+
 function StudyPlanSection({ userId, courses }) {
   const [plans, setPlans] = useState([]);
   const [dbCourseNames, setDbCourseNames] = useState({}); // courses-table id → code/name
@@ -720,9 +743,12 @@ function StudyPlanSection({ userId, courses }) {
             <p style={{ fontFamily: "var(--font-sans)", fontSize: 15.5, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
               {hero.topic || "Study session"}
             </p>
-            <p style={{ fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--text-dim)", margin: "3px 0 0", fontVariantNumeric: "tabular-nums" }}>
+            <p style={{
+              fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--text-dim)", margin: "3px 0 0", fontVariantNumeric: "tabular-nums",
+              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+            }}>
               {[
-                Array.isArray(hero.activities) && hero.activities.length ? hero.activities.join(" · ") : null,
+                summarizeActivities(hero.activities),
                 `${Number(hero.estimatedMinutes) || 60} min`,
                 examInLabel(daysToExam),
               ].filter(Boolean).join(" · ")}
@@ -747,8 +773,12 @@ function StudyPlanSection({ userId, courses }) {
           return (
             <div key={`${s?.date ?? "?"}:${i}`} style={{
               display: "flex", alignItems: "center", gap: 12, padding: "10px 12px",
-              borderTop: i > 0 ? "1px solid rgba(255,255,255,0.06)" : "none",
-              background: isToday && !isDone ? "rgba(var(--teal-rgb),0.05)" : "transparent",
+              // Today's session reads as a filled, rounded highlight box (concentric with the
+              // container's radius) — not a hard-edged square strip: drop the row separator on
+              // it and round its corners so the fill defines its own box.
+              borderTop: i > 0 && !(isToday && !isDone) ? "1px solid rgba(255,255,255,0.06)" : "none",
+              background: isToday && !isDone ? "rgba(var(--teal-rgb),0.10)" : "transparent",
+              borderRadius: isToday && !isDone ? 12 : 0,
               opacity: isDone || isPast ? 0.55 : 1,
             }}>
               <button
@@ -774,7 +804,7 @@ function StudyPlanSection({ userId, courses }) {
                 }}>{s?.topic || "Study session"}</p>
                 {Array.isArray(s?.activities) && s.activities.length > 0 && (
                   <p style={{ margin: "1px 0 0", fontSize: 11.5, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {s.activities.join(" · ")}
+                    {summarizeActivities(s.activities, 12)}
                   </p>
                 )}
               </div>
