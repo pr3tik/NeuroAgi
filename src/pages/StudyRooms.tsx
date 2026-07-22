@@ -375,8 +375,12 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
       const courseKey = String(a.courseId ?? "");
       if (seenCourses.has(courseKey)) continue;
       seenCourses.add(courseKey);
-      const course = (courses || []).find((x: any) => String(x.dbId ?? x.id) === String(a.courseId));
-      const code = course?.courseCode || "";
+      // Assignments carry their own course label (canvasTransform stamps courseCode /
+      // courseName on every row) — the same field nextActions' courseTag() reads. A
+      // courses[] lookup on a.courseId does NOT resolve: assignment.courseId is the
+      // Canvas course id, while courses[] is keyed by the DB id, so it always fell
+      // through to the literal "Course ·" fallback.
+      const code = a.courseCode || a.courseName || "";
       const title = String(a.name).trim();
       const shortTitle = title.length > 34 ? `${title.slice(0, 34).trim()}…` : title;
       let due = "";
