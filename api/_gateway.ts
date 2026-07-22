@@ -146,7 +146,11 @@ export function resolveRoute(req: GatewayRequest): Route & { allowFallback: bool
   const GROQ_MODEL = env("GROQ_MODEL") || "llama-3.1-8b-instant";
 
   const table: Record<string, Route> = {
-    cheap:     { provider: "groq",      model: GROQ_MODEL },
+    // cheap falls back to Haiku: Groq's free tier has a 500k tokens/DAY cap that a
+    // heavy dev day exhausts (hit 2026-07-22, killed room sessions on prod) — every
+    // cheap-routed call then 429s until the daily reset. Haiku costs pennies and
+    // keeps the product alive; the fallback only pays when Groq is down/capped.
+    cheap:     { provider: "groq",      model: GROQ_MODEL, fallback: { provider: "anthropic", model: HAIKU } },
     route:     { provider: "anthropic", model: HAIKU },
     classify:  { provider: "anthropic", model: HAIKU },
     summarize: { provider: "anthropic", model: HAIKU,  fallback: { provider: "groq", model: GROQ_MODEL } },
