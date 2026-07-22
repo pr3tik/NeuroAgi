@@ -2,20 +2,31 @@
 // Reggie's recommended study times, on one full-page calendar.
 //
 // The Home "Today" card answers "what now?"; this page answers "what does my time
-// look like?" — so it reuses the SAME inputs (assignments, exam plan, SRS count)
-// and the SAME shared WeekCalendar so the two surfaces can never disagree.
+// look like?" — so it reuses the SAME inputs (assignments, exam plan, SRS count).
+// Two views behind a page-level toggle:
+//   Week  → TimeGridWeek: a real hour-slot time grid (7:00–23:00) with due markers
+//           at their actual dueAt times and EDITABLE study blocks (drag to
+//           reschedule, click an empty slot to add, × to dismiss). Edits persist
+//           in localStorage per user.
+//   Month → the shared WeekCalendar (size="full"), unchanged — same component as
+//           the Home card, so the two surfaces can never disagree.
 //
 // "Reggie recommends" is deterministic (src/lib/studyBlocks.ts — no model calls):
 // dashed lavender = suggestion, solid lavender = committed plan session. Same color
 // (CAL_COLORS.plan_session = --gold-rgb) because both are study time; the border
-// STYLE carries the commitment level.
+// STYLE carries the commitment level. The list is merged through the SAME
+// localStorage edits as the grid (applyCalendarEdits) so a dragged block shows its
+// new time here too, a dismissed one disappears, and user-created blocks appear.
 
 import { useEffect, useState, useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
 import { SectionHeader } from "../components/uikit";
 import WeekCalendar from "../components/WeekCalendar";
-import { suggestStudyBlocks, SuggestedBlock } from "../lib/studyBlocks";
+import TimeGridWeek from "../components/TimeGridWeek";
+import {
+  suggestStudyBlocks, applyCalendarEdits, readCalendarEdits, CalendarBlock,
+} from "../lib/studyBlocks";
 import { calendarDaysUntil } from "../lib/dueDate";
 import { GraduationCap, Sparkles } from "lucide-react";
 
@@ -33,6 +44,13 @@ const dayLabel = (dateStr: string) => {
   if (d === 0) return "Today";
   if (d === 1) return "Tomorrow";
   return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+};
+
+// "6:00 PM" from minutes-since-midnight — for the recommends list's time labels.
+const fmtStart = (min: number) => {
+  const h24 = Math.floor(min / 60) % 24, m = Math.round(min % 60);
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h}:${String(m).padStart(2, "0")} ${h24 >= 12 ? "PM" : "AM"}`;
 };
 
 export default function CalendarPage() {
@@ -88,16 +106,36 @@ export default function CalendarPage() {
     return c?.courseCode || c?.name || extras.dbCourseNames[String(cid)] || String(cid ?? "Course");
   };
 
-  // ── Deterministic suggestions + committed upcoming sessions ─────────────────
+  // ── Page-level view toggle: Week = editable time grid, Month = WeekCalendar ──
+  const [view, setView] = useState<"week" | "month">("week");
+  const storageKey = "fschool_cal_" + userId;
+
+  // ── Deterministic suggestions, merged with the user's calendar edits ────────
   const suggestions = useMemo(
     () => suggestStudyBlocks({ assignments: assignments ?? [], plan, now }),
     [assignments, plan],  // `now` changes every render; the inputs that matter are these two
   );
+  // The grid writes localStorage and fires this event; re-read so the list below
+  // always shows the block where the user actually put it.
+  const [editsVersion, setEditsVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setEditsVersion(v => v + 1);
+    window.addEventListener("fschool:calendar-edits", bump);
+    window.addEventListener("storage", bump);  // cross-tab edits
+    return () => {
+      window.removeEventListener("fschool:calendar-edits", bump);
+      window.removeEventListener("storage", bump);
+    };
+  }, []);
+  const editedBlocks = useMemo(
+    () => applyCalendarEdits(suggestions, readCalendarEdits(storageKey)),
+    [suggestions, storageKey, editsVersion],
+  );
   const byDay = useMemo(() => {
-    const g: Record<string, SuggestedBlock[]> = {};
-    for (const b of suggestions) (g[b.date] ??= []).push(b);
+    const g: Record<string, CalendarBlock[]> = {};
+    for (const b of editedBlocks) (g[b.date] ??= []).push(b);
     return Object.entries(g).sort(([a], [b]) => a.localeCompare(b));
-  }, [suggestions]);
+  }, [editedBlocks]);
   const upcomingSessions = useMemo(() => {
     if (!plan) return [];
     return [...(Array.isArray(plan.sessions) ? plan.sessions : [])]
@@ -107,30 +145,59 @@ export default function CalendarPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 26, fontWeight: 600, color: "var(--text-primary)",
-        marginBottom: 4, letterSpacing: "-0.3px", fontFamily: "var(--font-sans)" }}>
-        Calendar
-      </h1>
+      {/* ── Header: title + the Week|Month segmented toggle ── */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <h1 style={{ fontSize: 26, fontWeight: 600, color: "var(--text-primary)",
+          marginBottom: 4, letterSpacing: "-0.3px", fontFamily: "var(--font-sans)" }}>
+          Calendar
+        </h1>
+        <div style={{
+          marginLeft: "auto", display: "inline-flex", background: "rgba(255,255,255,0.05)",
+          border: "1px solid rgba(255,255,255,0.07)", borderRadius: 999, padding: 2, marginTop: 4,
+        }}>
+          {(["week", "month"] as const).map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
+              border: "none", borderRadius: 999, padding: "5px 14px", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+              background: view === v ? "rgba(var(--teal-rgb),0.18)" : "transparent",
+              color: view === v ? "rgb(var(--teal-rgb))" : "var(--text-dim)",
+              fontWeight: view === v ? 600 : 500,
+            }}>{v === "week" ? "Week" : "Month"}</button>
+          ))}
+        </div>
+      </div>
       <p style={{ color: "var(--text-dim)", fontSize: 14, marginBottom: 24 }}>
-        Everything due, planned, and Reggie's recommended study times.
+        {view === "week"
+          ? "Your week, hour by hour — drag Reggie's blocks to reschedule, click an empty slot to add your own."
+          : "Everything due, planned, and Reggie's recommended study times."}
       </p>
 
-      {/* ── The calendar — shared WeekCalendar, full-page size ── */}
+      {/* ── The calendar ── */}
       <div style={{ ...GLASS, marginBottom: 28 }}>
-        <WeekCalendar
-          {...({ size: "full" } as any) /* parallel-branch prop — spread keeps TS happy until it lands */}
-          assignments={assignments ?? []}
-          plan={plan}
-          srsDue={extras.srsDue}
-          now={now}
-        />
+        {view === "week" ? (
+          <TimeGridWeek
+            assignments={assignments ?? []}
+            plan={plan}
+            suggested={suggestions}
+            srsDue={extras.srsDue}
+            now={now}
+            storageKey={storageKey}
+          />
+        ) : (
+          <WeekCalendar
+            {...({ size: "full" } as any) /* parallel-branch prop — spread keeps TS happy until it lands */}
+            assignments={assignments ?? []}
+            plan={plan}
+            srsDue={extras.srsDue}
+            now={now}
+          />
+        )}
       </div>
 
-      {/* ── Reggie recommends — deterministic suggested study blocks ── */}
+      {/* ── Reggie recommends — the same blocks as the grid, list form ── */}
       <div style={{ marginBottom: 28 }}>
         <SectionHeader
           title="Reggie recommends"
-          desc="Suggested prep blocks before each due date — dashed means suggested, solid means committed plan"
+          desc="Suggested prep blocks before each due date — dashed means suggested, solid means yours. Edits on the week grid show here too."
         />
         <div style={{ ...GLASS, padding: "6px 8px" }}>
           {byDay.length === 0 && (
@@ -148,30 +215,35 @@ export default function CalendarPage() {
                 textTransform: "uppercase", color: "var(--text-dim)", margin: "0 0 8px 8px",
               }}>{dayLabel(date)}</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {blocks.map((b, i) => (
-                  /* Dashed lavender left edge = suggestion (solid = committed, below). */
-                  <div key={`${b.title}:${i}`} style={{
-                    display: "flex", alignItems: "center", gap: 12, padding: "10px 12px",
-                    borderLeft: "3px dashed rgba(var(--gold-rgb),0.6)", borderRadius: 8,
-                    background: "rgba(var(--gold-rgb),0.05)", minWidth: 0,
-                  }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{
-                        margin: 0, fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)",
-                        fontFamily: "var(--font-sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>{b.title}</p>
-                      <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--text-dim)", fontFamily: "var(--font-sans)", fontVariantNumeric: "tabular-nums" }}>
-                        {b.minutes} min · suggested
-                      </p>
+                {blocks.map((b) => {
+                  const isSug = b.kind === "suggested";
+                  // Same border language as the grid: dashed lavender = Reggie's
+                  // suggestion, solid periwinkle = a block the user created.
+                  const edge = isSug ? "3px dashed rgba(var(--gold-rgb),0.6)" : "3px solid rgba(var(--teal-rgb),0.6)";
+                  const wash = isSug ? "rgba(var(--gold-rgb),0.05)" : "rgba(var(--teal-rgb),0.05)";
+                  return (
+                    <div key={b.id} style={{
+                      display: "flex", alignItems: "center", gap: 12, padding: "10px 12px",
+                      borderLeft: edge, borderRadius: 8, background: wash, minWidth: 0,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{
+                          margin: 0, fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)",
+                          fontFamily: "var(--font-sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}>{b.title}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--text-dim)", fontFamily: "var(--font-sans)", fontVariantNumeric: "tabular-nums" }}>
+                          {fmtStart(b.startMin)} · {b.minutes} min · {isSug ? "suggested" : "yours"}
+                        </p>
+                      </div>
+                      <button onClick={goPage("studyAssistant")} style={{
+                        flexShrink: 0, background: "rgba(var(--teal-rgb),0.14)",
+                        border: "1px solid rgba(var(--teal-rgb),0.3)", color: "rgb(var(--teal-rgb))",
+                        borderRadius: 9, padding: "7px 13px", fontSize: 12, fontWeight: 600,
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}>Start with Reggie</button>
                     </div>
-                    <button onClick={goPage("studyAssistant")} style={{
-                      flexShrink: 0, background: "rgba(var(--teal-rgb),0.14)",
-                      border: "1px solid rgba(var(--teal-rgb),0.3)", color: "rgb(var(--teal-rgb))",
-                      borderRadius: 9, padding: "7px 13px", fontSize: 12, fontWeight: 600,
-                      cursor: "pointer", fontFamily: "inherit",
-                    }}>Start with Reggie</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
