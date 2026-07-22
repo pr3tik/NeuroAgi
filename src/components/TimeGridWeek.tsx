@@ -27,7 +27,7 @@ const START_HOUR = 7;
 const END_HOUR = 23;                          // last labeled line; grid ends here
 const START_MIN = START_HOUR * 60;            // 420
 const END_MIN = END_HOUR * 60;                // 1380
-const HOUR_PX = 48;
+const HOUR_PX = 44;   // dense enough to fit ~9 visible hours in the crunched viewport
 const PX_PER_MIN = HOUR_PX / 60;              // 0.8
 const GRID_H = (END_HOUR - START_HOUR) * HOUR_PX;  // 768
 const GUTTER_W = 52;
@@ -103,6 +103,16 @@ export default function TimeGridWeek({
   const [drag, setDrag] = useState<DragState | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const colsRef = useRef<HTMLDivElement | null>(null);
+  const vScrollRef = useRef<HTMLDivElement | null>(null);
+  // Open on the useful hours: just above now when today is in view, else 9:00.
+  useEffect(() => {
+    const el = vScrollRef.current;
+    if (!el) return;
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const target = nowMin >= START_MIN && nowMin <= END_MIN ? Math.max(START_MIN, nowMin - 90) : 9 * 60;
+    el.scrollTop = ((target - START_MIN) / 60) * HOUR_PX;
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
   // Click-vs-drag guard for empty-slot creation: remember where the press started.
   const pressRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -351,7 +361,14 @@ export default function TimeGridWeek({
             })}
           </div>
 
-          {/* Time grid body */}
+          {/* Time grid body — its OWN scroll viewport so the whole card fits on the
+              page: day headers + all-day lane stay pinned above; hours scroll inside.
+              data-lenis-prevent stops the app-wide smooth-scroll from eating the wheel. */}
+          <div
+            ref={vScrollRef}
+            data-lenis-prevent=""
+            style={{ maxHeight: "min(56vh, 528px)", overflowY: "auto", overscrollBehavior: "contain" }}
+          >
           <div style={{ display: "grid", gridTemplateColumns: `${GUTTER_W}px 1fr` }}>
 
             {/* Hour gutter — sticky so labels survive horizontal scroll */}
@@ -506,6 +523,7 @@ export default function TimeGridWeek({
                 })}
               </div>
             </div>
+          </div>
           </div>
         </div>
       </div>
