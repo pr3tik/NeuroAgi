@@ -15,6 +15,8 @@ import {
   loadClaimDraft,
   patchClaimDraft,
 } from "../foundingCardShared";
+import StudyRoomHeroAnimation from "../components/StudyRoomHeroAnimation";
+import MobileProductWalkthrough from "../components/MobileProductWalkthrough";
 
 // ── naroai.co + Apple hybrid design tokens ────────────────────────────────────
 // naroai reference: --foreground: 0 0% 8% = #141414, --muted-foreground: 0 0% 45% = #737373
@@ -2372,103 +2374,211 @@ function DemoCarousel({ t }: { t: typeof DARK }) {
   );
 }
 
-// ── NeuralCoreSection — Apple asymmetric, live data stream ───────────────────
-// LEFT: bold stats. RIGHT: real-time AI event stream — terminal aesthetic.
-// Zero rotation, zero orbit. Completely distinct from Ecosystem marquee.
-const STREAM_EVENTS = [
-  { type: "SYNC",  color: "#34c759", text: "Canvas BIOL 201: 3 new assignments imported"     },
-  { type: "INDEX", color: "#0066cc", text: "Lecture 4.pdf: 47 key concepts extracted"         },
-  { type: "FLASH", color: "#ff9500", text: "12 flashcards generated from your BIOL notes"      },
-  { type: "TRACK", color: "#ff3b30", text: "Cell Division quiz: due Friday 11:59 PM"          },
-  { type: "LINK",  color: "#5856d6", text: "Cross-referenced COMP 101 with Study Guide"        },
-  { type: "LEARN", color: "#34c759", text: "Pattern: stronger in theory, weaker in application"},
-  { type: "SYNC",  color: "#0066cc", text: "MATH 202 lecture: 23 min, 31 concepts indexed"    },
-  { type: "GRADE", color: "#ff9500", text: "Grade updated: BIOL assignment 84% · B"            },
+// ── IntelligenceLayer — white Apple Intelligence-style bridge ─────────────────
+// Replaces the old dark terminal NeuralCoreSection.
+// Shows six data sources flowing to Reggie — clean, white, editorial.
+
+// ── SVG icons — no emoji ───────────────────────────────────────────────────────
+const IconCanvas = () => (
+  <svg width="17" height="17" viewBox="0 0 17 17" fill="none">
+    <rect x="2" y="5.5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
+    <path d="M5.5 5.5V4a3 3 0 0 1 6 0v1.5" stroke="currentColor" strokeWidth="1.35"/>
+    <path d="M5 9.5h7M5 12.5h4.5" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round"/>
+  </svg>
+);
+const IconMic = () => (
+  <svg width="17" height="17" viewBox="0 0 17 17" fill="none">
+    <rect x="5.5" y="1.5" width="6" height="8" rx="3" stroke="currentColor" strokeWidth="1.35"/>
+    <path d="M2.5 8.5a6 6 0 0 0 12 0" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round"/>
+    <line x1="8.5" y1="14.5" x2="8.5" y2="16" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round"/>
+    <line x1="6.5" y1="16" x2="10.5" y2="16" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round"/>
+  </svg>
+);
+const IconNote = () => (
+  <svg width="17" height="17" viewBox="0 0 17 17" fill="none">
+    <rect x="3" y="1.5" width="11" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
+    <line x1="6" y1="1.5" x2="6" y2="15.5" stroke="currentColor" strokeWidth="1.1" strokeOpacity="0.3"/>
+    <path d="M7.5 6h4.5M7.5 8.5h4.5M7.5 11h3" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round"/>
+  </svg>
+);
+
+const INTEL_SOURCES = [
+  { Icon: IconCanvas, app: "Canvas",  time: "just now", title: "3 new items synced",      detail: "BIO 110  ·  CHEM 201  ·  PSYC 101",       color: "#E05C2A" },
+  { Icon: IconMic,    app: "Lecture", time: "2m ago",   title: "Organic Chemistry L4",    detail: "48 min · audio indexed across 12 concepts", color: "#AF52DE" },
+  { Icon: IconNote,   app: "Notes",   time: "8m ago",   title: "Krebs cycle — 3 key steps", detail: "Auto-tagged · linked to BIO 110 module",  color: "#007AFF" },
 ];
 
-function NeuralCoreSection({ t }: { t: typeof DARK }) {
-  const [visibleLines, setVisibleLines] = useState<(typeof STREAM_EVENTS[number] & { ts: string })[]>([]);
-  const [containerRef, inView] = useInView(0.2);
+function NeuralCoreSection({ t: _t }: { t: typeof DARK }) {
+  const [sectionRef, inView] = useInView(0.12);
+  const [chatStep, setChatStep] = React.useState(0);
 
-  useEffect(() => {
-    if (!inView) return;
-    let idx = 0;
-    const tick = () => {
-      const ev = STREAM_EVENTS[idx % STREAM_EVENTS.length];
-      const now = new Date();
-      const ts = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
-      setVisibleLines(prev => { const next = [...prev, { ...ev, ts }]; return next.slice(-6); });
-      idx++;
-    };
-    tick();
-    const id = setInterval(tick, 1800);
-    return () => clearInterval(id);
+  React.useEffect(() => {
+    if (!inView) { setChatStep(0); return; }
+    const ts = [
+      setTimeout(() => setChatStep(1), 820),
+      setTimeout(() => setChatStep(2), 1640),
+      setTimeout(() => setChatStep(3), 2520),
+    ];
+    return () => ts.forEach(clearTimeout);
   }, [inView]);
 
+  const reggieLines = [
+    "SN2: backside attack, inversion of configuration.",
+    "SN1: carbocation intermediate, racemisation.",
+    "E2: anti-periplanar β-elimination, one-step.",
+  ];
+
   return (
-    <section ref={containerRef} style={{ background: "linear-gradient(180deg,#090909 0%,#0c0c0f 100%)", padding: "clamp(80px,10vw,120px) 20px", overflow: "hidden", position: "relative" }}>
-      <div aria-hidden="true" style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: "60%", height: 260, background: "radial-gradient(ellipse 55% 40% at 50% 0%, rgba(0,102,204,0.10) 0%, transparent 100%)", pointerEvents: "none" }} />
+    <section
+      ref={sectionRef}
+      style={{ background: "#ffffff", padding: "clamp(72px,9vw,112px) clamp(20px,4vw,48px)", overflow: "hidden", position: "relative" }}
+    >
+      {/* Ambient */}
+      <div aria-hidden style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: "90%", height: 400, background: "radial-gradient(ellipse 55% 45% at 50% 0%, rgba(79,110,255,0.055) 0%, transparent 100%)", pointerEvents: "none" }} />
 
-      <div style={{ maxWidth: 980, margin: "0 auto", display: "flex", gap: "clamp(40px,6vw,80px)", alignItems: "center", flexWrap: "wrap", position: "relative", zIndex: 1 }}>
+      <div style={{ maxWidth: 1060, margin: "0 auto", position: "relative", zIndex: 1 }}>
 
-        {/* LEFT — stats + copy */}
-        <div style={{ flex: "1 1 300px" }}>
-          <Reveal>
-            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(var(--teal-rgb), 0.65)", marginBottom: 22 }}>Intelligence Layer</p>
-            <h2 style={{ fontSize: "clamp(28px,4.5vw,50px)", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.1, color: "#f5f5f5", margin: "0 0 20px" }}>
-              Every course.<br />Every lecture.<br />One mind.
+        {/* Headline */}
+        <Reveal>
+          <div style={{ textAlign: "center", marginBottom: "clamp(52px,6.5vw,84px)" }}>
+            <h2 style={{ fontSize: "clamp(28px,4vw,52px)", fontWeight: 600, letterSpacing: "-0.03em", lineHeight: 1.1, color: "#1d1d1f", margin: "0 0 16px", fontFamily: FONT, textWrap: "balance" as any }}>
+              Your AI never stops learning.
             </h2>
-            <p style={{ fontSize: 15, color: "rgba(255,255,255,0.40)", lineHeight: 1.75, marginBottom: 44, maxWidth: 320 }}>
-              FschoolAI builds a living model of your academic world, grounding every answer in your actual notes, deadlines and study history.
+            <p style={{ fontSize: "clamp(15px,1.6vw,18px)", color: "#6e6e73", lineHeight: 1.65, margin: "0 auto", maxWidth: 480, fontFamily: FONT }}>
+              Every course, lecture, and deadline flows to Reggie — who remembers everything and knows exactly where you&apos;re stuck.
             </p>
-          </Reveal>
-          <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
-            {[
-              { val: "47", sub: "concepts per lecture" },
-              { val: "< 1s", sub: "indexing time" },
-              { val: "100%", sub: "private to you" },
-            ].map(({ val, sub }, i) => (
-              <Reveal key={val} delay={i * 0.08}>
-                <div>
-                  <p style={{ fontSize: "clamp(26px,3.5vw,38px)", fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, color: "#f5f5f5", margin: "0 0 6px" }}>{val}</p>
-                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.30)", letterSpacing: "0.02em" }}>{sub}</p>
-                </div>
-              </Reveal>
-            ))}
           </div>
-        </div>
+        </Reveal>
 
-        {/* RIGHT — live event stream */}
-        <div style={{ flex: "1 1 320px" }}>
-          <Reveal delay={0.12}>
-            <div style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 18, overflow: "hidden", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 24px 60px rgba(0,0,0,0.45)" }}>
-              {/* Titlebar */}
-              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                {["#ff5f57","#ffbd2e","#28c840"].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />)}
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.22)", marginLeft: 8, fontFamily: "monospace" }}>fschoolai · neural_core</span>
-                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#34c759", animation: "pulseGlow 2s ease-in-out infinite" }} />
-                  <span style={{ fontSize: 9, color: "rgba(255,255,255,0.28)", fontFamily: "monospace", letterSpacing: "0.06em" }}>LIVE</span>
+        {/* ── Intelligence diagram ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 0, justifyContent: "center", flexWrap: "wrap", rowGap: 32 }}>
+
+          {/* ── Source cards ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: "0 0 auto" }}>
+            {INTEL_SOURCES.map((s, i) => (
+              <div key={s.app} style={{
+                width: "clamp(230px,21vw,280px)", padding: "13px 14px",
+                borderRadius: 16, background: "#fafafa", border: "1px solid #ebebef",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.03)",
+                display: "flex", alignItems: "flex-start", gap: 11,
+                opacity: inView ? 1 : 0,
+                transform: inView ? "translateX(0)" : "translateX(-22px)",
+                transition: `opacity 0.52s ${0.04 + i * 0.08}s cubic-bezier(0.16,1,0.3,1), transform 0.52s ${0.04 + i * 0.08}s cubic-bezier(0.16,1,0.3,1)`,
+              }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, background: `${s.color}14`, border: `1px solid ${s.color}20`, display: "flex", alignItems: "center", justifyContent: "center", color: s.color }}>
+                  <s.Icon />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "#1d1d1f", fontFamily: FONT }}>{s.app}</span>
+                    <span style={{ fontSize: 10, color: "#b8b8c0", fontFamily: FONT }}>{s.time}</span>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "#1d1d1f", fontFamily: FONT, lineHeight: 1.35, marginBottom: 2 }}>{s.title}</div>
+                  <div style={{ fontSize: 10.5, color: "#86868b", fontFamily: FONT, lineHeight: 1.4 }}>{s.detail}</div>
                 </div>
               </div>
-              {/* Stream */}
-              <div style={{ padding: "14px 16px", minHeight: 250, display: "flex", flexDirection: "column", gap: 9, fontFamily: "monospace" }}>
-                {visibleLines.map((ev, i) => (
-                  <div key={i} style={{ display: "flex", gap: 9, alignItems: "flex-start", animation: "streamIn 0.3s cubic-bezier(0.16,1,0.3,1) both" }}>
-                    <span style={{ fontSize: 9, color: "rgba(255,255,255,0.18)", paddingTop: 2, flexShrink: 0 }}>{ev.ts}</span>
-                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 4, background: `${ev.color}14`, color: ev.color, flexShrink: 0, border: `1px solid ${ev.color}28` }}>{ev.type}</span>
-                    <span style={{ color: "rgba(255,255,255,0.48)", lineHeight: 1.55, fontSize: 11 }}>{ev.text}</span>
-                  </div>
-                ))}
-                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
-                  <span style={{ color: "rgba(var(--teal-rgb), 0.55)", fontSize: 12 }}>›</span>
-                  <div style={{ width: 7, height: 13, background: "rgba(var(--teal-rgb), 0.55)", borderRadius: 1, animation: "micPulse 1s step-end infinite" }} />
+            ))}
+          </div>
+
+          {/* ── Animated flow column ── */}
+          <div style={{ width: "clamp(48px,5vw,80px)", alignSelf: "stretch", position: "relative", flexShrink: 0, opacity: inView ? 1 : 0, transition: "opacity 0.5s 0.28s ease", minHeight: 180 }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} style={{ position: "absolute", top: `${14 + i * 36}%`, left: 0, right: 0, height: 1, background: "linear-gradient(90deg, rgba(79,110,255,0.28) 0%, rgba(79,110,255,0.07) 100%)" }}>
+                {/* Traveling glow dot */}
+                <div style={{
+                  position: "absolute", width: 22, height: 22, borderRadius: "50%", top: -11, left: -11,
+                  background: "radial-gradient(circle, rgba(79,110,255,0.52) 0%, rgba(79,110,255,0.16) 55%, transparent 70%)",
+                  animation: inView ? `ncsParticle 2s ${0.38 + i * 0.6}s ease-in-out infinite` : "none",
+                }} />
+                {/* Arrowhead */}
+                <svg style={{ position: "absolute", right: -5, top: -4 }} width="10" height="9" viewBox="0 0 10 9" fill="none">
+                  <path d="M0 4.5h8M5.5 1.5l3 3-3 3" stroke="rgba(79,110,255,0.32)" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            ))}
+          </div>
+
+          {/* ── Reggie chat card ── */}
+          <Reveal delay={0.3}>
+            <div style={{
+              width: "clamp(238px,23vw,294px)", borderRadius: 22, overflow: "hidden",
+              background: "#ffffff", border: "1px solid rgba(79,110,255,0.11)",
+              boxShadow: "0 2px 10px rgba(79,110,255,0.06), 0 18px 52px rgba(79,110,255,0.10), inset 0 1px 0 rgba(255,255,255,1)",
+            }}>
+              {/* Nav bar */}
+              <div style={{ padding: "11px 14px 10px", borderBottom: "1px solid rgba(0,0,0,0.055)", background: "rgba(249,249,252,0.96)", display: "flex", alignItems: "center", gap: 9 }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,#5F7BFF 0%,#3B50EC 100%)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 3px 10px rgba(59,80,236,0.28)" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT }}>R</span>
                 </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1d1d1f", fontFamily: FONT, lineHeight: 1 }}>Reggie</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#34C759", animation: "ncsPulse 2s ease-in-out infinite" }} />
+                    <span style={{ fontSize: 10, color: "#34C759", fontWeight: 600, fontFamily: FONT }}>3 sources loaded</span>
+                  </div>
+                </div>
+                <span style={{ fontSize: 10, color: "#c0c0c8", fontFamily: FONT }}>now</span>
+              </div>
+
+              {/* Chat body */}
+              <div style={{ padding: "11px 11px 10px", display: "flex", flexDirection: "column", gap: 8, minHeight: 172 }}>
+                {/* User bubble */}
+                <div style={{ display: "flex", justifyContent: "flex-end", opacity: chatStep >= 1 ? 1 : 0, transform: chatStep >= 1 ? "none" : "translateY(7px) scale(0.97)", transition: "opacity 0.32s ease, transform 0.32s ease" }}>
+                  <div style={{ maxWidth: "85%", padding: "8px 12px", borderRadius: "15px 15px 3px 15px", background: "#4F6EFF", color: "#fff", fontSize: 11.5, lineHeight: 1.45, fontFamily: FONT }}>
+                    Summarize reaction mechanisms for CHEM 201
+                  </div>
+                </div>
+
+                {/* Reggie bubble */}
+                <div style={{ opacity: chatStep >= 2 ? 1 : 0, transform: chatStep >= 2 ? "none" : "translateY(8px)", transition: "opacity 0.38s 0.06s ease, transform 0.38s 0.06s ease" }}>
+                  <div style={{ padding: "9px 12px", borderRadius: "3px 15px 15px 15px", background: "#f4f4f8", border: "1px solid rgba(0,0,0,0.046)" }}>
+                    {chatStep === 2 ? (
+                      <div style={{ display: "flex", gap: 4, padding: "3px 0" }}>
+                        {[0,1,2].map(j => <div key={j} style={{ width: 5, height: 5, borderRadius: "50%", background: "#4F6EFF", opacity: 0.42, animation: `ncsBounce 1.2s ${j*0.18}s infinite ease-in-out` }} />)}
+                      </div>
+                    ) : chatStep >= 3 ? reggieLines.map((line, j) => (
+                      <div key={j} style={{ fontSize: 11, color: "#333", lineHeight: 1.52, display: "flex", gap: 6, marginBottom: j < 2 ? 5 : 0, animation: `ncsFadeUp 0.32s ${j*0.1}s both ease` }}>
+                        <span style={{ color: "#4F6EFF", fontWeight: 700, flexShrink: 0, fontFamily: FONT }}>{j+1}.</span>
+                        <span style={{ fontFamily: FONT }}>{line}</span>
+                      </div>
+                    )) : null}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding: "8px 14px", borderTop: "1px solid rgba(0,0,0,0.05)", background: "rgba(249,249,252,0.96)", display: "flex", alignItems: "center", gap: 6 }}>
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.5" stroke="#a0a0aa" strokeWidth="1.1"/><path d="M5.5 3.5v2.2l1.3 1.3" stroke="#a0a0aa" strokeWidth="1.1" strokeLinecap="round"/></svg>
+                <span style={{ fontSize: 10, color: "#86868b", fontFamily: FONT }}>47 concepts indexed · 3 active courses</span>
               </div>
             </div>
           </Reveal>
         </div>
+
+        {/* ── Stats ── */}
+        <div style={{ display: "flex", gap: "clamp(24px,5vw,56px)", justifyContent: "center", flexWrap: "wrap", marginTop: "clamp(52px,6.5vw,80px)" }}>
+          {[
+            { val: "47", sub: "concepts per lecture" },
+            { val: "< 1s", sub: "indexed on upload" },
+            { val: "100%", sub: "private to you" },
+          ].map(({ val, sub }, i) => (
+            <Reveal key={val} delay={0.72 + i * 0.08}>
+              <div style={{ textAlign: "center" }}>
+                <p style={{ fontSize: "clamp(28px,3.2vw,40px)", fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, color: "#1d1d1f", margin: "0 0 6px", fontFamily: FONT }}>{val}</p>
+                <p style={{ fontSize: 12, color: "#86868b", letterSpacing: "0.01em", fontFamily: FONT }}>{sub}</p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
       </div>
+
+      <style>{`
+        @keyframes ncsPulse    { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(52,199,89,0.28)} 50%{opacity:0.8;box-shadow:0 0 0 4px rgba(52,199,89,0)} }
+        @keyframes pulseGlow   { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(52,199,89,0.3)}  50%{opacity:0.8;box-shadow:0 0 0 4px rgba(52,199,89,0)} }
+        @keyframes ncsParticle { 0%{left:-11px;opacity:0} 14%{opacity:1} 86%{opacity:1} 100%{left:calc(100% - 11px);opacity:0} }
+        @keyframes ncsBounce   { 0%,80%,100%{transform:translateY(0);opacity:0.42} 40%{transform:translateY(-4px);opacity:1} }
+        @keyframes ncsFadeUp   { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+      `}</style>
     </section>
   );
 }
@@ -3280,7 +3390,7 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
 
   return (
     <div style={{ background: "#ffffff", color: "#141414", fontFamily: FONT, minHeight: "100vh",
-      overflowX: "hidden", WebkitFontSmoothing: "antialiased" as any, maxWidth: "100vw" }}>
+      overflowX: "clip", WebkitFontSmoothing: "antialiased" as any, maxWidth: "100vw" }}>
 
       <style>{`
         /* Apple.com exact typography base — matches html{font-size:106.25%} on apple.com */
@@ -3658,13 +3768,13 @@ export default function Landing({ onEnter, initialAuthMode = null, onTryDemo }: 
 
       {/* ── SECTION TILE GAP — 8px of page background shows between every tile ── */}
       <div aria-hidden="true" style={{ height: 8 }} />
-      <FeaturesShowcase t={t} chromaStyle={chromaStyle} ghostRef={ghostRef} />
-
-      <div aria-hidden="true" style={{ height: 8 }} />
-      <DemoCarousel t={t} />
+      <StudyRoomHeroAnimation />
 
       <div aria-hidden="true" style={{ height: 8 }} />
       <NeuralCoreSection t={t} />
+
+      <div aria-hidden="true" style={{ height: 8 }} />
+      <MobileProductWalkthrough onWaitlist={onPrimaryCta} />
 
       <div aria-hidden="true" style={{ height: 8 }} />
       <EcosystemCircle t={t} />
