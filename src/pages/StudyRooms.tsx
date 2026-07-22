@@ -1306,14 +1306,14 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const aiBargedRef      = useRef(false);                 // a human spoke → stop this AI turn
   const aiSpeakingRef    = useRef(false);                 // an AI clip is actually playing right now
   const [streamingAi, setStreamingAi] = useState<{ turnId: string; text: string } | null>(null);
-  // Push-to-talk "Ask Reggie" capture: speech after the click is collected as the question.
-  const [captureMode,   setCaptureMode]   = useState(false);
-  const [captureText,   setCaptureText]   = useState("");
-  const [capturePartial, setCapturePartial] = useState("");
-  const captureActiveRef = useRef(false);
-  const captureTextRef   = useRef("");
-  const captureScribeRef = useRef<ScribeSession | null>(null);   // temp mic when not already STT-ing
-  const captureStreamRef = useRef<MediaStream | null>(null);
+  // Reggie's VOICE, distinct from `speakerOn` (which is peer audio only). Off = text-only:
+  // replies still stream into the transcript and still draw board cards, they just don't
+  // get spoken. Restored synchronously so a muted student can't be surprised by TTS on
+  // the very first turn after a reload.
+  const REGGIE_VOICE_KEY = `fschool_reggie_voice:${userId}`;
+  const [reggieVoiceOn, setReggieVoiceOn] = useState<boolean>(() => {
+    try { return localStorage.getItem(REGGIE_VOICE_KEY) !== "0"; } catch { return true; }   // storage blocked → voice on
+  });
   // Proactive/ambient AI (R7): the driver may chime in on detected confusion. Opt-in,
   // off by default, throttled, and it stays quiet while anyone is mid-sentence.
   const [proactiveOn, setProactiveOn] = useState(false);
@@ -1890,8 +1890,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     roomVoiceRef.current = null;
     scribeRef.current?.stop();
     scribeRef.current = null;
-    captureActiveRef.current = false;
-    stopCaptureMic();
     if (proactiveTimerRef.current) clearTimeout(proactiveTimerRef.current);
     solvingRef.current = false;
     if (solveIdleTimerRef.current) clearTimeout(solveIdleTimerRef.current);
@@ -2085,7 +2083,23 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     pushPresence();
   }
 
-  function toggleSpeaker() { primeAiAudio(); setSpeakerOn(s => !s); }   // local playback only — no signaling
+  function toggleSpeaker() { primeAiAudio(); setSpeakerOn(s => !s); }   // PEER audio only — Reggie's voice is toggleReggieVoice
+
+  // Reggie's voice only. Muting must also kill whatever is already synthesized or playing,
+  // otherwise the tail of the current reply keeps talking after the user asked for quiet.
+  function toggleReggieVoice() {
+    primeAiAudio();   // unmuting inside a gesture keeps WebAudio playback unlocked
+    const next = !reggieVoiceOnRef.current;
+    reggieVoiceOnRef.current = next;
+    setReggieVoiceOn(next);
+    if (!next) {
+      aiBargedRef.current = true;                       // queued clips in the chain skip
+      try { aiSourceRef.current?.stop(); } catch { /* nothing playing */ }
+      aiSourceRef.current = null;
+      aiSpeakingRef.current = false;
+    }
+    try { localStorage.setItem(REGGIE_VOICE_KEY, next ? "1" : "0"); } catch { /* storage blocked — session-only */ }
+  }
 
   function leaveVoice() {
     roomVoiceRef.current?.stop();
@@ -2135,8 +2149,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   useEffect(() => {
     if (driverId === userId && solving && !solvingRef.current) endSolve();
   }, [driverId, solving]);
-  const speakerOnRef = useRef(true);
-  useEffect(() => { speakerOnRef.current = speakerOn; }, [speakerOn]);
+  // `speakerOn` gates peer audio through the RemoteAudio elements (render-time state), so it
+  // needs no ref. Reggie's voice is checked from handlers that close over setup-time scope,
+  // hence this one — seeded (not `true`) so the restored preference is already correct for
+  // the first AI turn; the effect below only keeps it in sync afterwards.
+  const reggieVoiceOnRef = useRef(reggieVoiceOn);
+  useEffect(() => { reggieVoiceOnRef.current = reggieVoiceOn; }, [reggieVoiceOn]);
   useEffect(() => { proactiveOnRef.current = proactiveOn; }, [proactiveOn]);
   useEffect(() => { livePartialsRef.current = livePartials; }, [livePartials]);
   // Barge-in: the moment I start talking (mic on + detected speaking), Reggie yields —
@@ -2245,13 +2263,13 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     channelRef.current?.send({ type: "broadcast", event: "ai_message", payload: msg }).catch(() => {});
   }
 
-  // All clients: record the AI turn in the shared transcript and speak it (if sound is on).
-  // Used by the non-streamed (proactive) path.
+  // All clients: record the AI turn in the shared transcript and speak it (unless Reggie's
+  // voice is muted). Used by the non-streamed (proactive/opener) path.
   function applyAiMessage(msg: { id: string; text: string; ts: number }) {
     aiBargedRef.current = false;          // fresh turn — clear any prior barge-in
     lastAiTurnRef.current = Date.now();   // start the proactive-interjection cooldown
     transcriptRef.current?.add({ id: `reggie:${msg.id}`, speakerId: "reggie", speakerName: "Reggie", text: msg.text, ts: msg.ts, seq: 0 });
-    if (speakerOnRef.current) speakAi(msg.text);
+    if (reggieVoiceOnRef.current) speakAi(msg.text);
   }
 
   // Consume the room-ai SSE stream (raw Anthropic format), calling onToken per text delta.
@@ -2295,7 +2313,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     aiStreamTextRef.current += (aiStreamTextRef.current ? " " : "") + chunk.text;
     setStreamingAi({ turnId: chunk.turnId, text: aiStreamTextRef.current });
     lastAiTurnRef.current = Date.now();
-    if (speakerOnRef.current) speakAi(chunk.text);
+    if (reggieVoiceOnRef.current) speakAi(chunk.text);
   }
 
   // Streaming AI turn finished — commit the full text to the shared transcript (one line)
@@ -2403,64 +2421,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     }
   }
 
-  // ── Push-to-talk "Ask Reggie" ───────────────────────────────────────────────────
-  // Start capturing: everything spoken until Submit becomes the question. If I'm already
-  // STT-ing (unmuted in voice) we tap that stream; otherwise spin a temporary capture mic.
-  async function startCapture() {
-    primeAiAudio();   // unlock AI playback within this user gesture
-    if (!isStreamingSTT()) { requestAi("", userData?.name ?? "Someone"); return; }   // no STT → generic ask
-    captureTextRef.current = "";
-    setCaptureText("");
-    setCapturePartial("");
-    setCaptureMode(true);
-    captureActiveRef.current = true;
-    if (!scribeRef.current) await startCaptureMic();
-  }
-
-  async function startCaptureMic() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      captureStreamRef.current = stream;
-      captureScribeRef.current = await startScribeSession({
-        stream,
-        idleClose: false,
-        onPartial: (t) => setCapturePartial(t.trim()),
-        onSegment: (t) => {
-          const s = t.trim();
-          if (!s) return;
-          captureTextRef.current += (captureTextRef.current ? " " : "") + s;
-          setCaptureText(captureTextRef.current);
-          setCapturePartial("");
-        },
-        onError: () => {},
-      });
-    } catch { /* mic denied — the user can still cancel out */ }
-  }
-
-  function stopCaptureMic() {
-    try { captureScribeRef.current?.stop(); } catch { /* already closed */ }
-    captureScribeRef.current = null;
-    captureStreamRef.current?.getTracks().forEach(t => t.stop());
-    captureStreamRef.current = null;
-  }
-
-  // Submit → fire the question at Reggie (context vs. query kept separate in the prompt).
-  // Cancel → drop it. Either way, tear down capture.
-  function stopCapture(commit: boolean) {
-    primeAiAudio();   // Submit/Cancel is a gesture — keep AI playback unlocked
-    captureActiveRef.current = false;
-    stopCaptureMic();
-    setCaptureMode(false);
-    const q = captureTextRef.current.trim();
-    captureTextRef.current = "";
-    setCaptureText("");
-    setCapturePartial("");
-    if (commit && q) requestAi(q, userData?.name ?? "Someone");
-  }
-
-  // Unlock the WebAudio context inside a user gesture (join / ask / submit / speaker), so
+  // Unlock the WebAudio context inside a user gesture (join / speaker / Reggie voice), so
   // Reggie's later programmatic playback is allowed.
   function primeAiAudio() {
     try { roomAudioCtx(); } catch { /* WebAudio unavailable */ }
@@ -2530,7 +2491,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           idleClose: false,   // stay open across silences while unmuted
           onPartial: (text) => {
             const t = text.trim();
-            if (captureActiveRef.current) setCapturePartial(t);   // Ask-Reggie capture in progress
             setLivePartials(prev => ({ ...prev, [userId]: { name: myName, text: t } }));
             channelRef.current?.send({ type: "broadcast", event: "transcript_partial", payload: { speakerId: userId, name: myName, text: t } }).catch(() => {});
           },
@@ -2542,17 +2502,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             transcriptRef.current?.add(u);
             setLivePartials(prev => { if (!(userId in prev)) return prev; const n = { ...prev }; delete n[userId]; return n; });
             channelRef.current?.send({ type: "broadcast", event: "transcript", payload: u }).catch(() => {});
-            // Ask-Reggie capture: this segment is part of the question, not a room summon.
-            if (captureActiveRef.current) {
-              captureTextRef.current += (captureTextRef.current ? " " : "") + t;
-              setCaptureText(captureTextRef.current);
-              setCapturePartial("");
-            } else {
-              // Spoken summon: "hey Reggie, …" → ask the AI (the driver answers).
-              const ask = parseWakeWord(t);
-              if (ask !== null) requestAi(ask, myName);
-              else onHumanTurn(t);   // advance a solve loop, or maybe chime in proactively
-            }
+            // The wake word IS how you talk to Reggie now: "hey Reggie, …" summons the AI.
+            // Everything else is human conversation — never answered turn-by-turn (it would
+            // talk over the room and bill an LLM call per sentence).
+            const ask = parseWakeWord(t);
+            if (ask !== null) requestAi(ask, myName);
+            else onHumanTurn(t);   // advance a solve loop, or maybe chime in proactively
           },
           onError: () => {},   // transcript just goes quiet; voice itself is unaffected
         });
@@ -3427,33 +3382,6 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <RemoteAudio key={id} stream={stream} muted={!speakerOn} />
         ))}
 
-        {/* Ask-Reggie capture popup — makes it unmistakable that your voice is being taken
-            as a question, with a live transcript and an explicit Submit. */}
-        {captureMode && (
-          <div style={{ position: "fixed", inset: 0, zIndex: 1400, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(6,8,14,0.55)", backdropFilter: "blur(3px)" }}>
-            <div style={{ width: "min(440px, 92vw)", background: "rgba(18,20,28,0.98)", border: "1px solid rgba(169,182,255,0.35)", borderRadius: 18, padding: 22, boxShadow: "0 12px 48px rgba(0,0,0,0.6)" }}>
-              <style>{`@keyframes rgMicPulse{0%,100%{box-shadow:0 0 0 0 rgba(169,182,255,0.5)}50%{box-shadow:0 0 0 14px rgba(169,182,255,0)}}`}</style>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                <div style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(169,182,255,0.18)", border: "1px solid rgba(169,182,255,0.5)", display: "flex", alignItems: "center", justifyContent: "center", color: "#C7D0FF", animation: "rgMicPulse 1.6s ease-in-out infinite", flexShrink: 0 }}>
-                  <Mic size={19} strokeWidth={2.3} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--text-primary)" }}>Listening to your question…</div>
-                  <div style={{ fontSize: 11.5, color: "var(--text-dim)" }}>Speak, then hit Submit. Reggie hears only this.</div>
-                </div>
-              </div>
-              <div style={{ minHeight: 64, maxHeight: 160, overflowY: "auto", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, lineHeight: 1.5, color: "var(--text-primary)" }}>
-                {captureText ? <span>{captureText} </span> : null}
-                {capturePartial ? <span style={{ color: "var(--text-dim)", fontStyle: "italic" }}>{capturePartial}</span> : null}
-                {!captureText && !capturePartial && <span style={{ color: "var(--text-dim)" }}>{isStreamingSTT() ? "Your words will appear here as you speak…" : "Voice capture needs streaming STT."}</span>}
-              </div>
-              <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                <button onClick={() => stopCapture(false)} style={{ flex: 1, padding: "10px", borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", color: "var(--text-secondary)" }}>Cancel</button>
-                <button onClick={() => stopCapture(true)} disabled={!captureText.trim()} style={{ flex: 2, padding: "10px", borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: captureText.trim() ? "pointer" : "default", fontFamily: "inherit", color: "#08131b", border: "1px solid rgba(127,224,160,0.55)", background: "linear-gradient(135deg, #7fe0a0, #A9B6FF)", opacity: captureText.trim() ? 1 : 0.5 }}>Submit to Reggie →</button>
-              </div>
-            </div>
-          </div>
-        )}
         <div style={{ display: "grid", gridTemplateColumns: focusMode ? "1fr" : (leftBarOpen ? "280px 1fr 320px" : "1fr 320px"), gap: 22, alignItems: "stretch", flex: 1, minHeight: 0 }}>
 
           {/* LEFT — room chat, always docked. The top-bar Chat button toggles this whole
@@ -3913,44 +3841,61 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   animation: "rvJoinPulse 2.2s ease-in-out infinite",
                 }}><Mic size={17} strokeWidth={2.4} />Join voice chat</button>
               ) : (
-                <div style={{ display: "flex", gap: 7, alignItems: "stretch" }}>
-                  <button onClick={toggleMic} title={micMuted ? "Unmute your mic" : "Mute your mic"} style={{
-                    display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 13px", borderRadius: 11, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                <div style={{ display: "flex", gap: 7, alignItems: "stretch", flexWrap: "wrap" }}>
+                  <button onClick={toggleMic} title={micMuted ? "Unmute your mic — Reggie answers when you say \"hey Reggie\"" : "Mute your mic — the room and Reggie stop hearing you"} style={{
+                    flex: "1 1 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 13px", borderRadius: 11, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
                     background: micMuted ? "rgba(239,68,68,0.16)" : "rgba(var(--teal-rgb),0.2)",
                     border: `1px solid ${micMuted ? "rgba(239,68,68,0.5)" : "rgba(var(--teal-rgb),0.55)"}`,
                     color: micMuted ? "#f87171" : "#DCE3FF" }}>
                     {micMuted ? <MicOff size={16} /> : <Mic size={16} />}{micMuted ? "Muted" : "Live"}
                   </button>
-                  <button onClick={toggleSpeaker} title={speakerOn ? "Mute the room (stop hearing others)" : "Unmute the room"} style={{
+                  {/* Room speaker — PEER audio only. Reggie's voice has its own control. */}
+                  <button onClick={toggleSpeaker}
+                    aria-label={speakerOn ? "Mute your teammates' audio (Reggie's voice is a separate control)" : "Unmute your teammates' audio"}
+                    title={speakerOn ? "Mute the room (stop hearing your teammates)" : "Unmute the room (hear your teammates)"} style={{
                     display: "inline-flex", alignItems: "center", justifyContent: "center", width: 40, borderRadius: 11, cursor: "pointer", fontFamily: "inherit",
                     background: speakerOn ? "rgba(255,255,255,0.07)" : "rgba(239,68,68,0.16)",
                     border: `1px solid ${speakerOn ? "rgba(255,255,255,0.16)" : "rgba(239,68,68,0.5)"}`,
                     color: speakerOn ? "var(--text-primary)" : "#f87171" }}>
                     {speakerOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
                   </button>
-                  {captureMode ? (
-                    <div style={{ display: "flex", gap: 7, flex: 1 }}>
-                      <button onClick={() => stopCapture(false)} style={{ flex: 1, borderRadius: 11, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", color: "var(--text-dim)" }}>Cancel</button>
-                      <button onClick={() => stopCapture(true)} style={{ flex: 1, borderRadius: 11, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: "rgba(127,224,160,0.18)", border: "1px solid rgba(127,224,160,0.5)", color: "#7fe0a0" }}>Submit →</button>
-                    </div>
-                  ) : (
-                    <>
-                      <button onClick={startCapture} disabled={aiThinking} title="Ask Reggie a question — tap, speak, then submit" style={{
-                        flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 10px", borderRadius: 11, fontSize: 12.5, fontWeight: 700, cursor: aiThinking ? "default" : "pointer", fontFamily: "inherit",
-                        background: "rgba(169,182,255,0.16)", border: "1px solid rgba(169,182,255,0.4)", color: "#C7D0FF", opacity: aiThinking ? 0.5 : 1 }}>
-                        <Sparkles size={14} />Ask Reggie
-                      </button>
-                      <button onClick={toggleProactive} title={proactiveOn ? "Reggie chimes in when someone's stuck — click to turn off" : "Let Reggie chime in on its own when someone seems stuck"} style={{
-                        display: "inline-flex", alignItems: "center", gap: 4, padding: "9px 11px", borderRadius: 11, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-                        background: proactiveOn ? "rgba(127,224,160,0.16)" : "rgba(255,255,255,0.05)",
-                        border: `1px solid ${proactiveOn ? "rgba(127,224,160,0.45)" : "rgba(255,255,255,0.12)"}`,
-                        color: proactiveOn ? "#7fe0a0" : "var(--text-dim)" }}>
-                        <Zap size={13} />{proactiveOn ? "On" : "Auto"}
-                      </button>
-                    </>
-                  )}
+                  <button onClick={toggleReggieVoice}
+                    aria-label={reggieVoiceOn ? "Mute Reggie's voice — replies still appear as text" : "Unmute Reggie's voice — replies are spoken again"}
+                    title={reggieVoiceOn ? "Mute Reggie's voice — replies still appear as text" : "Unmute Reggie's voice — replies are spoken again"} style={{
+                    display: "inline-flex", alignItems: "center", gap: 5, padding: "9px 10px", borderRadius: 11, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                    background: reggieVoiceOn ? "rgba(169,182,255,0.16)" : "rgba(239,68,68,0.16)",
+                    border: `1px solid ${reggieVoiceOn ? "rgba(169,182,255,0.4)" : "rgba(239,68,68,0.5)"}`,
+                    color: reggieVoiceOn ? "#C7D0FF" : "#f87171" }}>
+                    {reggieVoiceOn ? <Volume2 size={14} /> : <VolumeX size={14} />}Reggie
+                  </button>
+                  <button onClick={toggleProactive} title={proactiveOn ? "Reggie chimes in when someone's stuck — click to turn off" : "Let Reggie chime in on its own when someone seems stuck"} style={{
+                    display: "inline-flex", alignItems: "center", gap: 4, padding: "9px 11px", borderRadius: 11, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                    background: proactiveOn ? "rgba(127,224,160,0.16)" : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${proactiveOn ? "rgba(127,224,160,0.45)" : "rgba(255,255,255,0.12)"}`,
+                    color: proactiveOn ? "#7fe0a0" : "var(--text-dim)" }}>
+                    <Zap size={13} />{proactiveOn ? "On" : "Auto"}
+                  </button>
                 </div>
               )}
+              {/* The mic IS the ask now, so the mic's state has to say what Reggie can hear.
+                  Without streaming STT there's no wake word at all — don't claim otherwise. */}
+              {voiceLive && (() => {
+                const hint = micMuted
+                  ? { text: "Mic muted — Reggie can't hear you", fg: "#f87171", bg: "rgba(239,68,68,0.10)", edge: "rgba(239,68,68,0.30)", muted: true }
+                  : !isStreamingSTT()
+                  ? { text: "Voice asks are off — type to Reggie above", fg: "var(--text-dim)", bg: "rgba(255,255,255,0.04)", edge: "rgba(255,255,255,0.12)", muted: true }
+                  : { text: "Reggie is listening — say “hey Reggie”", fg: "#C7D0FF", bg: "rgba(169,182,255,0.12)", edge: "rgba(169,182,255,0.34)", muted: false };
+                return (
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 6, marginTop: 8, padding: "5px 10px", borderRadius: 999,
+                    fontSize: 11, fontWeight: 600, lineHeight: 1.35,
+                    background: hint.bg, border: `1px solid ${hint.edge}`, color: hint.fg,
+                  }}>
+                    {hint.muted ? <MicOff size={12} style={{ flexShrink: 0 }} /> : <Sparkles size={12} style={{ flexShrink: 0 }} />}
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hint.text}</span>
+                  </div>
+                );
+              })()}
               {voiceError && <p style={{ fontSize: 11, color: "#f87171", margin: "8px 0 0", lineHeight: 1.4 }}>{voiceError}</p>}
               {!voiceLive && members.length <= 1 && room.join_code && (
                 <p style={{ fontSize: 11, color: "var(--text-dim)", margin: "8px 0 0", textAlign: "center" }}>You're the first one here — share code <b style={{ color: "#DCE3FF", letterSpacing: 1 }}>{room.join_code}</b> via the ⋯ menu.</p>
