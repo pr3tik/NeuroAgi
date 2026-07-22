@@ -452,13 +452,6 @@ function AddNewCard({ onClick, isMobile = false }: { onClick: () => void; isMobi
       <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.6)", textAlign: "center", margin: 0 }}>
         Import from Canvas or add manually
       </p>
-      <span style={{
-        border: "1px solid rgba(255,255,255,0.05)", borderRadius: "9999px",
-        padding: "8px 20px",
-        fontFamily: "var(--font-sans)", fontSize: "14px", color: "#FFFEFF",
-      }}>
-        Add manually
-      </span>
     </div>
   );
 }
