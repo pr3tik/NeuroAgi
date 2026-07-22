@@ -793,6 +793,14 @@ export default function Canvas() {
         onRefresh={refreshFromSupabase}
       />
 
+      {/* Announcements — surfaced at the top of the page, right beneath the header
+          (moved up from below the course grid). */}
+      {announcements?.length > 0 && (
+        <div style={{ marginTop: "24px", marginBottom: "40px" }}>
+          <AnnouncementsSection announcements={announcements} />
+        </div>
+      )}
+
       {/* Course Library — when connected there's no hero above, so the section moves up
           and carries the sync status itself (badge + refresh in the header's right slot). */}
       <div style={{ marginTop: canvasToken ? 0 : "80px" }}>
@@ -870,13 +878,6 @@ export default function Canvas() {
           </p>
         )}
       </div>
-
-      {/* Announcements */}
-      {announcements?.length > 0 && (
-        <div style={{ marginTop: "80px" }}>
-          <AnnouncementsSection announcements={announcements} />
-        </div>
-      )}
 
       {/* Past courses (preserved functionality) */}
       {(pastCourses?.length ?? 0) > 0 && (
