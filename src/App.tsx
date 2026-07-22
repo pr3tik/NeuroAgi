@@ -77,7 +77,9 @@ const SHELL_STYLES = `
   .app-header {
     display:         flex;
     align-items:     center;
-    justify-content: space-between;
+    /* Page label removed from all screens — only the right-side token/bell cluster
+       remains, so anchor it to the end instead of space-between. */
+    justify-content: flex-end;
     padding:         52px 22px 0;
     transition:      color 0.4s var(--ease-apple);
   }
@@ -998,9 +1000,7 @@ export default function App() {
         }}
       >
         <header className="app-header">
-          <span className="app-page-label">
-            {LABEL[currentPage]}
-          </span>
+          {/* Top-left page label intentionally removed from all screens. */}
           {/* ── Header cluster: token status + notification bell ───────────── */}
           {/* Single intentional unit — consistent height (32px), same border
               treatment, token pill + hairline divider + bell circle. */}

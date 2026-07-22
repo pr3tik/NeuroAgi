@@ -859,7 +859,7 @@ const makeStyles = (C: ThemeColors) => StyleSheet.create({
     backgroundColor: C.scheme === "light" ? C.accent : "rgba(255,255,255,0.85)", borderRadius: RADIUS_BTN,
     paddingVertical: 9, paddingHorizontal: 18,
   },
-  studyNowText: { fontWeight: "600", fontSize: 13, color: C.scheme === "light" ? "#FFFFFF" : "#111" },
+  studyNowText: { fontWeight: "600", fontSize: 13, color: C.scheme === "light" ? "#10241A" : "#111" },
   reviewDueBtn: {
     flexDirection: "row", alignItems: "center", gap: 8,
     borderRadius: RADIUS_BTN, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 14,
@@ -985,7 +985,7 @@ const makeStyles = (C: ThemeColors) => StyleSheet.create({
     width: "100%", backgroundColor: C.scheme === "light" ? C.accent : "rgba(255,255,255,0.85)", borderRadius: RADIUS_BTN,
     paddingVertical: 14, alignItems: "center", marginBottom: 12,
   },
-  doneBtnText: { fontWeight: "600", fontSize: 15, color: C.scheme === "light" ? "#FFFFFF" : "#111" },
+  doneBtnText: { fontWeight: "600", fontSize: 15, color: C.scheme === "light" ? "#10241A" : "#111" },
   retryBtn: {
     width: "100%", backgroundColor: C.surfaceTranslucent, borderWidth: 1,
     borderColor: C.border, borderRadius: RADIUS_BTN, paddingVertical: 14, alignItems: "center",

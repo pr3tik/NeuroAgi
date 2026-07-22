@@ -408,7 +408,7 @@ const makeStyles = (C: ThemeColors) => StyleSheet.create({
 
   // Generate Draft — web: accent bg, #111 text, radius-btn 12, padding 12/24
   generateBtn:    { alignSelf: "flex-start", backgroundColor: C.scheme === "light" ? C.accent : TOKENS.accent, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24 },
-  generateBtnText:{ fontSize: 14, fontWeight: "600", color: C.scheme === "light" ? "#FFFFFF" : C.bg },
+  generateBtnText:{ fontSize: 14, fontWeight: "600", color: C.scheme === "light" ? "#10241A" : C.bg },
   generatingText: { fontSize: 13, color: C.textDim, letterSpacing: 0.3 },
   draftErrorText: { fontSize: 13, color: TOKENS.urgentText, marginBottom: 12 },
 

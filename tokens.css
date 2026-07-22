@@ -16,6 +16,11 @@
   --color-border-strong:  rgba(255, 255, 255, 0.14);
   --color-accent:         rgba(255, 255, 255, 0.85);
 
+  /* Reggie (NeuralRing) floating chat panel — a solid elevated surface, darker than the
+     page so it reads as a raised window. Theme-aware so it tracks light mode instead of
+     staying near-black; the panel's inner white-alpha surfaces/text read on both grounds. */
+  --reggie-panel:         rgba(16, 16, 16, 0.96);
+
   /* Text scale */
   --text-primary:   #F5F5F5;
   /* Contrast lifted (was .45/.25/.35) so secondary/tertiary text stays legible on glass — the old
@@ -136,6 +141,7 @@
   --color-border:         rgba(255, 255, 255, 0.22);
   --color-border-strong:  rgba(255, 255, 255, 0.34);
   --color-accent:         rgb(175, 190, 255);
+  --reggie-panel:         rgba(35, 42, 110, 0.94);   /* deep periwinkle-indigo glass, elevated over the blue ground */
 
   --text-primary:   #F4F6FF;
   --text-secondary: rgba(255, 255, 255, 0.74);

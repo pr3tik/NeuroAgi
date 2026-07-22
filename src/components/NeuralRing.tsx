@@ -30,6 +30,7 @@ import { ActivityDropdown } from "./ActivityReceipt";
 import { createDictation } from "../lib/dictation";
 import { GOLD, CREAM, INK_WARM, GOLD_RGB } from "../lib/theme";
 import ArtifactPanel   from "./ArtifactPanel";
+import ReggieOrb       from "./ReggieOrb";
 import Markdown from 'react-markdown';
 import remarkGfm from "remark-gfm";
 import '../css/markdown.css';
@@ -736,6 +737,16 @@ function clamp(pos) {
   };
 }
 
+// Default bottom-right geometry for the expandable chat window (matches the initial
+// useState). Extracted so nav-change can snap the window back to it, not just the orb.
+function defaultWinGeom() {
+  const vw = typeof window !== "undefined" ? window.innerWidth  : 1024;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+  const width  = Math.min(384, vw - 24);
+  const height = Math.min(580, vh - 96);
+  return { left: vw - width - 16, top: vh - height - 16, width, height };
+}
+
 // Premium voice toggle — pill button with animated waveform (unmuted) or slash (muted)
 const VoiceToggle = ({ muted, onClick, speaking }) => (
   <button
@@ -1264,7 +1275,12 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     };
     draw();
     return () => cancelAnimationFrame(rafRef.current);
-  }, []);
+    // Re-run on page change: NeuralRing returns null on the studyAssistant page (~line 3003),
+    // which UNMOUNTS this canvas. With [] deps the RAF kept drawing to the old detached canvas
+    // after navigating back, so the freshly-mounted orb rendered empty. Re-keying on
+    // currentPage re-captures the live canvas and restarts the loop. (Refs persist, so the
+    // rotation/color lerp continue smoothly across the re-run.)
+  }, [currentPage]);
 
   // ── Voice canvas: DPR-scaled sphere with depth rendering + glow ─────────────
   useEffect(() => {
@@ -1367,7 +1383,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
     };
     drawVoice();
     return () => cancelAnimationFrame(voiceRafRef.current);
-  }, [voiceMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [voiceMode, currentPage]); // eslint-disable-line react-hooks/exhaustive-deps -- currentPage re-captures the canvas after the studyAssistant unmount (same fix as the idle orb)
 
   // Auto-grow the chat input to a 2nd line (capped) as the user types; shrink on clear.
   useEffect(() => {
@@ -1419,14 +1435,19 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
 
   // ── Movable / resizable / maximizable chat window ───────────────────────────
   const [maximized, setMaximized] = useState(false);
-  const [winGeom, setWinGeom] = useState(() => {
-    const vw = typeof window !== "undefined" ? window.innerWidth  : 1024;
-    const vh = typeof window !== "undefined" ? window.innerHeight : 768;
-    const width  = Math.min(384, vw - 24);
-    const height = Math.min(580, vh - 96);
-    return { left: vw - width - 16, top: vh - height - 16, width, height };
-  });
+  const [winGeom, setWinGeom] = useState(defaultWinGeom);
   const winDragRef = useRef<any>(null); // { mode, startX, startY, start:{left,top,width,height} }
+
+  // Snap Reggie back to its home corner on every screen change — both the collapsed orb
+  // and the expandable chat window (un-maximized). Both live in global state that stays
+  // mounted across navigation, so without this they keep whatever spot/size the user last
+  // left them at. Deps are [currentPage] ONLY — adding isDragging would reset the orb
+  // after every drag-release, snapping it out from under the user.
+  useEffect(() => {
+    setPos(defaultPos());
+    setWinGeom(defaultWinGeom());
+    setMaximized(false);
+  }, [currentPage]);
 
   // Pointer move during a move/resize gesture (stable ref so we can remove the listener).
   const onWinPointerMove = useCallback((e: PointerEvent) => {
@@ -2997,7 +3018,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
           position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
           zIndex: 9998, width: "calc(100% - 40px)", maxWidth: "380px",
           padding: "16px 18px", borderRadius: "16px",
-          background: "rgba(16,16,16,0.96)", border: "1px solid rgba(255,255,255,0.12)",
+          background: "var(--reggie-panel)", border: "1px solid rgba(255,255,255,0.12)",
           boxShadow: "0 18px 50px rgba(0,0,0,0.5)",
           backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
           fontFamily: "var(--font-sans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif)",
@@ -3053,7 +3074,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                     borderRadius: 20, border: "1px solid rgba(255,255,255,0.10)",
                     boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
                   }),
-              background: "rgba(16,16,16,0.96)",
+              background: "var(--reggie-panel)",
               backdropFilter: "blur(32px)", WebkitBackdropFilter: "blur(32px)",
               display: "flex", flexDirection: "column",
               fontFamily: "var(--font-sans)",
@@ -3091,7 +3112,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
                 missing, it was clipped off-canvas). */}
             <div style={{ padding: "10px 20px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", rowGap: "8px" }}>
-                <div style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.18), rgba(255,255,255,0.04))", border: "1px solid rgba(255,255,255,0.12)" }} />
+                <ReggieOrb size={30} />
                 <div style={{ minWidth: 0, flex: "1 1 100px", overflow: "hidden" }}>
                   {editingName ? (
                     <input
@@ -3314,7 +3335,7 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", marginRight: 8, display: "flex", flexDirection: "column", gap: "10px" }}>
               {messages.length === 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "40px", gap: "12px" }}>
-                  <div style={{ width: 52, height: 52, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.14), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.10)" }} />
+                  <ReggieOrb size={52} glow />
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", justifyContent: "center", marginTop: "4px" }}>
                     {smartChips.map(chip => (
                       <button

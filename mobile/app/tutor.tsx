@@ -76,7 +76,7 @@ function resolveCourse(text: string, courses: GenCourse[], lastCourseId: any): G
 export default function TutorScreen() {
   const router = useRouter();
   const userId = useUserId();
-  const C = useTheme().colors;                       // full standalone screen → follows the chosen mode
+  const { colors: C, anim } = useTheme();            // full standalone screen → follows the chosen mode
   const styles = useMemo(() => makeStyles(C), [C]);
   const ringColor = isLightBg(C) ? "50,70,105" : "255,255,255";
   const { q } = useLocalSearchParams<{ q?: string }>();
@@ -198,7 +198,7 @@ export default function TutorScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <AmbientBackground colors={C} />
+      <AmbientBackground progress={anim} />
 
       {/* Header */}
       <View style={styles.header}>

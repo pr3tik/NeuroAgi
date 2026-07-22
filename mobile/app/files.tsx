@@ -642,7 +642,7 @@ const makeStyles = (C: ThemeColors) => {
 
   // Add-to-Space modal
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
-  modalSheet:    { borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: "#1c1c1e", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingTop: 10, paddingHorizontal: 22, paddingBottom: 40, maxHeight: "72%" },
+  modalSheet:    { borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: C.scheme === "light" ? "rgba(28,36,92,0.94)" : "#1c1c1e", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingTop: 10, paddingHorizontal: 22, paddingBottom: 40, maxHeight: "72%" },
   modalHandle:   { width: 38, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.18)", alignSelf: "center", marginTop: 8, marginBottom: 20 },
   modalTitle:    { fontWeight: "700", fontSize: 17, color: C.textPrimary, marginBottom: 16 },
   modalFileName: { fontWeight: "400", fontSize: 13, color: C.textDim, marginBottom: 16 },
