@@ -932,7 +932,10 @@ function InputBox({ value, onChange, onKeyDown, onSend, thinking, inputRef, cent
   return (
     <div style={{
       display: "flex",
-      alignItems: "flex-end",
+      // Center the single-line row so the text sits mid-box (the taller 34px send button
+      // was bottom-aligning the ~21px textarea, leaving a gap above the text). The button
+      // pins itself to the bottom via alignSelf so it still anchors low as the textarea grows.
+      alignItems: "center",
       gap: "10px",
       width: centered ? "min(520px, 100%)" : "100%",
       background: "rgba(255,255,255,0.05)",
@@ -972,7 +975,7 @@ function InputBox({ value, onChange, onKeyDown, onSend, thinking, inputRef, cent
         onClick={onSend}
         disabled={!value.trim() || thinking}
         style={{
-          width: 34, height: 34, flexShrink: 0,
+          width: 34, height: 34, flexShrink: 0, alignSelf: "flex-end",
           borderRadius: "10px",
           background: value.trim() && !thinking ? ACCENT : "rgba(var(--teal-rgb), 0.15)",
           border: "none",
