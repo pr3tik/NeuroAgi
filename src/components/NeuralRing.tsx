@@ -762,6 +762,16 @@ function clamp(pos) {
   };
 }
 
+// Default bottom-right geometry for the expandable chat window (matches the initial
+// useState). Extracted so nav-change can snap the window back to it, not just the orb.
+function defaultWinGeom() {
+  const vw = typeof window !== "undefined" ? window.innerWidth  : 1024;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+  const width  = Math.min(384, vw - 24);
+  const height = Math.min(580, vh - 96);
+  return { left: vw - width - 16, top: vh - height - 16, width, height };
+}
+
 // Premium voice toggle — pill button with animated waveform (unmuted) or slash (muted)
 const VoiceToggle = ({ muted, onClick, speaking }) => (
   <button
@@ -1445,14 +1455,19 @@ export default function NeuralRing({ currentPage }: { currentPage?: string } = {
 
   // ── Movable / resizable / maximizable chat window ───────────────────────────
   const [maximized, setMaximized] = useState(false);
-  const [winGeom, setWinGeom] = useState(() => {
-    const vw = typeof window !== "undefined" ? window.innerWidth  : 1024;
-    const vh = typeof window !== "undefined" ? window.innerHeight : 768;
-    const width  = Math.min(384, vw - 24);
-    const height = Math.min(580, vh - 96);
-    return { left: vw - width - 16, top: vh - height - 16, width, height };
-  });
+  const [winGeom, setWinGeom] = useState(defaultWinGeom);
   const winDragRef = useRef<any>(null); // { mode, startX, startY, start:{left,top,width,height} }
+
+  // Snap Reggie back to its home corner on every screen change — both the collapsed orb
+  // and the expandable chat window (un-maximized). Both live in global state that stays
+  // mounted across navigation, so without this they keep whatever spot/size the user last
+  // left them at. Deps are [currentPage] ONLY — adding isDragging would reset the orb
+  // after every drag-release, snapping it out from under the user.
+  useEffect(() => {
+    setPos(defaultPos());
+    setWinGeom(defaultWinGeom());
+    setMaximized(false);
+  }, [currentPage]);
 
   // Pointer move during a move/resize gesture (stable ref so we can remove the listener).
   const onWinPointerMove = useCallback((e: PointerEvent) => {
