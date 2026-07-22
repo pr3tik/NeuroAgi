@@ -26,6 +26,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "../css/markdown.css";
 import { SectionLabel } from "../components/uikit";
+import { ActivityDropdown } from "../components/ActivityReceipt";
 import { tealAlpha } from "../lib/theme";
 
 // Concrete rgba (not var()) — ACCENT also feeds an SVG stroke= presentation
@@ -93,6 +94,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   sources?: { title: string; heading?: string }[];
+  activity?: { label: string; status: string; sources?: { title: string }[] }[]; // work receipt steps (this page's own pipeline)
   system?: boolean; // local-only notice (e.g. "Chat cleared.") — never persisted or sent to Claude
 }
 
@@ -244,7 +246,7 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
-function AssistantBubble({ text, sources }: { text: string; sources?: { title: string; heading?: string }[] }) {
+function AssistantBubble({ text, sources, activity }: { text: string; sources?: { title: string; heading?: string }[]; activity?: any[] }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", marginBottom: "20px" }}>
       {/* Orb indicator */}
@@ -274,7 +276,14 @@ function AssistantBubble({ text, sources }: { text: string; sources?: { title: s
         <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
       </div>
 
-      {sources && sources.length > 0 && (
+      {/* Premium receipt when this turn recorded its steps; flat chips only as the
+          legacy fallback for persisted messages that predate activity capture. */}
+      {activity && activity.length > 0 && (
+        <div style={{ marginTop: "10px" }}>
+          <ActivityDropdown steps={activity} live={false} sources={sources} />
+        </div>
+      )}
+      {!activity && sources && sources.length > 0 && (
         <div style={{ marginTop: "10px" }}>
           <SectionLabel style={{ fontSize: 10, marginBottom: 6 }}>Sources</SectionLabel>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
@@ -431,6 +440,7 @@ export default function StudyAssistant() {
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [liveSteps, setLiveSteps] = useState<any[]>([]); // live work-receipt steps for the in-flight turn
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const isEmpty = messages.length === 0;
@@ -556,16 +566,34 @@ export default function StudyAssistant() {
     if (userId) logMessage(userId, "user", q, convForLog);
     if (convForLog) touchConversation(convForLog);
     setThinking(true);
+    // The work receipt: this pipeline's REAL steps, narrated as they run. Same
+    // component the orb uses — the page just feeds it its own stages.
+    let act: { label: string; status: string; sources?: { title: string }[] }[] = [
+      { label: "searching your materials", status: "running" },
+      { label: "reading your course context", status: "running" },
+    ];
+    setLiveSteps([...act]);
+    const stepDone = (label: string, srcs?: { title: string }[]) => {
+      act = act.map(st => st.label === label ? { ...st, status: "ok", ...(srcs?.length ? { sources: srcs } : {}) } : st);
+      setLiveSteps([...act]);
+    };
 
     try {
       const wantsWhiteboard = WHITEBOARD_INTENT_RE.test(q);
       const wantsRoomChat = ROOM_CHAT_INTENT_RE.test(q);
 
       const [passages, tutorCtx, roomChatRows] = await Promise.all([
-        ragQuery(userId, q),
-        fetchTutorContext(userId, q, userData?.brain_person_id ?? null),
+        ragQuery(userId, q).then(p => {
+          const seen = new Set<string>();
+          const titles = (p ?? []).map((x: any) => ({ title: x.title })).filter((x: any) => x.title && !seen.has(x.title) && seen.add(x.title) !== undefined);
+          stepDone("searching your materials", titles);
+          return p;
+        }),
+        fetchTutorContext(userId, q, userData?.brain_person_id ?? null).then(c => { stepDone("reading your course context"); return c; }),
         (wantsRoomChat && activeRoomId) ? loadRecentMessages(userId, activeRoomId, 10).catch(() => []) : Promise.resolve([]),
       ]);
+      act = [...act, { label: "writing the answer", status: "running" }];
+      setLiveSteps([...act]);
 
       if (tutorCtx.strategyHintId) {
         usedStrategyRef.current = { id: tutorCtx.strategyHintId, kind: tutorCtx.strategyHintKind ?? null };
@@ -630,6 +658,7 @@ export default function StudyAssistant() {
         : priorApiMessages;
 
       const reply = await claudeReply(apiMessages, system);
+      stepDone("writing the answer");
 
       // Dedupe source chips by document (multiple passages often share a title).
       const seen = new Set<string>();
@@ -645,7 +674,7 @@ export default function StudyAssistant() {
             .slice(0, 4)
         : [];
 
-      setMessages(prev => [...prev, { role: "assistant", content: reply, sources }]);
+      setMessages(prev => [...prev, { role: "assistant", content: reply, sources, activity: act }]);
       if (userId) logMessage(userId, "assistant", reply, convForLog);
     } catch {
       const fallback = "Sorry, something went wrong. Please try again.";
@@ -653,6 +682,7 @@ export default function StudyAssistant() {
       if (userId) logMessage(userId, "assistant", fallback, convForLog);
     } finally {
       setThinking(false);
+      setLiveSteps([]);
     }
   }, [userId, userData, thinking, activeRoomId, whiteboardSnapshot, livingMind, impressions]);
 
@@ -884,9 +914,9 @@ export default function StudyAssistant() {
                 ? <SystemNotice key={i} text={m.content} />
                 : m.role === "user"
                   ? <UserBubble key={i} text={m.content} />
-                  : <AssistantBubble key={i} text={m.content} sources={m.sources} />
+                  : <AssistantBubble key={i} text={m.content} sources={m.sources} activity={m.activity} />
             )}
-            {thinking && <ThinkingBubble />}
+            {thinking && (liveSteps.length ? <div style={{ marginBottom: 20 }}><ActivityDropdown steps={liveSteps} live /></div> : <ThinkingBubble />)}
             <div ref={bottomRef} />
             </div>
           </div>
