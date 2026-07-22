@@ -247,6 +247,22 @@ export default async function handler(req: any, res: any) {
       boardRevision: board?.revision ?? null,
     });
 
+    // Board cards (opt-in, group + non-stream only): the client asks for structured
+    // cards it can materialize onto the shared whiteboard. Kept out of the streamed
+    // path on purpose — fence JSON in a token stream would get sentence-chunked into
+    // TTS. The fence sits at the END of the reply and is stripped before returning.
+    const allowCards = scope === "group" && req.body?.allowCards === true && req.body?.stream !== true;
+    const systemFinal = allowCards
+      ? system + `
+
+BOARD CARDS: The room has a big shared whiteboard (3000×1800 units; students see the center region first). If — and only if — placing content on the board would genuinely help (the user asked for it, or you are kicking off a session), append AFTER your reply one fenced block:
+\`\`\`cards
+[{"kind":"note","title":"...","content":"markdown ≤80 words","x":1000,"y":600,"w":460},
+ {"kind":"quiz","title":"...","content":"the question","x":1550,"y":620,"w":480,"quizOptions":["A","B","C","D"],"correctOptionIndex":0,"explanation":"one line"}]
+\`\`\`
+Max 4 cards. Spread x 900–2100, y 450–1250 so cards land in the visible center without stacking. Never mention the fence or the JSON in your prose; for a plain question, no fence at all.`
+      : system;
+
     const messages = [...history, { role: "user", content: message }];
     const metadata = { scope, user_id: userId, room_id: roomId, session_id: session.id, persona: session.persona };
 
@@ -272,7 +288,7 @@ export default async function handler(req: any, res: any) {
 
     const result = await callModel({
       task: "tutor",
-      system,
+      system: systemFinal,
       messages,
       max_tokens: 900,
       // Lifted into prompt_runs columns by the trace sink → BE-12 with no manual write.
@@ -282,6 +298,42 @@ export default async function handler(req: any, res: any) {
     if (!result.ok) {
       console.error("[room-ai] gateway failed:", result.error, result.detail);
       return res.status(result.status >= 400 ? result.status : 502).json({ error: result.error ?? "AI call failed" });
+    }
+
+    // Strip + validate the cards fence. A malformed fence degrades to a plain reply —
+    // never fail the turn over board furniture.
+    let replyContent = result.content;
+    let cards: any[] = [];
+    if (allowCards && typeof replyContent === "string") {
+      const m = replyContent.match(/```cards\s*\n([\s\S]*?)```/);
+      if (m) {
+        replyContent = replyContent.replace(m[0], "").trim();
+        try {
+          const parsed = JSON.parse(m[1]);
+          if (Array.isArray(parsed)) {
+            cards = parsed.slice(0, 4).flatMap((c: any) => {
+              const kind = c?.kind === "quiz" ? "quiz" : "note";
+              const title = String(c?.title ?? "").slice(0, 80).trim();
+              const content = String(c?.content ?? "").slice(0, 1200).trim();
+              if (!title || !content) return [];
+              const card: any = {
+                kind, title, content,
+                x: Math.max(60, Math.min(2500, Number(c?.x) || 1000)),
+                y: Math.max(60, Math.min(1500, Number(c?.y) || 600)),
+                w: Math.max(320, Math.min(640, Number(c?.w) || 460)),
+              };
+              if (kind === "quiz") {
+                const opts = Array.isArray(c?.quizOptions) ? c.quizOptions.slice(0, 6).map((o: any) => String(o).slice(0, 160)) : [];
+                if (opts.length < 2) return [];
+                card.quizOptions = opts;
+                card.correctOptionIndex = Math.max(0, Math.min(opts.length - 1, Number(c?.correctOptionIndex) || 0));
+                if (c?.explanation) card.explanation = String(c.explanation).slice(0, 300);
+              }
+              return [card];
+            });
+          }
+        } catch { cards = []; }
+      }
     }
 
     // Persist the private exchange AFTER a successful answer, so a failed turn does not
@@ -311,7 +363,8 @@ export default async function handler(req: any, res: any) {
       sessionId: session.id,
       persona: session.persona,
       ...(threadId ? { threadId } : {}),
-      message: result.content,
+      message: replyContent,
+      ...(cards.length ? { cards } : {}),
       grounded,
       trace_id: result.trace_id,
     });
