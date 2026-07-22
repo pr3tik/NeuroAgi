@@ -15,6 +15,7 @@ const RAIL_W   = 232;
 // label = full (sidebar), short = compact (bottom bar, falls back to label).
 const ITEMS = {
   work:        { label: "Today" },
+  calendar:    { label: "Calendar" },
   canvas:      { label: "Canvas" },
   study:       { label: "Study" },
   leaderboard: { label: "Leaderboard", short: "Ranks" },
@@ -37,7 +38,7 @@ const DEMO_NAV = import.meta.env.VITE_DEMO_NAV !== "0";
 // reference groups its nav (LEARN / GROW). Same six destinations, now legible as a story:
 // today's landing → learn on my own → my actual coursework → study with others.
 const DEMO_GROUPS: { label: string | null; keys: string[] }[] = [
-  { label: null,         keys: ["work"] },
+  { label: null,         keys: ["work", "calendar"] },
   { label: "Learn",      keys: ["studyAssistant", "study"] },
   { label: "My courses", keys: ["canvas", "files"] },
   { label: "Together",   keys: ["rooms"] },
@@ -69,6 +70,7 @@ function Icon({ name }) {
   const common: React.SVGProps<SVGSVGElement> = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
   switch (name) {
     case "work":        return <svg {...common}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20h14V9.5" /></svg>;
+    case "calendar":    return <svg {...common}><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4" /><path d="M16 3v4" /><path d="M4 11h16" /></svg>;
     case "canvas":      return <svg {...common}><path d="M12 3 21 8l-9 5-9-5 9-5Z" /><path d="M3 12l9 5 9-5" /></svg>;
     case "study":       return <svg {...common}><rect x="3" y="6" width="13" height="12" rx="2" /><path d="M8 4h11a2 2 0 0 1 2 2v9" /></svg>;
     case "leaderboard": return <svg {...common}><path d="M6 20V11" /><path d="M12 20V5" /><path d="M18 20v-6" /></svg>;

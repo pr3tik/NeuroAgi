@@ -40,9 +40,11 @@ const Onboarding   = lazy(() => import("./pages/Onboarding"));
 const Spaces       = lazy(() => import("./pages/Spaces"));
 const Connections  = lazy(() => import("./pages/Connections"));
 const StudyAssistant = lazy(() => import("./pages/StudyAssistant"));
+const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 
 const PAGES = {
   work:        Work,
+  calendar:    CalendarPage,
   canvas:      Canvas,
   assignment:  Assignment,
   study:       Study,
