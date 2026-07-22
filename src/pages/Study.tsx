@@ -1,7 +1,8 @@
 // Study.jsx — Course picker, Flashcards / Study Guide modes.
-// Flashcard study session: fullscreen, one card at a time, 3D flip, swipe-to-judge.
+// The flashcard session is a fullscreen shell around <FlashcardDeck> (flip cards,
+// browse view, CSV/Anki/print export); this file keeps the SM-2 persistence.
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { groq }         from "../api/groq";
 import { useApp }        from "../context/AppContext";
 import { supabase }      from "../api/supabase";
@@ -11,6 +12,7 @@ import { groundingToast } from "../lib/studyGrounding";
 import { cardKey, sm2, GRADE } from "../lib/srs";
 import { calendarDaysUntil } from "../lib/dueDate";
 import { SectionHeader } from "../components/uikit";
+import FlashcardDeck from "../components/FlashcardDeck";
 
 
 const SYSTEM =
@@ -48,18 +50,7 @@ function parseFlashcards(text) {
 }
 
 // ── Fullscreen study session ──────────────────────────────────────────────────
-function StudySession({ cards, onExit, updateUserField, userData, courseId, userId }) {
-  const [idx, setIdx]         = useState(0);
-  const [flipped, setFlipped] = useState(false);
-  const [results, setResults] = useState([]);
-  const [dragX, setDragX]     = useState(0);
-  const [exitDir, setExitDir] = useState(null); // "left" | "right"
-
-  const touchStartX  = useRef(null);
-  const touchStartY  = useRef(null);
-  const isDragMode   = useRef(false);
-  const judgeLock    = useRef(false);
-
+function StudySession({ cards, title, onExit, updateUserField, userData, courseId, userId }) {
   // SRS scheduling state, prefetched once per session and updated locally as the
   // student reviews — avoids a DB round trip before every judge() call. Keyed by
   // cardKey(courseId, question) (see src/lib/srs.ts — stable identity for a card
@@ -141,343 +132,34 @@ function StudySession({ cards, onExit, updateUserField, userData, courseId, user
     return () => clearTimeout(idleTimer.current);
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isDone = idx >= cards.length;
-  const card   = cards[idx];
+  // The deck UI itself lives in FlashcardDeck (flip / browse / export). This wrapper keeps
+  // what the page owns: SM-2 persistence, the idle timeout, and study-time accounting.
+  // onGrade is the only bridge — the component never touches Supabase or srs.ts.
+  const deckCards = useMemo(
+    () => (cards ?? []).map((c) => ({ q: c.question, a: c.answer })),
+    [cards],
+  );
 
-  const judge = useCallback((correct) => {
-    if (judgeLock.current || isDone) return;
-    resetIdle(); // reset idle on every judge action
-    judgeLock.current = true;
-    recordReview(card, correct);
-    setExitDir(correct ? "right" : "left");
-    setTimeout(() => {
-      setResults((r) => [...r, correct]);
-      setIdx((i) => i + 1);
-      setFlipped(false);
-      setDragX(0);
-      setExitDir(null);
-      judgeLock.current = false;
-    }, 280);
-  }, [isDone, resetIdle, recordReview, card]);
-
-  // Keyboard controls: Space = flip, ArrowRight = got it, ArrowLeft = missed
-  useEffect(() => {
-    function handleKey(e) {
-      if (isDone) return;
-      if (e.key === " " || e.code === "Space") {
-        e.preventDefault();
-        if (!flipped && !judgeLock.current) { resetIdle(); setFlipped(true); }
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        if (flipped) judge(true);
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        if (flipped) judge(false);
-      }
-    }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [flipped, isDone, judge, resetIdle]);
-
-  // Touch: tap = flip, horizontal drag (after flip) = judge
-  const onTouchStart = useCallback((e) => {
-    resetIdle();
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
-    isDragMode.current  = false;
-    setDragX(0);
-  }, [resetIdle]);
-
-  const onTouchMove = useCallback((e) => {
-    if (touchStartX.current === null || !flipped) return;
-    const dx = e.touches[0].clientX - touchStartX.current;
-    const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
-    if (Math.abs(dx) > 10 && Math.abs(dx) > dy) {
-      isDragMode.current = true;
-      e.preventDefault();
-      setDragX(dx);
-    }
-  }, [flipped]);
-
-  const onTouchEnd = useCallback((e) => {
-    const endX  = e.changedTouches[0].clientX;
-    const endY  = e.changedTouches[0].clientY;
-    const dx    = endX - (touchStartX.current ?? endX);
-    const dy    = Math.abs(endY - (touchStartY.current ?? endY));
-    touchStartX.current = null;
-    touchStartY.current = null;
-
-    if (isDragMode.current) {
-      isDragMode.current = false;
-      if (Math.abs(dragX) > 70) judge(dragX > 0);
-      else setDragX(0);
-      return;
-    }
-
-    // It's a tap — flip the card
-    if (!flipped && Math.abs(dx) < 12 && dy < 20 && !judgeLock.current) {
-      setFlipped(true);
-    }
-  }, [flipped, dragX, judge]);
-
-  // Card drag tint (only meaningful when flipped)
-  const tintOpacity = Math.min(Math.abs(dragX) / 120, 1);
-  const tintColor   = dragX > 20
-    ? `rgba(52, 199, 89, ${tintOpacity * 0.2})`
-    : dragX < -20
-    ? `rgba(255, 59, 48, ${tintOpacity * 0.18})`
-    : "transparent";
-
-  const dragTransform  = exitDir === "right"
-    ? "translateX(115%) rotate(14deg)"
-    : exitDir === "left"
-    ? "translateX(-115%) rotate(-14deg)"
-    : `translateX(${dragX}px) rotate(${dragX * 0.035}deg)`;
-
-  const dragTransition = exitDir
-    ? "transform 0.28s var(--ease-apple), opacity 0.28s"
-    : isDragMode.current
-    ? "none"
-    : "transform 0.28s var(--ease-apple)";
-
-  // ── Done screen ──────────────────────────────────────────────────────────────
-  if (isDone) {
-    const correct = results.filter(Boolean).length;
-    const pct     = Math.round((correct / cards.length) * 100);
-    return (
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 800,
-        background: "var(--color-bg)", display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", fontFamily: "var(--font-sans)",
-        padding: "32px 28px",
-      }}>
-        <div style={{ textAlign: "center", maxWidth: "320px", width: "100%" }}>
-          <div style={{ fontSize: "60px", fontWeight: "700", color: "var(--text-primary)", letterSpacing: "-2px", marginBottom: "8px" }}>
-            {pct}%
-          </div>
-          <p style={{ color: "var(--text-secondary)", fontSize: "15px", marginBottom: "32px" }}>
-            {correct} of {cards.length} correct
-          </p>
-          <div style={{ display: "flex", gap: "6px", justifyContent: "center", marginBottom: "40px", flexWrap: "wrap" }}>
-            {results.map((r, i) => (
-              <div key={i} style={{
-                width: 10, height: 10, borderRadius: "50%",
-                background: r ? "rgba(52, 199, 89, 0.85)" : "rgba(255, 59, 48, 0.7)",
-              }} />
-            ))}
-          </div>
-          <button
-            onClick={() => saveStudyTime(onExit)}
-            style={{
-              background: "var(--color-accent)", color: "#111", border: "none",
-              borderRadius: "var(--radius-btn)", padding: "14px 32px",
-              fontSize: "15px", fontWeight: "600", cursor: "pointer",
-              fontFamily: "inherit", width: "100%", marginBottom: "12px",
-            }}
-          >
-            Done
-          </button>
-          <button
-            onClick={() => { setIdx(0); setResults([]); setFlipped(false); setDragX(0); }}
-            style={{
-              background: "rgba(255,255,255,0.06)", color: "var(--text-primary)",
-              border: "1px solid var(--color-border)", borderRadius: "var(--radius-btn)",
-              padding: "14px 32px", fontSize: "15px", cursor: "pointer",
-              fontFamily: "inherit", width: "100%",
-            }}
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Active session ───────────────────────────────────────────────────────────
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 800,
-      background: "var(--color-bg)", display: "flex", flexDirection: "column",
-      fontFamily: "var(--font-sans)",
-    }}>
-      {/* Top bar */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "52px 22px 0", flexShrink: 0 }}>
-        <button
-          onClick={() => saveStudyTime(onExit)}
-          style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: "14px", cursor: "pointer", fontFamily: "inherit", padding: 0 }}
-        >
-          ← Exit
-        </button>
-        <span style={{ color: "var(--text-dim)", fontSize: "13px", fontVariantNumeric: "tabular-nums" }}>
-          {idx + 1} / {cards.length}
-        </span>
-      </div>
-
-      {/* Progress bar */}
-      <div style={{ height: 2, background: "rgba(255,255,255,0.06)", margin: "14px 22px 0", borderRadius: 2 }}>
-        <div style={{
-          height: "100%", background: "rgba(255,255,255,0.55)", borderRadius: 2,
-          width: `${(idx / cards.length) * 100}%`,
-          transition: "width 0.3s var(--ease-apple)",
-        }} />
-      </div>
-
-      {/* Swipe hint labels */}
-      <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 28px 0", flexShrink: 0 }}>
-        <span style={{
-          fontSize: "12px", color: "rgba(255, 75, 65, 0.8)", fontWeight: "600",
-          opacity: flipped ? 1 : 0, transition: "opacity 0.22s",
-        }}><X size={12} style={{ verticalAlign: "-2px", marginRight: 3 }} />Missed</span>
-        <span style={{
-          fontSize: "12px", color: "rgba(52, 199, 89, 0.85)", fontWeight: "600",
-          opacity: flipped ? 1 : 0, transition: "opacity 0.22s",
-        }}>Got it<Check size={12} style={{ verticalAlign: "-2px", marginLeft: 3 }} /></span>
-      </div>
-
-      {/* Card area */}
-      <div
-        style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 22px" }}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-      >
-        <div style={{ width: "100%", maxWidth: "400px" }}>
-          {/* Drag/exit wrapper */}
-          <div
-            style={{
-              transform:  dragTransform,
-              transition: dragTransition,
-              opacity:    exitDir ? 0 : 1,
-            }}
-          >
-            {/* 3D flip container — perspective applied here so it scales with card */}
-            <div
-              onClick={() => {
-                if (!flipped && !judgeLock.current && !isDragMode.current) {
-                  resetIdle();
-                  setFlipped(true);
-                }
-              }}
-              style={{
-                position:      "relative",
-                width:         "100%",
-                paddingBottom: "68%",
-                perspective:   "1400px",
-                cursor:        flipped ? "default" : "pointer",
-                touchAction:   "none",
-              }}
-            >
-              <div style={{
-                position:      "absolute",
-                inset:         0,
-                transformStyle: "preserve-3d",
-                transform:     flipped ? "rotateY(180deg)" : "rotateY(0deg)",
-                transition:    "transform 0.42s var(--ease-apple)",
-              }}>
-                {/* Front — question */}
-                <div style={{
-                  position:           "absolute",
-                  inset:              0,
-                  backfaceVisibility: "hidden",
-                  WebkitBackfaceVisibility: "hidden",
-                  background:         "linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.04) 100%)",
-                  border:             "1px solid rgba(255,255,255,0.09)",
-                  borderRadius:       "22px",
-                  display:            "flex",
-                  flexDirection:      "column",
-                  justifyContent:     "center",
-                  padding:            "30px 26px",
-                  boxShadow:          "0 24px 60px rgba(0,0,0,0.45)",
-                }}>
-                  <div style={{
-                    position: "absolute", inset: 0, borderRadius: "22px",
-                    background: tintColor, transition: "background 0.15s", pointerEvents: "none",
-                  }} />
-                  <p style={{ color: "rgba(255,255,255,0.28)", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "14px" }}>
-                    Question
-                  </p>
-                  <p style={{ color: "var(--text-primary)", fontSize: "18px", lineHeight: "1.65", fontWeight: "500" }}>
-                    {card.question}
-                  </p>
-                  <p style={{ color: "rgba(255,255,255,0.2)", fontSize: "12px", marginTop: "22px" }}>
-                    Tap or press Space to reveal
-                  </p>
-                </div>
-
-                {/* Back — answer (pre-rotated 180° so it faces user when container flips) */}
-                <div style={{
-                  position:           "absolute",
-                  inset:              0,
-                  backfaceVisibility: "hidden",
-                  WebkitBackfaceVisibility: "hidden",
-                  transform:          "rotateY(180deg)",
-                  background:         "linear-gradient(135deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 100%)",
-                  border:             "1px solid rgba(255,255,255,0.12)",
-                  borderRadius:       "22px",
-                  display:            "flex",
-                  flexDirection:      "column",
-                  justifyContent:     "center",
-                  padding:            "30px 26px",
-                  boxShadow:          "0 24px 60px rgba(0,0,0,0.45)",
-                }}>
-                  <div style={{
-                    position: "absolute", inset: 0, borderRadius: "22px",
-                    background: tintColor, transition: "background 0.15s", pointerEvents: "none",
-                  }} />
-                  <p style={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "14px" }}>
-                    Answer
-                  </p>
-                  <p style={{ color: "var(--text-primary)", fontSize: "17px", lineHeight: "1.7" }}>
-                    {card.answer}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Judge buttons — slide up after flip */}
-      <div style={{
-        display:     "flex",
-        gap:         "12px",
-        padding:     "0 22px 44px",
-        flexShrink:  0,
-        opacity:     flipped && !exitDir ? 1 : 0,
-        transform:   flipped && !exitDir ? "translateY(0)" : "translateY(12px)",
-        transition:  "opacity 0.25s var(--ease-apple), transform 0.25s var(--ease-apple)",
-        pointerEvents: flipped && !exitDir ? "auto" : "none",
-      }}>
-        <button
-          onClick={() => judge(false)}
-          style={{
-            flex: 1, background: "rgba(255, 59, 48, 0.1)",
-            border: "1px solid rgba(255, 59, 48, 0.22)",
-            borderRadius: "var(--radius-btn)", padding: "16px",
-            color: "rgba(255, 85, 75, 0.9)", fontSize: "15px", fontWeight: "600",
-            cursor: "pointer", fontFamily: "inherit",
-            transition: "background var(--dur-base) var(--ease-apple)",
+    <div
+      onPointerDown={resetIdle}
+      onKeyDownCapture={resetIdle}
+      style={{
+        position: "fixed", inset: 0, zIndex: 800,
+        background: "var(--color-bg)", overflowY: "auto",
+        fontFamily: "var(--font-sans)", padding: "48px 20px 40px",
+      }}
+    >
+      <div style={{ maxWidth: "620px", margin: "0 auto" }}>
+        <FlashcardDeck
+          cards={deckCards}
+          title={title}
+          onGrade={(card, correct) => {
+            resetIdle();
+            recordReview({ question: card.q, answer: card.a }, correct);
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255, 59, 48, 0.18)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255, 59, 48, 0.1)")}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><X size={16} />Missed</span>
-        </button>
-        <button
-          onClick={() => judge(true)}
-          style={{
-            flex: 1, background: "rgba(52, 199, 89, 0.08)",
-            border: "1px solid rgba(52, 199, 89, 0.22)",
-            borderRadius: "var(--radius-btn)", padding: "16px",
-            color: "rgba(72, 210, 110, 0.9)", fontSize: "15px", fontWeight: "600",
-            cursor: "pointer", fontFamily: "inherit",
-            transition: "background var(--dur-base) var(--ease-apple)",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(52, 199, 89, 0.16)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(52, 199, 89, 0.08)")}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Got it<Check size={16} /></span>
-        </button>
+          onExit={() => saveStudyTime(onExit)}
+        />
       </div>
     </div>
   );
@@ -1404,7 +1086,7 @@ export default function Study() {
   };
 
   if (inSession && flashcards.length > 0) {
-    return <StudySession cards={flashcards} onExit={() => setInSession(false)} updateUserField={updateUserField} userData={userData} courseId={getCourseDbId()} userId={userId} />;
+    return <StudySession cards={flashcards} title={course} onExit={() => setInSession(false)} updateUserField={updateUserField} userData={userData} courseId={getCourseDbId()} userId={userId} />;
   }
 
   // No Canvas connected yet
