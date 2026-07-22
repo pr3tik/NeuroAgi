@@ -9,6 +9,7 @@ import { SectionHeader, ObjectCard, MetaLine } from "../components/uikit";
 import { coursesToGpa } from "../lib/gpa";
 import SchoolPrompt from "../components/SchoolPrompt";
 import { deriveNextActions } from "../lib/nextActions";
+import WeekCalendar, { CAL_COLORS } from "../components/WeekCalendar";
 
 
 function formatDue(dateStr) {
@@ -510,40 +511,51 @@ export default function Work() {
                   whiteSpace: "nowrap" as const,
                 }}>{status}</span>}
               />
+              {/* Two-zone widget card (designer spec): left rail = the ranked top-3
+                  (deriveNextActions, unchanged), right = the same items laid out on a
+                  week/month calendar. flexWrap stacks rail above calendar when narrow. */}
               <div style={{
                 background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 16, padding: "6px 8px",
+                borderRadius: 16, display: "flex", flexWrap: "wrap" as const, gap: 0,
               }}>
-                {actions.length === 0 && (
-                  <div style={{ padding: "16px 14px", fontSize: 13.5, color: "var(--text-secondary)" }}>
-                    You're all caught up — nothing needs you right now.
-                  </div>
-                )}
-                {actions.map((a, i) => {
-                  const Icon = ICONS[a.kind] ?? CalendarClock;
-                  const urgent = urgentKind(a.kind);
-                  return (
-                    <div key={a.key} style={{
-                      display: "flex", alignItems: "center", gap: 14, padding: "12px 14px",
-                      borderTop: i > 0 ? "1px solid rgba(255,255,255,0.06)" : "none",
-                    }}>
-                      <Icon size={17} color={urgent ? "rgba(255,100,90,0.85)" : "rgb(var(--teal-rgb))"} style={{ flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ margin: 0, fontSize: 14, fontWeight: 550, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-dim)" }}>{a.detail}</p>
-                      </div>
-                      {a.minutes != null && (
-                        <span style={{ fontSize: 12, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{a.minutes} min</span>
-                      )}
-                      <button onClick={goPage(a.page)} style={{
-                        flexShrink: 0, background: urgent ? "rgba(255,255,255,0.06)" : "rgba(var(--teal-rgb),0.14)",
-                        border: `1px solid ${urgent ? "rgba(255,255,255,0.14)" : "rgba(var(--teal-rgb),0.3)"}`,
-                        color: urgent ? "var(--text-primary)" : "rgb(var(--teal-rgb))",
-                        borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-                      }}>{a.kind === "plan_session" ? "Start with Reggie" : "Open"}</button>
+                <div style={{ flex: "1 1 260px", minWidth: 250, maxWidth: 320, padding: "6px 8px", boxSizing: "border-box" as const }}>
+                  {actions.length === 0 && (
+                    <div style={{ padding: "16px 14px", fontSize: 13.5, color: "var(--text-secondary)" }}>
+                      You're all caught up — nothing needs you right now.
                     </div>
-                  );
-                })}
+                  )}
+                  {actions.map((a, i) => {
+                    const Icon = ICONS[a.kind] ?? CalendarClock;
+                    const urgent = urgentKind(a.kind);
+                    return (
+                      <div key={a.key} style={{
+                        display: "flex", alignItems: "center", gap: 14, padding: "12px 14px",
+                        borderTop: i > 0 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                      }}>
+                        {/* Color dot ties each row to its chips on the calendar — same CAL_COLORS code. */}
+                        <span style={{ width: 6, height: 6, borderRadius: 999, flexShrink: 0, background: `rgba(${CAL_COLORS[a.kind] ?? "var(--teal-rgb)"},0.9)` }} />
+                        <Icon size={17} color={urgent ? "rgba(255,100,90,0.85)" : "rgb(var(--teal-rgb))"} style={{ flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 14, fontWeight: 550, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-dim)" }}>{a.detail}</p>
+                        </div>
+                        {a.minutes != null && (
+                          <span style={{ fontSize: 12, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{a.minutes} min</span>
+                        )}
+                        <button onClick={goPage(a.page)} style={{
+                          flexShrink: 0, background: urgent ? "rgba(255,255,255,0.06)" : "rgba(var(--teal-rgb),0.14)",
+                          border: `1px solid ${urgent ? "rgba(255,255,255,0.14)" : "rgba(var(--teal-rgb),0.3)"}`,
+                          color: urgent ? "var(--text-primary)" : "rgb(var(--teal-rgb))",
+                          borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                        }}>{a.kind === "plan_session" ? "Start with Reggie" : "Open"}</button>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* min(380px, 100%) instead of a hard 380 so sub-400px phones don't overflow. */}
+                <div style={{ flex: "3 1 460px", minWidth: "min(380px, 100%)", borderLeft: "1px solid rgba(255,255,255,0.07)", boxSizing: "border-box" as const }}>
+                  <WeekCalendar assignments={assignments} plan={plan} srsDue={homeExtras.srsDue} now={nowD} />
+                </div>
               </div>
             </div>
           );
