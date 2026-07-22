@@ -511,14 +511,20 @@ export default function Work() {
                   whiteSpace: "nowrap" as const,
                 }}>{status}</span>}
               />
-              {/* Two-zone widget card (designer spec): left rail = the ranked top-3
-                  (deriveNextActions, unchanged), right = the same items laid out on a
-                  week/month calendar. flexWrap stacks rail above calendar when narrow. */}
+              {/* Two-zone widget card (founder feedback: calendar leads): LEFT = the
+                  week/month calendar, big, with room to breathe; RIGHT rail = the ranked
+                  top-3 (deriveNextActions, unchanged). flexWrap stacks calendar above
+                  the rail when narrow. min(480px, 100%) instead of a hard 480 so
+                  sub-500px phones don't overflow. */}
               <div style={{
                 background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.08)",
                 borderRadius: 16, display: "flex", flexWrap: "wrap" as const, gap: 0,
+                padding: "10px 12px", boxSizing: "border-box" as const,
               }}>
-                <div style={{ flex: "1 1 260px", minWidth: 250, maxWidth: 320, padding: "6px 8px", boxSizing: "border-box" as const }}>
+                <div style={{ flex: "3 1 560px", minWidth: "min(480px, 100%)", boxSizing: "border-box" as const }}>
+                  <WeekCalendar assignments={assignments} plan={plan} srsDue={homeExtras.srsDue} now={nowD} />
+                </div>
+                <div style={{ flex: "1 1 240px", minWidth: 240, maxWidth: 320, padding: "6px 8px", boxSizing: "border-box" as const, borderLeft: "1px solid rgba(255,255,255,0.07)" }}>
                   {actions.length === 0 && (
                     <div style={{ padding: "16px 14px", fontSize: 13.5, color: "var(--text-secondary)" }}>
                       You're all caught up — nothing needs you right now.
@@ -557,10 +563,6 @@ export default function Work() {
                       </div>
                     );
                   })}
-                </div>
-                {/* min(380px, 100%) instead of a hard 380 so sub-400px phones don't overflow. */}
-                <div style={{ flex: "3 1 460px", minWidth: "min(380px, 100%)", borderLeft: "1px solid rgba(255,255,255,0.07)", boxSizing: "border-box" as const }}>
-                  <WeekCalendar assignments={assignments} plan={plan} srsDue={homeExtras.srsDue} now={nowD} />
                 </div>
               </div>
             </div>
