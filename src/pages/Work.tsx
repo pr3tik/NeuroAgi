@@ -528,26 +528,32 @@ export default function Work() {
                     const Icon = ICONS[a.kind] ?? CalendarClock;
                     const urgent = urgentKind(a.kind);
                     return (
+                      /* Stacked layout — the rail is ~260-320px wide, too narrow for the
+                         old horizontal row (titles crushed to two characters). Line 1:
+                         dot+icon+title; line 2: detail; line 3: minutes + action. */
                       <div key={a.key} style={{
-                        display: "flex", alignItems: "center", gap: 14, padding: "12px 14px",
+                        display: "flex", flexDirection: "column", gap: 6, padding: "12px 14px",
                         borderTop: i > 0 ? "1px solid rgba(255,255,255,0.06)" : "none",
                       }}>
-                        {/* Color dot ties each row to its chips on the calendar — same CAL_COLORS code. */}
-                        <span style={{ width: 6, height: 6, borderRadius: 999, flexShrink: 0, background: `rgba(${CAL_COLORS[a.kind] ?? "var(--teal-rgb)"},0.9)` }} />
-                        <Icon size={17} color={urgent ? "rgba(255,100,90,0.85)" : "rgb(var(--teal-rgb))"} style={{ flexShrink: 0 }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: 0, fontSize: 14, fontWeight: 550, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-dim)" }}>{a.detail}</p>
+                        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                          {/* Color dot ties each row to its chips on the calendar — same CAL_COLORS code. */}
+                          <span style={{ width: 6, height: 6, borderRadius: 999, flexShrink: 0, background: `rgba(${CAL_COLORS[a.kind] ?? "var(--teal-rgb)"},0.9)` }} />
+                          <Icon size={15} color={urgent ? "rgba(255,100,90,0.85)" : "rgb(var(--teal-rgb))"} style={{ flexShrink: 0 }} />
+                          <p title={a.title} style={{ margin: 0, fontSize: 13.5, fontWeight: 550, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{a.title}</p>
                         </div>
-                        {a.minutes != null && (
-                          <span style={{ fontSize: 12, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{a.minutes} min</span>
-                        )}
-                        <button onClick={goPage(a.page)} style={{
-                          flexShrink: 0, background: urgent ? "rgba(255,255,255,0.06)" : "rgba(var(--teal-rgb),0.14)",
-                          border: `1px solid ${urgent ? "rgba(255,255,255,0.14)" : "rgba(var(--teal-rgb),0.3)"}`,
-                          color: urgent ? "var(--text-primary)" : "rgb(var(--teal-rgb))",
-                          borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-                        }}>{a.kind === "plan_session" ? "Start with Reggie" : "Open"}</button>
+                        <p style={{ margin: 0, paddingLeft: 30, fontSize: 12, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.detail}</p>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 30 }}>
+                          {a.minutes != null && (
+                            <span style={{ fontSize: 12, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{a.minutes} min</span>
+                          )}
+                          <span style={{ flex: 1 }} />
+                          <button onClick={goPage(a.page)} style={{
+                            flexShrink: 0, background: urgent ? "rgba(255,255,255,0.06)" : "rgba(var(--teal-rgb),0.14)",
+                            border: `1px solid ${urgent ? "rgba(255,255,255,0.14)" : "rgba(var(--teal-rgb),0.3)"}`,
+                            color: urgent ? "var(--text-primary)" : "rgb(var(--teal-rgb))",
+                            borderRadius: 9, padding: "6px 13px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                          }}>{a.kind === "plan_session" ? "Start with Reggie" : "Open"}</button>
+                        </div>
                       </div>
                     );
                   })}
