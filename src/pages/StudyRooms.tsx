@@ -301,11 +301,12 @@ export default function StudyRooms() {
 // Lobby
 // ─────────────────────────────────────────────────────────────────────────────
 function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvites = [], onDismissInvite }) {
-  const { userId, userData, courses, studyConfig, setStudyConfig } = useApp();
+  const { userId, userData, courses, assignments, studyConfig, setStudyConfig } = useApp();
   const [rooms,       setRooms]       = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [showCreate,  setShowCreate]  = useState(false);
   const [createInitCourse, setCreateInitCourse] = useState("");
+  const [prefillName, setPrefillName] = useState("");
 
   useEffect(() => {
     if (studyConfig?.action === "create") {
@@ -349,6 +350,45 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
   }
   const studyingFriends = friends.filter(f => friendRoomMap[f.id]);
   const offlineFriends  = friends.filter(f => !friendRoomMap[f.id]);
+
+  // ── "Reggie recommends" — deterministic room suggestions from upcoming Canvas
+  //    work (no model calls): unsubmitted assignments due in the next 7 days,
+  //    soonest first, one per course; a catch-up rec leads when overdue work has
+  //    piled up. Cap 3.
+  const reggieRecs = (() => {
+    const now = Date.now();
+    const weekOut = now + 7 * 24 * 60 * 60 * 1000;
+    const unsubmitted = (assignments || []).filter(
+      (a: any) => a && a.name && a.dueAt && !a.submission?.submittedAt
+    );
+    const upcoming = unsubmitted
+      .filter((a: any) => { const t = new Date(a.dueAt).getTime(); return t >= now && t <= weekOut; })
+      .sort((a: any, b: any) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
+    const overdueCount = unsubmitted.filter((a: any) => new Date(a.dueAt).getTime() < now).length;
+    const recs: { label: string; detail: string; roomName: string }[] = [];
+    if (overdueCount > 3) {
+      recs.push({ label: "Catch-up session", detail: `${overdueCount} overdue to clear`, roomName: "Catch-up sprint" });
+    }
+    const seenCourses = new Set<string>();
+    for (const a of upcoming) {
+      if (recs.length >= 3) break;
+      const courseKey = String(a.courseId ?? "");
+      if (seenCourses.has(courseKey)) continue;
+      seenCourses.add(courseKey);
+      const course = (courses || []).find((x: any) => String(x.dbId ?? x.id) === String(a.courseId));
+      const code = course?.courseCode || "";
+      const title = String(a.name).trim();
+      const shortTitle = title.length > 34 ? `${title.slice(0, 34).trim()}…` : title;
+      let due = "";
+      try { due = new Date(a.dueAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); } catch {}
+      recs.push({
+        label: `${code || "Course"} · ${title}`,
+        detail: `due ${due}`,
+        roomName: code ? `${code} — ${shortTitle}` : shortTitle,
+      });
+    }
+    return recs;
+  })();
 
   async function joinFriendRoom(roomId) {
     let room = rooms.find(r => r.id === roomId);
@@ -460,6 +500,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
       }
 
       setShowCreate(false);
+      setPrefillName("");
       onJoin(room);
     } catch (error) {
       console.error(
@@ -585,6 +626,33 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
           + Create Room
         </button>
       </div>
+
+      {/* ── Reggie recommends — deterministic session suggestions ── */}
+      {reggieRecs.length > 0 && (
+        <div style={{
+          background:"rgba(var(--gold-rgb), 0.04)", border:"1px solid rgba(var(--gold-rgb), 0.18)",
+          borderRadius:"14px", padding:"14px 16px", marginBottom:"18px",
+          backdropFilter:"blur(10px)", WebkitBackdropFilter:"blur(10px)",
+        }}>
+          <p style={{ ...S.sectionLabel, marginBottom:"10px" }}>✦ Reggie recommends</p>
+          <div style={{ display:"flex", flexDirection:"column", gap:"8px" }}>
+            {reggieRecs.map((rec, i) => (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:"10px", background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"12px", padding:"10px 14px" }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ fontSize:"13.5px", fontWeight:"700", color:"var(--text-primary)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{rec.label}</p>
+                  <p style={{ fontSize:"12px", color:"var(--text-dim)" }}>{rec.detail}</p>
+                </div>
+                <button
+                  onClick={() => { setPrefillName(rec.roomName); setShowCreate(true); }}
+                  style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px", borderRadius:"20px", whiteSpace:"nowrap" }}
+                >
+                  Create room →
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Join with code ─────────────────────────────────────── */}
       <div style={{ marginBottom:"6px" }}>
@@ -756,8 +824,9 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
         <CreateRoomModal
           courses={courses}
           onCreate={handleCreate}
-          onClose={() => setShowCreate(false)}
+          onClose={() => { setShowCreate(false); setPrefillName(""); }}
           initialCourseId={createInitCourse}
+          initialName={prefillName}
         />
       )}
     </div>
@@ -875,8 +944,8 @@ function RoomCard({ room, liveCount, joining, pendingStatus, courseLabel, onJoin
 // ─────────────────────────────────────────────────────────────────────────────
 // CreateRoomModal
 // ─────────────────────────────────────────────────────────────────────────────
-function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
-  const [name,     setName]     = useState("");
+function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "", initialName = "" }) {
+  const [name,     setName]     = useState(initialName);
   const [courseId, setCourseId] = useState(initialCourseId);
   const [roomType, setRoomType] = useState("public");
   const [accessFilters, setAccessFilters] = useState<AccessFilters>({});
@@ -2826,6 +2895,27 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   useEffect(() => { if (gsVoiceOn && gsCurContent) gsSpeak(gsCurContent); /* eslint-disable-next-line */ }, [gsCurContent, gsVoiceOn]);
   useEffect(() => () => { try { gsAudioRef.current?.pause(); } catch {} }, []);
 
+  // ── Room-entry proactive advice — Reggie speaks FIRST. Shortly after a student
+  //    enters (the realtime channels need a beat to settle), ask for a proactive
+  //    suggestion; the server grounds it in the student's coursework + room topic.
+  //    At most once per room per browser session; a running guided session skips it
+  //    (its own opener already greets the room).
+  const gsGreetRef = useRef(gs);
+  useEffect(() => { gsGreetRef.current = gs; }, [gs]);
+  useEffect(() => {
+    const greetKey = `fschool_room_greet:${room.id}`;
+    try { if (sessionStorage.getItem(greetKey)) return; } catch {}
+    const t = setTimeout(() => {
+      try { sessionStorage.setItem(greetKey, "1"); } catch {}
+      if (gsGreetRef.current) return; // guided session's opener covers the greeting
+      askReggieText(
+        "A student just entered the study room. In 2-3 sentences, proactively suggest what to work on right now based on their upcoming coursework and this room's topic. Do not put anything on the board.",
+        { silent: true },
+      );
+    }, 4000);
+    return () => clearTimeout(t);
+  }, []); // eslint-disable-line
+
   // ── Flashcards in room — Reggie builds a deck, you review it (flip + rate) ──
   const [fcCards,   setFcCards]   = useState<{ q: string; a: string }[]>([]);
   const [fcIdx,     setFcIdx]     = useState(0);
@@ -3414,7 +3504,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                 <div ref={leftChatEndRef} />
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && chatInput.trim()) sendChatMessage(); }} placeholder="Message the room…" style={{ flex: 1, minWidth: 0, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 10, padding: "8px 11px", fontSize: 12.5, color: "var(--text-primary)", outline: "none", fontFamily: "inherit" }} />
+                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && chatInput.trim()) sendChatMessage(); }} className="gs-topic-input" placeholder="Message the room…" style={{ flex: 1, minWidth: 0, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 10, padding: "8px 11px", fontSize: 12.5, color: "var(--text-primary)", outline: "none", fontFamily: "inherit" }} />
                 <button onClick={() => chatInput.trim() && sendChatMessage()} disabled={chatSending} style={{ background: "rgba(var(--teal-rgb),0.2)", border: "1px solid rgba(var(--teal-rgb),0.4)", borderRadius: 10, padding: "0 12px", color: "#DCE3FF", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5 }}>→</button>
               </div>
           </div>
@@ -3607,7 +3697,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       </div>
                       {gsAskOpen && (
                         <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 10 }}>
-                          <input value={gsAsk} onChange={e => setGsAsk(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsAsk.trim()) gsAskSend(); }} placeholder="Ask Reggie about this step…" autoFocus style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "9px 12px", color: "var(--text-primary)", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                          <input value={gsAsk} onChange={e => setGsAsk(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && gsAsk.trim()) gsAskSend(); }} className="gs-topic-input" placeholder="Ask Reggie about this step…" autoFocus style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "9px 12px", color: "var(--text-primary)", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
                           <button onClick={gsAskSend} disabled={!gsAsk.trim() || gsBusy} style={{ background: "rgba(var(--teal-rgb),0.2)", border: "1px solid rgba(var(--teal-rgb),0.35)", borderRadius: 10, padding: "0 14px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: (!gsAsk.trim() || gsBusy) ? "default" : "pointer", opacity: (!gsAsk.trim() || gsBusy) ? 0.5 : 1, fontFamily: "inherit" }}>Send</button>
                         </div>
                       )}
@@ -3628,7 +3718,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                       <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(150deg, rgba(var(--teal-rgb),0.35), rgba(var(--teal-rgb),0.18))", border: "1px solid rgba(var(--teal-rgb),0.4)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><BookOpen size={26} color="#DCE3FF" /></div>
                       <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 6px" }}>Flashcards</h3>
                       <p style={{ fontSize: 13, color: "var(--text-dim)", margin: "0 0 18px", maxWidth: 340, lineHeight: 1.5 }}>Reggie builds a deck on any topic — grounded in your course materials — and quizzes you.</p>
-                      <input value={fcTopic} onChange={e => setFcTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && fcTopic.trim()) fcGenerate(fcTopic); }} placeholder="Topic to make cards on…" style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
+                      <input value={fcTopic} onChange={e => setFcTopic(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && fcTopic.trim()) fcGenerate(fcTopic); }} className="gs-topic-input" placeholder="Topic to make cards on…" style={{ width: "100%", maxWidth: 380, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", outline: "none", textAlign: "center", marginBottom: 12 }} />
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         <button onClick={() => fcGenerate(fcTopic)} disabled={!fcTopic.trim() || fcBusy} style={{ background: (!fcTopic.trim() || fcBusy) ? "rgba(var(--teal-rgb),0.2)" : "linear-gradient(135deg, rgb(var(--teal-rgb)), #A9B6FF)", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 14, fontWeight: 600, color: "#fff", cursor: (!fcTopic.trim() || fcBusy) ? "default" : "pointer", opacity: (!fcTopic.trim() || fcBusy) ? 0.6 : 1, fontFamily: "inherit", boxShadow: "0 8px 24px rgba(var(--teal-rgb),0.35)" }}>{fcBusy ? "Building deck…" : "Generate deck →"}</button>
                         {room.course_id && <button onClick={fcLoadCourseDeck} disabled={fcBusy} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 18px", fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", cursor: fcBusy ? "default" : "pointer", fontFamily: "inherit" }}>Load my deck</button>}
@@ -3915,6 +4005,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               value={reggieInput}
               onChange={e => setReggieInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askRoomReggie(); } }}
+              className="gs-topic-input"
               placeholder="Ask Reggie…"
               disabled={reggieBusy}
               style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "9px 11px", color: "var(--text, #ECEBF0)", fontSize: 13, fontFamily: "inherit", outline: "none" }}
@@ -4156,6 +4247,7 @@ function GoalPromptModal({ onSet, onSkip }) {
           value={goal}
           onChange={e => setGoal(e.target.value)}
           onKeyDown={e => e.key === "Enter" && goal.trim() && onSet(goal.trim())}
+          className="gs-topic-input"
           placeholder="e.g. Finish CDS151 lab question 3"
           maxLength={80}
           style={S.input}
