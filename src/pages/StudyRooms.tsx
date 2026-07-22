@@ -1257,9 +1257,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const solveIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const solveFollowupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Phase 3 — Whiteboard
-  const [showBoard,          setShowBoard]          = useState(false);  // board is opt-in — guided study leads; open via the Board pill/tab
+  const [showBoard,          setShowBoard]          = useState(true);   // the board IS the room's main stage
   const [strokes,            setStrokes]            = useState<Stroke[]>([]);
-  const [wbTool,             setWbTool]             = useState<Tool>("pen");
+  const [wbTool,             setWbTool]             = useState<Tool>("move"); // hand-first: the board is a space you move through; pen is opt-in
   const [wbStyle,            setWbStyle]            = useState<PenStyle>("normal");
   const [wbColor,            setWbColor]            = useState(PEN_COLORS[2]);
   const [wbPenWidth,         setWbPenWidth]         = useState(PEN_WIDTHS[1]);
@@ -2770,7 +2770,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   useEffect(() => { if (!roomToast) return; const t = setTimeout(() => setRoomToast(null), 6000); return () => clearTimeout(t); }, [roomToast]);
 
   // ── Guided study session (proactive, Reggie-driven) — center-stage tutor flow ──
-  const [centerTab,     setCenterTab]     = useState<"board" | "session" | "flashcards">("session"); // the star leads
+  const [centerTab,     setCenterTab]     = useState<"board" | "session" | "flashcards">("board"); // the infinite board leads; session/flashcards swap in
   const [gs,            setGs]            = useState<null | { mode: "learn" | "assignment" | "exam"; topic: string; steps: { title: string; goal: string; estMin: number }[]; currentIdx: number; status: "planning" | "active" | "done"; startedAt: number }>(null);
   const [gsBusy,        setGsBusy]        = useState(false);
   const [gsBusyLabel,   setGsBusyLabel]   = useState("");
@@ -2979,9 +2979,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       // seeds the board with a goal card + warm-up quiz. Fire-and-forget: only the
       // session starter runs this, and the broadcast/Yjs writes reach everyone.
       askReggieText(
-        `The group just started a ${mode} session on "${t}". In 2-3 sentences, welcome the room and say what matters most about this topic based on the course materials. Then put on the board: one note card titled "🎯 ${t}" summarizing the session goal, and one warm-up quiz card on the topic's most fundamental concept.`,
+        `The group just started a ${mode} session on "${t}". In 2-3 sentences, welcome the room and say what matters most about this topic based on the course materials. Then put on the board: one note card titled "🎯 ${t}" summarizing the session goal, one roadmap note card splitting the session into 2-3 timed phases, and one warm-up quiz card on the topic's most fundamental concept.`,
         { silent: true },
       );
+      // Auto-deck: pre-build topic flashcards so the Flashcards tab is loaded by the
+      // time anyone opens it. Fire-and-forget — a failed deck never blocks the session.
+      if (!fcCards.length) { setFcTopic(t); fcGenerate(t); }
       await gsTeachStep(0, active);
     } catch (err) {
       const steps = normalizeStepMinutes(defaultGsPlan(mode, t));

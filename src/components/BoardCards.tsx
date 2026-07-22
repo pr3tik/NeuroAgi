@@ -69,7 +69,7 @@ export default function BoardCards({
   const moveDrag = (e: React.PointerEvent) => {
     if (!drag) return;
     const p = toBoard(e.clientX, e.clientY);
-    setDrag(d => d && ({ ...d, x: Math.max(0, Math.min(boardW - 80, p.x - d.dx)), y: Math.max(0, Math.min(boardH - 60, p.y - d.dy)) }));
+    setDrag(d => d && ({ ...d, x: Math.max(0, Math.min(boardW - 200, p.x - d.dx)), y: Math.max(0, Math.min(boardH - 140, p.y - d.dy)) }));
   };
   const endDrag = () => {
     if (drag) onMove(drag.id, drag.x, drag.y);
@@ -92,11 +92,11 @@ export default function BoardCards({
               left: `${(pos.x / boardW) * 100}%`,
               top: `${(pos.y / boardH) * 100}%`,
               width: `${(card.w / boardW) * 100}%`,
-              minWidth: 140,
+              minWidth: 260,
               pointerEvents: "auto",
               background: "rgba(20, 22, 38, 0.92)",
               border: `1px solid rgba(${rgb}, 0.45)`,
-              borderRadius: 12,
+              borderRadius: 18,
               boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
               overflow: "hidden",
               fontFamily: "var(--font-sans)",
@@ -109,15 +109,15 @@ export default function BoardCards({
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
               style={{
-                display: "flex", alignItems: "center", gap: 6, padding: "7px 10px",
+                display: "flex", alignItems: "center", gap: 8, padding: "9px 13px",
                 background: `rgba(${rgb}, 0.14)`, borderBottom: `1px solid rgba(${rgb}, 0.25)`,
                 cursor: "grab", touchAction: "none", userSelect: "none",
               }}
             >
               {isReggie
-                ? <Sparkles size={12} color={`rgb(${rgb})`} style={{ flexShrink: 0 }} />
-                : <GripHorizontal size={12} color={`rgba(${rgb}, 0.8)`} style={{ flexShrink: 0 }} />}
-              <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "#EDF0FF", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                ? <Sparkles size={14} color={`rgb(${rgb})`} style={{ flexShrink: 0 }} />
+                : <GripHorizontal size={14} color={`rgba(${rgb}, 0.8)`} style={{ flexShrink: 0 }} />}
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: "#EDF0FF", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {card.title}
               </span>
               <button
@@ -125,15 +125,15 @@ export default function BoardCards({
                 onClick={e => { e.stopPropagation(); onDelete(card.id); }}
                 title="Remove card"
                 style={{ display: "flex", background: "none", border: "none", padding: 2, cursor: "pointer", color: "rgba(255,255,255,0.45)", flexShrink: 0 }}
-              ><X size={12} /></button>
+              ><X size={14} /></button>
             </div>
 
             {/* Body */}
-            <div style={{ padding: "9px 11px", fontSize: 12, lineHeight: 1.5, color: "rgba(237,240,255,0.92)", maxHeight: 260, overflowY: "auto" }} className="markdown-body board-card-md">
+            <div style={{ padding: "11px 14px", fontSize: 13.5, lineHeight: 1.55, color: "rgba(237,240,255,0.92)", maxHeight: 340, overflowY: "auto" }} className="markdown-body board-card-md">
               <Markdown remarkPlugins={[remarkGfm]}>{card.content}</Markdown>
 
               {card.kind === "quiz" && Array.isArray(card.quizOptions) && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
                   {card.quizOptions.map((opt, i) => {
                     const isCorrect = i === card.correctOptionIndex;
                     const isPicked  = i === card.answeredIndex;
@@ -143,8 +143,8 @@ export default function BoardCards({
                         disabled={answered}
                         onClick={() => onAnswer(card.id, i)}
                         style={{
-                          display: "flex", alignItems: "center", gap: 7, textAlign: "left",
-                          padding: "6px 9px", borderRadius: 8, fontSize: 11.5, fontFamily: "inherit",
+                          display: "flex", alignItems: "center", gap: 8, textAlign: "left",
+                          padding: "8px 11px", borderRadius: 10, fontSize: 12.5, fontFamily: "inherit",
                           cursor: answered ? "default" : "pointer",
                           background: answered
                             ? (isCorrect ? "rgba(100,220,130,0.16)" : isPicked ? "rgba(255,100,90,0.14)" : "rgba(255,255,255,0.04)")
@@ -153,13 +153,13 @@ export default function BoardCards({
                           color: "rgba(237,240,255,0.92)",
                         }}
                       >
-                        {answered && isCorrect && <Check size={11} color="rgb(100,220,130)" style={{ flexShrink: 0 }} />}
+                        {answered && isCorrect && <Check size={13} color="rgb(100,220,130)" style={{ flexShrink: 0 }} />}
                         <span>{opt}</span>
                       </button>
                     );
                   })}
                   {answered && (
-                    <p style={{ margin: "4px 0 0", fontSize: 11, color: "rgba(255,255,255,0.55)" }}>
+                    <p style={{ margin: "6px 0 0", fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
                       {card.answeredBy ? `${card.answeredBy} answered. ` : ""}{card.explanation ?? ""}
                     </p>
                   )}
@@ -167,7 +167,7 @@ export default function BoardCards({
               )}
             </div>
 
-            <div style={{ padding: "0 11px 7px", fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase", color: `rgba(${rgb}, 0.75)` }}>
+            <div style={{ padding: "0 14px 8px", fontSize: 10.5, letterSpacing: "0.06em", textTransform: "uppercase", color: `rgba(${rgb}, 0.75)` }}>
               {isReggie ? "✦ Reggie" : card.createdBy}
             </div>
           </div>

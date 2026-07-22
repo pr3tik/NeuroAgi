@@ -20,12 +20,12 @@ import { useEffect, useRef, useState } from "react";
 import type { Point, Stroke, PenStyle } from "../api/whiteboard";
 import BoardCards, { type BoardCard } from "./BoardCards";
 import { uploadWhiteboardImage } from "../api/chat";
-import { Pen, Pencil, Highlighter, Feather, PenTool, Eraser, Circle, Crosshair, Type, Image as ImageIcon, Download, Trash2, MousePointer2, Square, Minus, MoveRight, Shapes, Undo2, Redo2, Grid3x3, X } from "lucide-react";
+import { Pen, Pencil, Highlighter, Feather, PenTool, Eraser, Circle, Crosshair, Type, Image as ImageIcon, Download, Trash2, MousePointer2, Square, Minus, MoveRight, Shapes, Undo2, Redo2, Grid3x3, X, Hand, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
-export const BOARD_W = 1000;
-export const BOARD_H = 600;
+export const BOARD_W = 3000;   // big draggable world — old strokes (pre-3000) live in the top-left region
+export const BOARD_H = 1800;
 
-export type Tool = "pen" | "stroke-erase" | "area-erase" | "laser" | "text" | "select" | "rect" | "circle" | "line" | "arrow";
+export type Tool = "move" | "pen" | "stroke-erase" | "area-erase" | "laser" | "text" | "select" | "rect" | "circle" | "line" | "arrow";
 
 const SHAPE_TOOLS: Tool[] = ["rect", "circle", "line", "arrow"];
 
@@ -354,13 +354,13 @@ export default function Whiteboard({
   const currentRef = useRef<Point[]>([]);
   const [localLaser, setLocalLaser] = useState<{ x: number; y: number } | null>(null);
   const [textInput, setTextInput] = useState<{ x: number; y: number } | null>(null);
-  const [showGrid, setShowGrid]     = useState(false);
+  const [showGrid, setShowGrid]     = useState(true);   // dot grid on by default — reads as an infinite field
   // Compact toolbar by default: one row (core tools + colors + More). The secondary
   // row, extra tools, and per-tool option rows appear only when expanded — the old
   // always-open 3-row toolbar was most of the room's visual bloat.
   const [expanded, setExpanded]     = useState(false);
   const [showHelp, setShowHelp]     = useState(false);
-  const showGridRef = useRef(false);
+  const showGridRef = useRef(true);
   const [imgUploading, setImgUploading] = useState(false);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -383,6 +383,18 @@ export default function Whiteboard({
   //      screen space so the canvas centre is the zoom origin).
   const [zoom, setZoom]   = useState(1);
   const [pan,  setPan]    = useState({ x: 0, y: 0 });
+  // Hand-tool drag state (screen-space). Ref drives the math, state drives the cursor.
+  const handDragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const [handDragging, setHandDragging] = useState(false);
+  // Open on a working view (~2.2×, world center) rather than the tiny full-world
+  // overview — the Overview button in the zoom cluster gets you back out.
+  const didInitViewRef = useRef(false);
+  useEffect(() => {
+    if (didInitViewRef.current) return;
+    didInitViewRef.current = true;
+    zoomRef.current = 1.5;
+    setZoom(1.5);
+  }, []);
   const zoomRef = useRef(1);
   const panRef  = useRef({ x: 0, y: 0 });
   // Keeps refs in sync so pointer-event callbacks never read stale state.
@@ -419,17 +431,14 @@ export default function Whiteboard({
 
     // Optional grid overlay — drawn after BG fill so it sits under all strokes.
     if (showGridRef.current) {
-      const GRID = 50; // board-space pixels between grid lines
+      const GRID = 48; // board-space pixels between dots (Miro/Figma-style field)
       ctx.save();
-      ctx.globalAlpha = 0.12;
-      ctx.strokeStyle = bg === "#ffffff" || bg === "#f4ecd8" || bg === "#d9c9a3" ? "#000" : "#fff";
-      ctx.lineWidth = 0.5;
-      ctx.setLineDash([2, 3]);
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = bg === "#ffffff" || bg === "#f4ecd8" || bg === "#d9c9a3" ? "#3a3f55" : "#cfd4ee";
       for (let x = GRID; x < BOARD_W; x += GRID) {
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, BOARD_H); ctx.stroke();
-      }
-      for (let y = GRID; y < BOARD_H; y += GRID) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(BOARD_W, y); ctx.stroke();
+        for (let y = GRID; y < BOARD_H; y += GRID) {
+          ctx.beginPath(); ctx.arc(x, y, 1.6, 0, Math.PI * 2); ctx.fill();
+        }
       }
       ctx.restore();
     }
@@ -694,7 +703,13 @@ export default function Whiteboard({
     const el = canvasRef.current?.parentElement;
     if (!el) return;
     function onWheel(e: WheelEvent) {
-      if (!e.ctrlKey && !e.metaKey) return;
+      if (!e.ctrlKey && !e.metaKey) {
+        // Plain wheel/trackpad scroll pans the world (Figma-style). Zoom stays on
+        // ctrl/cmd+wheel and pinch.
+        e.preventDefault();
+        setPan(p => { const next = { x: p.x - e.deltaX, y: p.y - e.deltaY }; panRef.current = next; return next; });
+        return;
+      }
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 0.9;
       const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current * factor));
@@ -763,6 +778,14 @@ export default function Whiteboard({
   function onPointerDown(e: React.PointerEvent) {
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+
+    // Hand tool (or middle-drag from any tool): drag the world around instead of
+    // drawing — the Figma/Miro interaction the board leads with.
+    if (tool === "move" || e.button === 1) {
+      handDragRef.current = { sx: e.clientX, sy: e.clientY, ox: panRef.current.x, oy: panRef.current.y };
+      setHandDragging(true);
+      return;
+    }
 
     // Track all active pointers for pinch/pan detection.
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -839,6 +862,15 @@ export default function Whiteboard({
   }
 
   function onPointerMove(e: React.PointerEvent) {
+    // Hand-tool drag: pure screen-space pan, no drawing side effects.
+    if (handDragRef.current) {
+      const d = handDragRef.current;
+      const next = { x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) };
+      panRef.current = next;
+      setPan(next);
+      return;
+    }
+
     // Update tracked position for this pointer.
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -1041,6 +1073,7 @@ export default function Whiteboard({
   finishStrokeRef.current = finishStroke;
 
   function handlePointerUp(e: React.PointerEvent) {
+    if (handDragRef.current) { handDragRef.current = null; setHandDragging(false); return; }
     activePointersRef.current.delete(e.pointerId);
     if (activePointersRef.current.size < 2) {
       pinchStartDistRef.current = null;
@@ -1144,7 +1177,8 @@ export default function Whiteboard({
   }
 
   const cursor =
-    tool === "pen"         ? makeSizeCursor(Math.max(2, Math.round(penWidth  / 2)))
+    tool === "move"        ? (handDragging ? "grabbing" : "grab")
+    : tool === "pen"         ? makeSizeCursor(Math.max(2, Math.round(penWidth  / 2)))
     : tool === "area-erase" ? makeSizeCursor(Math.max(6, Math.round(eraserSize / 3)), "#888", "rgba(180,180,180,0.12)")
     : tool === "stroke-erase" ? "pointer"
     : tool === "laser"        ? "none"
@@ -1176,40 +1210,20 @@ export default function Whiteboard({
 
   return (
     <div style={{
-      border: "1px solid rgba(var(--gold-rgb), 0.2)", borderRadius: "14px",
-      background: "rgba(var(--gold-rgb), 0.03)", overflow: "hidden",
+      overflow: "hidden",
       touchAction: "none", overscrollBehavior: "none",
       height: "100%", display: "flex", flexDirection: "column", minHeight: 0,
     }}>
       <style>{`@keyframes laserFade{to{opacity:0;transform:translate(-50%,-50%) scale(2.5)}}`}</style>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.12)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-          <span style={{ display: "flex", color: "var(--gold)" }}><Pen size={15} /></span>
-          <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--gold)" }}>Whiteboard</span>
-          <span style={{ fontSize: "11px", color: "var(--text-dim)", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
-            clears when everyone leaves
-          </span>
-          {/* Active voice speaker pill — visible while voice is minimised behind the board */}
-          {activeSpeaker && (
-            <span style={{
-              display: "inline-flex", alignItems: "center", gap: "5px",
-              fontSize: "11px", fontWeight: 600,
-              background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)",
-              color: "#f87171", borderRadius: "20px", padding: "2px 9px",
-            }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f87171", flexShrink: 0 }} />
-              {activeSpeaker.split(" ")[0]} speaking
-            </span>
-          )}
-        </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", lineHeight: 1, padding: "0 2px", display: "flex" }}><X size={18} /></button>
-      </div>
-
+      {/* Canvas + overlay — full-bleed: the board IS the center stage; tools float over it */}
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+        <div style={{ position: "absolute", top: 10, left: 12, right: 12, zIndex: 30, display: "flex", flexDirection: "column", alignItems: "center", pointerEvents: "none" }}>
+          <div style={{ pointerEvents: "auto", maxWidth: "100%", background: "rgba(20,22,38,0.88)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 14, padding: "2px 6px", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", boxShadow: "0 10px 30px rgba(0,0,0,0.3)" }}>
       {/* ── Primary tool rail ─────────────────────────────────────────────────
            8 core tools + Shapes group + Undo/Redo.
            Kept short so it never wraps even on a 320px mobile screen. */}
       <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(var(--gold-rgb), 0.08)" }}>
+        <button style={chip(tool === "move")}         onClick={() => onToolChange("move")}         title="Move around the board (drag to pan)"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Hand size={14} />Move</span></button>
         <button style={chip(tool === "pen")}          onClick={() => onToolChange("pen")}          title="Pen"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Pencil size={14} />Pen</span></button>
         <button style={chip(tool === "stroke-erase")} onClick={() => onToolChange("stroke-erase")} title="Tap a line to delete the whole stroke"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Eraser size={14} />Erase</span></button>
         {expanded && (<>
@@ -1263,6 +1277,14 @@ export default function Whiteboard({
           title="Redo (Ctrl+Shift+Z)"
           disabled={!canRedo}
         ><Redo2 size={14} /></button>
+        <span style={{ flex: 1 }} />
+        {activeSpeaker && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171", borderRadius: 20, padding: "2px 9px", flexShrink: 0 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f87171" }} />
+            {activeSpeaker.split(" ")[0]} speaking
+          </span>
+        )}
+        <button onClick={onClose} title="Close board" style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", lineHeight: 1, padding: "0 2px", display: "flex", flexShrink: 0 }}><X size={16} /></button>
         <button
           style={{ ...chip(expanded), marginLeft: 2 }}
           onClick={() => setExpanded(e => !e)}
@@ -1464,9 +1486,22 @@ export default function Whiteboard({
         </div>
       )}
 
-      {/* Canvas + overlay */}
-      <div style={{ padding: "12px 16px", display: "flex", justifyContent: "center", alignItems: "center", flex: 1, minHeight: 0, overflow: "hidden" }}>
-        <div style={{ position: "relative", height: "100%", aspectRatio: `${BOARD_W} / ${BOARD_H}`, maxWidth: "100%", transformOrigin: "center center", transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
+          </div>
+        </div>
+        {/* Zoom cluster — fixed to the viewport corner, outside the world transform */}
+        <div style={{ position: "absolute", right: 22, bottom: 20, zIndex: 30, display: "flex", alignItems: "center", gap: 6, background: "rgba(20,22,38,0.85)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 12, padding: "5px 7px", backdropFilter: "blur(12px)" }}>
+          {[
+            { title: "Zoom out", Icon: ZoomOut,   act: () => { const z = Math.max(MIN_ZOOM, zoomRef.current * 0.8); const r = zoomRef.current ? z / zoomRef.current : 1; zoomRef.current = z; setZoom(z); setPan(p => { const n = { x: p.x * r, y: p.y * r }; panRef.current = n; return n; }); } },
+            { title: "Zoom in",  Icon: ZoomIn,    act: () => { const z = Math.min(MAX_ZOOM, zoomRef.current * 1.25); const r = zoomRef.current ? z / zoomRef.current : 1; zoomRef.current = z; setZoom(z); setPan(p => { const n = { x: p.x * r, y: p.y * r }; panRef.current = n; return n; }); } },
+            { title: "Overview (whole board)", Icon: Maximize2, act: () => { zoomRef.current = 1; setZoom(1); panRef.current = { x: 0, y: 0 }; setPan({ x: 0, y: 0 }); } },
+          ].map(({ title, Icon, act }) => (
+            <button key={title} onClick={act} title={title} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.75)", cursor: "pointer" }}>
+              <Icon size={15} />
+            </button>
+          ))}
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", padding: "0 4px", fontVariantNumeric: "tabular-nums", minWidth: 36, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
+        </div>
+        <div style={{ position: "relative", width: "100%", aspectRatio: `${BOARD_W} / ${BOARD_H}`, flexShrink: 0, transformOrigin: "center center", transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
           <canvas
             ref={canvasRef}
             data-whiteboard-canvas="true"

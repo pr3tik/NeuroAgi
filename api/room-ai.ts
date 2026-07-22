@@ -255,12 +255,12 @@ export default async function handler(req: any, res: any) {
     const systemFinal = allowCards
       ? system + `
 
-BOARD CARDS: The room has a shared whiteboard (1000×600 units). If — and only if — placing content on the board would genuinely help (the user asked for it, or you are kicking off a session), append AFTER your reply one fenced block:
+BOARD CARDS: The room has a big shared whiteboard (3000×1800 units; students see the center region first). If — and only if — placing content on the board would genuinely help (the user asked for it, or you are kicking off a session), append AFTER your reply one fenced block:
 \`\`\`cards
-[{"kind":"note","title":"...","content":"markdown ≤80 words","x":80,"y":60,"w":300},
- {"kind":"quiz","title":"...","content":"the question","x":420,"y":60,"w":320,"quizOptions":["A","B","C","D"],"correctOptionIndex":0,"explanation":"one line"}]
+[{"kind":"note","title":"...","content":"markdown ≤80 words","x":1000,"y":600,"w":460},
+ {"kind":"quiz","title":"...","content":"the question","x":1550,"y":620,"w":480,"quizOptions":["A","B","C","D"],"correctOptionIndex":0,"explanation":"one line"}]
 \`\`\`
-Max 3 cards. Spread x 40–640, y 40–380 so cards don't stack. Never mention the fence or the JSON in your prose; for a plain question, no fence at all.`
+Max 4 cards. Spread x 900–2100, y 450–1250 so cards land in the visible center without stacking. Never mention the fence or the JSON in your prose; for a plain question, no fence at all.`
       : system;
 
     const messages = [...history, { role: "user", content: message }];
@@ -311,16 +311,16 @@ Max 3 cards. Spread x 40–640, y 40–380 so cards don't stack. Never mention t
         try {
           const parsed = JSON.parse(m[1]);
           if (Array.isArray(parsed)) {
-            cards = parsed.slice(0, 3).flatMap((c: any) => {
+            cards = parsed.slice(0, 4).flatMap((c: any) => {
               const kind = c?.kind === "quiz" ? "quiz" : "note";
               const title = String(c?.title ?? "").slice(0, 80).trim();
               const content = String(c?.content ?? "").slice(0, 1200).trim();
               if (!title || !content) return [];
               const card: any = {
                 kind, title, content,
-                x: Math.max(20, Math.min(660, Number(c?.x) || 60)),
-                y: Math.max(20, Math.min(420, Number(c?.y) || 60)),
-                w: Math.max(180, Math.min(380, Number(c?.w) || 300)),
+                x: Math.max(60, Math.min(2500, Number(c?.x) || 1000)),
+                y: Math.max(60, Math.min(1500, Number(c?.y) || 600)),
+                w: Math.max(320, Math.min(640, Number(c?.w) || 460)),
               };
               if (kind === "quiz") {
                 const opts = Array.isArray(c?.quizOptions) ? c.quizOptions.slice(0, 6).map((o: any) => String(o).slice(0, 160)) : [];
