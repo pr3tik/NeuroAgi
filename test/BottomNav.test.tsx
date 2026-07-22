@@ -10,9 +10,9 @@ describe("BottomNav (mobile bar)", () => {
     const onNav = vi.fn();
     render(<BottomNav currentPage="work" onNavigate={onNav} />);
     expect(screen.getByText("Today")).toBeInTheDocument();
-    expect(screen.getByText("Canvas")).toBeInTheDocument();
+    expect(screen.getByText("School")).toBeInTheDocument();
     expect(screen.getByText("Reggie")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Canvas"));
+    fireEvent.click(screen.getByText("School"));
     expect(onNav).toHaveBeenCalledWith("canvas");
   });
 

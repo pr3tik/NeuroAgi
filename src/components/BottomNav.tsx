@@ -16,7 +16,7 @@ const RAIL_W   = 232;
 const ITEMS = {
   work:        { label: "Today" },
   calendar:    { label: "Calendar" },
-  canvas:      { label: "Canvas" },
+  canvas:      { label: "School" },   // renamed from "Canvas" — the page is the student's school hub, not the LMS brand
   study:       { label: "Study" },
   leaderboard: { label: "Leaderboard", short: "Ranks" },
   identity:    { label: "Identity",    short: "You" },

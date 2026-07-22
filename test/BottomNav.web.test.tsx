@@ -13,7 +13,7 @@ beforeEach(() => {
 // The demo nav is the DEFAULT (VITE_DEMO_NAV unset → on): six destinations chaptered
 // by student intent (UI/UX spec v2). Other pages stay routable by key — they're just
 // not nav doors in the demo build (set VITE_DEMO_NAV=0 to restore the full nav).
-const DEMO_LABELS = ["Today", "Reggie", "Study", "Canvas", "Files", "Rooms"];
+const DEMO_LABELS = ["Today", "Reggie", "Study", "School", "Files", "Rooms"];
 
 describe("BottomNav (web sidebar)", () => {
   it("shows the six demo destinations — groups are divider-separated, no label text", () => {

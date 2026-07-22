@@ -213,10 +213,35 @@ export default async function handler(req: any, res: any) {
     // Ground the turn. Both primitives take roomId and assume membership is already
     // verified above — that check is what earns the right to call them. Room sources and
     // the board are SHARED, so both scopes may use them; only the pedagogy layer differs.
-    const [retrieval, board] = await Promise.all([
+    const [retrieval, board, callerAssignments] = await Promise.all([
       searchRoomSources(roomId, message),
       latestBoardContext(roomId),
+      // The caller's synced Canvas schedule. Without it the room tutor concludes it
+      // "can't see" assignments and sends students back to Quercus — the same failure
+      // the full-page tutor had. Best-effort: a failed fetch degrades to no digest.
+      db().select(
+        `assignments?user_id=eq.${userId}&select=title,due_at,submitted_at&order=due_at.asc.nullslast&limit=300`,
+      ).catch(() => [] as any[]),
     ]);
+
+    // Compact schedule digest: overdue summary + the next 14 days, capped.
+    let scheduleDigest: string | null = null;
+    {
+      const rows = (callerAssignments as any[]).filter(r => r?.due_at);
+      const nowT = Date.now();
+      const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      const unsub = rows.filter(r => !r.submitted_at);
+      const overdue = unsub.filter(r => new Date(r.due_at).getTime() < nowT);
+      const upcoming = unsub
+        .filter(r => { const t = new Date(r.due_at).getTime(); return t >= nowT && t - nowT < 14 * 86_400_000; })
+        .slice(0, 15);
+      if (overdue.length || upcoming.length) {
+        scheduleDigest = [
+          overdue.length ? `OVERDUE (${overdue.length}): ${overdue.slice(-5).map(r => `${r.title} (was due ${fmt(r.due_at)})`).join("; ")}${overdue.length > 5 ? "; …" : ""}` : "Nothing overdue.",
+          upcoming.length ? `DUE NEXT 14 DAYS:\n${upcoming.map(r => `- ${r.title} — due ${fmt(r.due_at)}`).join("\n")}` : "Nothing due in the next 14 days.",
+        ].join("\n");
+      }
+    }
 
     const boardText = board?.extract?.texts?.length
       ? board.extract.texts.map((t: any) => t.text).join("\n")
@@ -251,9 +276,18 @@ export default async function handler(req: any, res: any) {
     // cards it can materialize onto the shared whiteboard. Kept out of the streamed
     // path on purpose — fence JSON in a token stream would get sentence-chunked into
     // TTS. The fence sits at the END of the reply and is stripped before returning.
+    // Schedule grounding rides every scope — the room tutor must never claim it lacks
+    // Canvas access or send students off to Quercus; the app IS the Canvas connection.
+    const systemWithSchedule = scheduleDigest
+      ? system + `
+
+CALLER'S LIVE CANVAS SCHEDULE (FschoolAI syncs their Canvas account automatically — this data IS their real account, kept fresh by the app; answer "what's due"-type questions directly from it; never claim you lack Canvas access, never tell them to log into Canvas/Quercus to check):
+${scheduleDigest}`
+      : system;
+
     const allowCards = scope === "group" && req.body?.allowCards === true && req.body?.stream !== true;
     const systemFinal = allowCards
-      ? system + `
+      ? systemWithSchedule + `
 
 BOARD CARDS: The room has a big shared whiteboard (3000×1800 units; students see the center region first). If — and only if — placing content on the board would genuinely help (the user asked for it, or you are kicking off a session), append AFTER your reply one fenced block:
 \`\`\`cards
@@ -261,7 +295,7 @@ BOARD CARDS: The room has a big shared whiteboard (3000×1800 units; students se
  {"kind":"quiz","title":"...","content":"the question","x":1550,"y":620,"w":480,"quizOptions":["A","B","C","D"],"correctOptionIndex":0,"explanation":"one line"}]
 \`\`\`
 Max 4 cards. Spread x 900–2100, y 450–1250 so cards land in the visible center without stacking. Never mention the fence or the JSON in your prose; for a plain question, no fence at all.`
-      : system;
+      : systemWithSchedule;
 
     const messages = [...history, { role: "user", content: message }];
     const metadata = { scope, user_id: userId, room_id: roomId, session_id: session.id, persona: session.persona };
@@ -271,7 +305,7 @@ Max 4 cards. Spread x 900–2100, y 450–1250 so cards land in the visible cent
     // raw SSE straight through, exactly like api/claude.ts. Grounding still runs above; the
     // grounded refs are simply not surfaced on the streamed turn.
     if (scope === "group" && req.body?.stream === true) {
-      const out = await openStream({ task: "tutor", system, messages, max_tokens: 900, metadata });
+      const out = await openStream({ task: "tutor", system: systemWithSchedule, messages, max_tokens: 900, metadata });
       if (!out.ok || !out.stream) {
         return res.status(out.status >= 400 ? out.status : 502).json({ error: out.error ?? "stream open failed", detail: out.detail });
       }
