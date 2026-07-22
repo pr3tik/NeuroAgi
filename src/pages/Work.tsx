@@ -30,6 +30,38 @@ function formatDue(dateStr) {
   };
 }
 
+// ── Importance tiers ──────────────────────────────────────────────────────
+// Color-code each assignment by how important/urgent it is, so the eye lands on
+// what matters first. Overdue work and imminent exams are red; everything else
+// grades down orange → amber → neutral as the deadline gets further out.
+type Tier = "overdue" | "exam" | "today" | "soon" | "week" | "later" | "done";
+
+const TIER_STYLE: Record<Tier, { label: string; bg: string; border: string; color: string; accent: string }> = {
+  overdue: { label: "OVERDUE",   bg: "rgba(255,69,58,0.12)",  border: "rgba(255,105,97,0.55)", color: "#FF938B",              accent: "#FF453A" },
+  exam:    { label: "EXAM",      bg: "rgba(255,69,58,0.12)",  border: "rgba(255,105,97,0.55)", color: "#FF938B",              accent: "#FF453A" },
+  today:   { label: "DUE TODAY", bg: "rgba(255,159,10,0.13)", border: "rgba(255,159,10,0.5)",  color: "#FFC46B",              accent: "#FF9F0A" },
+  soon:    { label: "TOMORROW",  bg: "rgba(255,204,0,0.10)",  border: "rgba(255,214,10,0.42)", color: "#FFE083",              accent: "#FFD60A" },
+  week:    { label: "THIS WEEK", bg: "rgba(52,53,53,0.5)",    border: "rgba(255,255,255,0.08)", color: "#C8C5CB",             accent: "transparent" },
+  later:   { label: "UPCOMING",  bg: "rgba(52,53,53,0.5)",    border: "rgba(255,255,255,0.05)", color: "#9A979D",             accent: "transparent" },
+  done:    { label: "DONE",      bg: "rgba(52,199,89,0.10)",  border: "rgba(52,199,89,0.28)",  color: "rgba(52,199,89,0.95)", accent: "#34C759" },
+};
+
+// An exam/quiz/test is inherently high-stakes — flag it by name (Canvas has no
+// reliable type field on these rows). Word-boundaried so "contest" ≠ "test".
+const EXAM_RE = /\b(exam|midterm|mid-term|final|finals|quiz|test|assessment)\b/i;
+
+function assignmentTier(a: any): Tier {
+  if (a?.submission?.submittedAt) return "done";
+  const d = calendarDaysUntil(a?.dueAt);
+  if (d === null) return "later";
+  if (d < 0) return "overdue";                              // past due, not submitted → red
+  if (EXAM_RE.test(a?.name ?? "") && d <= 7) return "exam"; // exam within the week → red
+  if (d === 0) return "today";
+  if (d === 1) return "soon";
+  if (d <= 7) return "week";
+  return "later";
+}
+
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - +new Date(dateStr);
   const mins = Math.floor(diff / 60_000);
@@ -43,30 +75,23 @@ function formatRelativeTime(dateStr: string): string {
 
 function AssignmentCard({ a, isMobile = false }) {
   const due = formatDue(a.dueAt);
-  const submitted = Boolean(a.submission?.submittedAt);
-  const urgent = due?.urgent ?? false;
 
-  // Desktop badge
-  const badge = submitted
-    ? { text: "DONE",        bg: "rgba(52,199,89,0.1)",  border: "rgba(52,199,89,0.2)",    color: "rgba(52,199,89,0.9)" }
-    : urgent
-    ? { text: "URGENT",      bg: "rgba(52,53,53,0.5)",   border: "#343535",                color: "#C8C5CB" }
-    : { text: "IN PROGRESS", bg: "rgba(52,53,53,0.5)",   border: "rgba(255,255,255,0.05)", color: "#C8C5CB" };
-
-  // Mobile badge — urgent uses Figma red treatment
-  const mobileBadge = urgent
-    ? { text: "URGENT",      bg: "rgba(255,180,171,0.05)", border: "rgba(255,180,171,0.3)", color: "#FFB4AB" }
-    : submitted
-    ? { text: "DONE",        bg: "rgba(52,199,89,0.05)",  border: "rgba(52,199,89,0.2)",   color: "rgba(52,199,89,0.9)" }
-    : { text: "IN PROGRESS", bg: "rgba(52,53,53,0.3)",    border: "rgba(255,255,255,0.05)", color: "#C8C5CB" };
+  // Color-code by importance. One tier drives both badge and the card's left
+  // accent bar, so overdue work and imminent exams jump out first.
+  const tier = assignmentTier(a);
+  const style = TIER_STYLE[tier];
+  const eyeCatch = tier === "overdue" || tier === "exam" || tier === "today";
+  const badge = { text: style.label, bg: style.bg, border: style.border, color: style.color };
+  const mobileBadge = badge;
 
   return (
     <div style={{
       position: "relative",
+      overflow: "hidden",
       padding: isMobile ? "16px" : "20px",
       borderRadius: isMobile ? "12px" : "16px",
       background: "rgba(26,26,30,0.6)",
-      border: "1px solid rgba(255,255,255,0.08)",
+      border: `1px solid ${eyeCatch ? style.border : "rgba(255,255,255,0.08)"}`,
       backdropFilter: "blur(10px)",
       boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.02)",
       display: "flex",
@@ -76,6 +101,14 @@ function AssignmentCard({ a, isMobile = false }) {
       width: "100%",
       boxSizing: "border-box" as const,
     }}>
+      {/* Importance accent bar — draws the eye to overdue work and imminent exams */}
+      {style.accent !== "transparent" && (
+        <div style={{
+          position: "absolute", left: 0, top: 0, bottom: 0,
+          width: isMobile ? "3px" : "4px",
+          background: style.accent,
+        }} />
+      )}
       {/* Left: icon + text */}
       <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "16px" : "20px", flex: 1, minWidth: 0 }}>
         <div style={{
