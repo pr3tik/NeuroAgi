@@ -89,6 +89,7 @@ export default function Header({ page, colors }: { page: PageKey; colors: ThemeC
 
       <NotificationPanel
         visible={panelOpen}
+        colors={colors}
         onClose={() => setPanelOpen(false)}
         onUnreadChange={setUnreadCount}
       />

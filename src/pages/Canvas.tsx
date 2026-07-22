@@ -452,13 +452,107 @@ function AddNewCard({ onClick, isMobile = false }: { onClick: () => void; isMobi
       <p style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.6)", textAlign: "center", margin: 0 }}>
         Import from Canvas or add manually
       </p>
-      <span style={{
-        border: "1px solid rgba(255,255,255,0.05)", borderRadius: "9999px",
-        padding: "8px 20px",
-        fontFamily: "var(--font-sans)", fontSize: "14px", color: "#FFFEFF",
+    </div>
+  );
+}
+
+/* ─── CourseListRow / AddNewRow (list view) ──────────────────
+   Compact horizontal rows for the list (hamburger) toggle — same course data as
+   CourseGridCard, laid out on one line. */
+
+function CourseListRow({ course, assignments, changes, onSeen }: any) {
+  const courseAssignments = (assignments ?? []).filter((a: any) => a.courseId === course.id);
+  const upcoming = courseAssignments.filter(
+    (a: any) => !a.submission?.submittedAt && a.dueAt && new Date(a.dueAt) > new Date()
+  );
+  const missing = courseAssignments.filter((a: any) => a.submission?.missing).length;
+  const code  = course.course_code ?? course.courseCode;
+  const score = course.current_score ?? course.currentScore ?? course.final_score ?? course.finalScore;
+
+  return (
+    <div
+      onClick={() => { if (changes && onSeen) onSeen(course.id); }}
+      style={{
+        display: "flex", alignItems: "center", gap: "16px", padding: "14px 18px",
+        background: CARD_BG, border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px",
+        width: "100%", boxSizing: "border-box" as const, cursor: "default",
+      }}
+    >
+      <div style={{
+        width: "40px", height: "40px", flexShrink: 0,
+        background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center",
       }}>
-        Add manually
-      </span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+          stroke="#C8C5CB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+        </svg>
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <p style={{
+            fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: "15px", color: "#E3E2E2",
+            margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>{course.name}</p>
+          {code && <span style={{
+            flexShrink: 0, padding: "2px 8px",
+            background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.05)",
+            borderRadius: "4px", fontFamily: "var(--font-sans)", fontSize: "9px",
+            letterSpacing: "1px", color: "rgba(200,197,203,0.6)", textTransform: "uppercase",
+          }}>{code}</span>}
+        </div>
+        <p style={{
+          fontFamily: "var(--font-sans)", fontSize: "12px", color: "rgba(200,197,203,0.6)",
+          margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {course.professor ? `Prof. ${course.professor}` : course.semester ?? "Active course"}
+          {upcoming.length > 0 ? ` · ${upcoming.length} due` : " · All caught up"}
+          {missing > 0 ? ` · ${missing} missing` : ""}
+        </p>
+      </div>
+
+      {changes?.newAssignments > 0 && (
+        <span style={{
+          flexShrink: 0, background: "rgba(10,132,255,0.15)", border: "1px solid rgba(90,170,255,0.3)",
+          borderRadius: "9999px", padding: "2px 8px", fontFamily: "var(--font-sans)",
+          fontSize: "10px", color: "rgba(90,170,255,0.95)",
+        }}>{changes.newAssignments} new</span>
+      )}
+      {score != null && (
+        <span style={{
+          flexShrink: 0, fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: "13px",
+          color: "#C8C5CB", fontVariantNumeric: "tabular-nums" as const,
+        }}>{Math.round(score)}%</span>
+      )}
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+        stroke="rgba(200,197,203,0.3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+        <path d="M9 18l6-6-6-6"/>
+      </svg>
+    </div>
+  );
+}
+
+function AddNewRow({ onClick }: { onClick: () => void }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: "12px", padding: "14px 18px",
+        background: "transparent", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "16px",
+        width: "100%", boxSizing: "border-box" as const, cursor: "pointer",
+      }}
+    >
+      <div style={{
+        width: "40px", height: "40px", flexShrink: 0, borderRadius: "10px",
+        background: "rgba(255,255,255,0.03)", display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+          stroke="rgba(200,197,203,0.75)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </div>
+      <span style={{ fontFamily: "var(--font-sans)", fontSize: "14px", color: "#E3E2E2" }}>Add New Course</span>
     </div>
   );
 }
@@ -793,6 +887,14 @@ export default function Canvas() {
         onRefresh={refreshFromSupabase}
       />
 
+      {/* Announcements — surfaced at the top of the page, right beneath the header
+          (moved up from below the course grid). */}
+      {announcements?.length > 0 && (
+        <div style={{ marginTop: "24px", marginBottom: "40px" }}>
+          <AnnouncementsSection announcements={announcements} />
+        </div>
+      )}
+
       {/* Course Library — when connected there's no hero above, so the section moves up
           and carries the sync status itself (badge + refresh in the header's right slot). */}
       <div style={{ marginTop: canvasToken ? 0 : "80px" }}>
@@ -849,20 +951,35 @@ export default function Canvas() {
           </p>
         )}
 
-        {/* Course grid */}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: "20px", width: "100%" }}>
-          {courses.map(c => (
-            <CourseGridCard
-              key={c.id ?? c.course_code ?? c.courseCode}
-              course={c}
-              assignments={assignments}
-              changes={cardChanges?.[String(c.id)]}
-              onSeen={markCardSeen}
-              isMobile={isMobile}
-            />
-          ))}
-          <AddNewCard onClick={() => setShowUpload(true)} isMobile={isMobile} />
-        </div>
+        {/* Courses — grid of tiles (grid view) or compact rows (list/hamburger view) */}
+        {gridView ? (
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: "20px", width: "100%" }}>
+            {courses.map(c => (
+              <CourseGridCard
+                key={c.id ?? c.course_code ?? c.courseCode}
+                course={c}
+                assignments={assignments}
+                changes={cardChanges?.[String(c.id)]}
+                onSeen={markCardSeen}
+                isMobile={isMobile}
+              />
+            ))}
+            <AddNewCard onClick={() => setShowUpload(true)} isMobile={isMobile} />
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px", width: "100%" }}>
+            {courses.map(c => (
+              <CourseListRow
+                key={c.id ?? c.course_code ?? c.courseCode}
+                course={c}
+                assignments={assignments}
+                changes={cardChanges?.[String(c.id)]}
+                onSeen={markCardSeen}
+              />
+            ))}
+            <AddNewRow onClick={() => setShowUpload(true)} />
+          </div>
+        )}
 
         {syncStatus === "syncing" && courses.length === 0 && (
           <p style={{ textAlign: "center", fontFamily: "var(--font-sans)", fontSize: "14px", color: "rgba(200,197,203,0.5)", marginTop: "40px" }}>
@@ -870,13 +987,6 @@ export default function Canvas() {
           </p>
         )}
       </div>
-
-      {/* Announcements */}
-      {announcements?.length > 0 && (
-        <div style={{ marginTop: "80px" }}>
-          <AnnouncementsSection announcements={announcements} />
-        </div>
-      )}
 
       {/* Past courses (preserved functionality) */}
       {(pastCourses?.length ?? 0) > 0 && (

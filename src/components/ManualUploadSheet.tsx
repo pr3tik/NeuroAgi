@@ -4,6 +4,7 @@
 // FEAT: multi-file upload — attach multiple PDFs/images, all merged before Groq parse.
 
 import { useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import { FileText, Image as ImageIcon, Paperclip, X, Check, Sparkles, AlertTriangle } from "lucide-react";
 import { groq } from "../api/groq";
 import { supabase } from "../api/supabase";
@@ -285,7 +286,10 @@ export default function ManualUploadSheet({ onClose, onSave }) {
 
   const anyFailed = Object.values(fileStatuses).some(s => s === "failed");
 
-  return (
+  // Portal to <body> so the fixed overlay is relative to the viewport, not App's
+  // transformed .app-page-transition ancestor (which was clipping the backdrop to the
+  // centered content column — the darkening only covered the middle).
+  return createPortal(
     <div style={S.overlay} onClick={onBackdrop}>
       <div style={S.sheet}>
         <div style={S.handle} />
@@ -496,6 +500,7 @@ export default function ManualUploadSheet({ onClose, onSave }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -359,13 +359,13 @@ export default function GradeGraph({
   const courseKeys = built?.courseKeys ?? PLACEHOLDER_COURSES;
 
   // The plot must stay dark enough for the vivid line colours (esp. the sky-blue
-  // course line) to read — a white panel would swallow them. So even in the white
-  // light mode the chart is an intentional SOLID dark card (like Apple Fitness /
-  // Robinhood charts on a light page), with a soft dark hairline so it lifts off
-  // the white ground. Only the header label above it flips to dark ink.
+  // course line) to read — a bright panel would swallow them. So in light
+  // (periwinkle) mode the chart is an intentional SOLID deep-indigo card that sits a
+  // touch darker than the royal ground, with a light hairline so it still lifts off
+  // the blue. Dark mode keeps its default card.
   const light = colors?.scheme === "light";
   const cardOverride = light
-    ? { backgroundColor: "#1B2036", borderColor: "rgba(0,0,0,0.08)" }
+    ? { backgroundColor: "#1B2036", borderColor: "rgba(255,255,255,0.12)" }
     : null;
 
   return (
