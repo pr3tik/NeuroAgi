@@ -177,6 +177,191 @@ async function loadThreadHistory(threadId: string, limit = 10) {
   }));
 }
 
+// ── Board cards ───────────────────────────────────────────────────────────────────────
+// Reggie can furnish the room's shared whiteboard by appending a ```cards fence to its
+// reply. That fence is MODEL OUTPUT, so everything below treats it as hostile input:
+// an unknown kind degrades to a note, a card with no text is dropped, coordinates are
+// clamped into the board, every string is length-capped, and malformed JSON degrades to
+// a plain reply rather than failing the turn.
+//
+// The load-bearing rule is the `reference` kind. A reference card claims "this real course
+// file matters for what you're doing" — so it may ONLY name a document that came back from
+// retrieval on THIS turn. The server matches the model's `sourceTitle` case-insensitively
+// against the turn's source_refs, rewrites it to the true title, attaches the true
+// document_id, and DROPS anything it cannot match. An invented filename never reaches the
+// client, so the board can never cite a file the room does not have.
+
+/** Minimal shape of a retrieved source (structurally satisfied by RoomSourceRef). */
+export interface CardSourceRef { document_id?: string | null; title?: string | null; [k: string]: any }
+
+export type BoardCardKind = "note" | "quiz" | "guide" | "terms" | "reference";
+export interface BoardCardTerm { term: string; definition: string }
+
+/** A validated card, exactly as it goes over the wire to the client. */
+export interface BoardCardPayload {
+  kind: BoardCardKind;
+  title: string;
+  x: number;
+  y: number;
+  w: number;
+  content?: string;              // markdown body (note/guide); quiz: the question text
+  quizOptions?: string[];        // quiz
+  correctOptionIndex?: number;   // quiz
+  explanation?: string;          // quiz
+  terms?: BoardCardTerm[];       // terms
+  why?: string;                  // reference — one line on why this file matters
+  documentId?: string;           // reference — SERVER-supplied, from the matched source
+  sourceTitle?: string;          // reference — SERVER-supplied, the real title
+}
+
+const CARD_KINDS: BoardCardKind[] = ["note", "quiz", "guide", "terms", "reference"];
+const MAX_CARDS = 4;
+const MAX_TERMS = 8;
+const MAX_QUIZ_OPTIONS = 6;
+const DEFAULT_CARD_W: Record<BoardCardKind, number> = { note: 460, quiz: 480, guide: 560, terms: 420, reference: 420 };
+// A guide carries 2–4 sections, so it gets a bigger body budget than a note.
+const MAX_CARD_CONTENT: Record<BoardCardKind, number> = { note: 1200, quiz: 1200, guide: 2400, terms: 1200, reference: 1200 };
+
+/** Falsy/NaN/0 → the default, then clamp. Matches the original `Number(v) || dflt` semantics. */
+function clampNum(v: any, lo: number, hi: number, dflt: number): number {
+  const n = Number(v);
+  return Math.max(lo, Math.min(hi, Number.isFinite(n) && n !== 0 ? n : dflt));
+}
+function clampStr(v: any, max: number): string {
+  return (v == null ? "" : String(v)).slice(0, max).trim();
+}
+const normTitle = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * Resolve a model-supplied file name to a REAL retrieved source, or null.
+ *
+ * Two exact passes, never a substring/fuzzy match — a loose match would let a
+ * one-character "title" resolve to whatever document happened to be first.
+ *   1. case/whitespace-insensitive equality against a retrieved title
+ *   2. the same, after stripping a trailing " — Heading", because the prompt's source
+ *      list shows passages in "Title — Heading" form and the model sometimes echoes it
+ */
+function resolveSourceRef(sourceTitle: string, sourceRefs: CardSourceRef[]): CardSourceRef | null {
+  if (!sourceTitle || !Array.isArray(sourceRefs) || !sourceRefs.length) return null;
+  const candidates = [normTitle(sourceTitle), normTitle(sourceTitle.split(/\s+[—–-]\s+/)[0] ?? "")].filter(Boolean);
+  for (const cand of candidates) {
+    const hit = sourceRefs.find(r => typeof r?.title === "string" && normTitle(r.title) === cand);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** One card in → zero or one card out. Returning [] is how a bad card is dropped. */
+function validateCard(c: any, sourceRefs: CardSourceRef[]): BoardCardPayload[] {
+  const kind: BoardCardKind = CARD_KINDS.includes(c?.kind) ? c.kind : "note";
+  const title = clampStr(c?.title, 80);
+  if (!title) return [];
+
+  const card: BoardCardPayload = {
+    kind, title,
+    x: clampNum(c?.x, 60, 2500, 1000),
+    y: clampNum(c?.y, 60, 1500, 600),
+    w: clampNum(c?.w, 320, 640, DEFAULT_CARD_W[kind]),
+  };
+
+  if (kind === "terms") {
+    // Validate first, THEN cap — otherwise a half-written entry silently eats one of the
+    // eight slots. The raw pre-slice just bounds the work a runaway generation can cause.
+    const raw = Array.isArray(c?.terms) ? c.terms.slice(0, MAX_TERMS * 4) : [];
+    const terms = raw.flatMap((t: any) => {
+      const term = clampStr(t?.term, 80);
+      const definition = clampStr(t?.definition, 240);
+      return term && definition ? [{ term, definition }] : [];
+    }).slice(0, MAX_TERMS);
+    if (!terms.length) return [];          // a key-terms card with no terms is empty furniture
+    card.terms = terms;
+    const lede = clampStr(c?.content, MAX_CARD_CONTENT[kind]);
+    if (lede) card.content = lede;         // optional one-line intro above the list
+    return [card];
+  }
+
+  if (kind === "reference") {
+    const why = clampStr(c?.why, 200);
+    if (!why) return [];
+    const hit = resolveSourceRef(clampStr(c?.sourceTitle, 200), sourceRefs);
+    if (!hit) return [];                   // ← invented (or unretrieved) file: dropped here
+    card.why = why;
+    card.sourceTitle = clampStr(hit.title, 200);           // the REAL title, canonical casing
+    if (hit.document_id) card.documentId = String(hit.document_id);  // the REAL id, never the model's
+    return [card];
+  }
+
+  const content = clampStr(c?.content, MAX_CARD_CONTENT[kind]);
+  if (!content) return [];
+  card.content = content;
+
+  if (kind === "quiz") {
+    const opts = Array.isArray(c?.quizOptions)
+      ? c.quizOptions.slice(0, MAX_QUIZ_OPTIONS).map((o: any) => String(o).slice(0, 160))
+      : [];
+    if (opts.length < 2) return [];
+    card.quizOptions = opts;
+    card.correctOptionIndex = Math.max(0, Math.min(opts.length - 1, Number(c?.correctOptionIndex) || 0));
+    if (c?.explanation) card.explanation = String(c.explanation).slice(0, 300);
+  }
+  return [card];
+}
+
+/**
+ * Split a model reply into { reply, cards }.
+ *
+ * The fence is stripped from the reply in EVERY outcome — valid, malformed, or empty —
+ * because raw JSON in the transcript (or read aloud by TTS) is worse than no cards.
+ * Pure and exported so test/roomAiCards.test.ts can exercise it without a live turn.
+ */
+export function parseCardsFence(text: any, sourceRefs: CardSourceRef[] = []): { reply: any; cards: BoardCardPayload[] } {
+  if (typeof text !== "string") return { reply: text, cards: [] };
+  const m = text.match(/```cards\s*\n([\s\S]*?)```/);
+  if (!m) return { reply: text, cards: [] };
+
+  const reply = text.replace(m[0], "").trim();
+  let parsed: any;
+  try { parsed = JSON.parse(m[1]); } catch { return { reply, cards: [] }; }
+  if (!Array.isArray(parsed)) return { reply, cards: [] };
+
+  // Validate, THEN cap. Capping first would let one dropped card — say a reference to an
+  // invented filename — cost the room a slot a perfectly good card was going to fill.
+  // The raw pre-slice bounds the work a runaway generation can cause.
+  const cards = parsed.slice(0, MAX_CARDS * 4).flatMap((c: any) => validateCard(c, sourceRefs)).slice(0, MAX_CARDS);
+  return { reply, cards };
+}
+
+/**
+ * The BOARD CARDS prompt block. Exported for tests: the source list it emits is the only
+ * thing telling the model which filenames are real, and it must stay in lockstep with
+ * resolveSourceRef() — anything not listed here gets dropped server-side anyway.
+ */
+export function boardCardsPrompt(sourceRefs: CardSourceRef[] = []): string {
+  const titles = [...new Set((sourceRefs ?? []).map(r => clampStr(r?.title, 200)).filter(Boolean))].slice(0, 8);
+  const refBlock = titles.length
+    ? `COURSE FILES YOU MAY CITE in a "reference" card — copy one of these titles EXACTLY as written. A reference naming anything else is discarded before it reaches the board, so never invent or guess a filename:
+${titles.map(t => `- ${t}`).join("\n")}`
+    : `No course files were retrieved for this turn, so do NOT use the "reference" kind at all.`;
+
+  return `BOARD CARDS: The room has a big shared whiteboard (3000×1800 units; students see the center region first). If — and only if — placing content on the board would genuinely help (the user asked for it, or you are kicking off a session), append AFTER your reply one fenced block:
+\`\`\`cards
+[{"kind":"note","title":"...","content":"markdown ≤80 words","x":1000,"y":600,"w":460}]
+\`\`\`
+Five kinds — pick whichever fit, and mix them freely:
+- note — use this when one short paragraph says it: an idea, a definition, a reminder.
+  {"kind":"note","title":"...","content":"markdown ≤80 words","x":1000,"y":600,"w":460}
+- quiz — use this when you want them to answer rather than read; checks understanding on the spot.
+  {"kind":"quiz","title":"...","content":"the question","x":1550,"y":620,"w":480,"quizOptions":["A","B","C","D"],"correctOptionIndex":0,"explanation":"one line"}
+- guide — use this when the topic needs structure: 2–4 short sections of steps or checkpoints, as markdown headings with bullets.
+  {"kind":"guide","title":"...","content":"## Step 1\\n- ...\\n- ...\\n\\n## Step 2\\n- ...","x":950,"y":480,"w":560}
+- terms — use this when the blocker is vocabulary rather than reasoning; one line per term, max 8.
+  {"kind":"terms","title":"...","terms":[{"term":"...","definition":"one line"}],"x":1700,"y":900,"w":420}
+- reference — use this when the answer already lives in a file this room has; point them at it instead of re-explaining.
+  {"kind":"reference","title":"...","why":"one line on why this file matters right now","sourceTitle":"<an exact title from the list below>","x":1900,"y":1050,"w":420}
+${refBlock}
+Max 4 cards total. Spread x 900–2100, y 450–1250 so cards land in the visible center without stacking. Never mention the fence or the JSON in your prose; for a plain conversational question, no fence at all.`;
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -286,15 +471,10 @@ ${scheduleDigest}`
       : system;
 
     const allowCards = scope === "group" && req.body?.allowCards === true && req.body?.stream !== true;
+    // The retrieved titles ride into the prompt so the model can cite them verbatim; the
+    // same list is what parseCardsFence validates `reference` cards against below.
     const systemFinal = allowCards
-      ? systemWithSchedule + `
-
-BOARD CARDS: The room has a big shared whiteboard (3000×1800 units; students see the center region first). If — and only if — placing content on the board would genuinely help (the user asked for it, or you are kicking off a session), append AFTER your reply one fenced block:
-\`\`\`cards
-[{"kind":"note","title":"...","content":"markdown ≤80 words","x":1000,"y":600,"w":460},
- {"kind":"quiz","title":"...","content":"the question","x":1550,"y":620,"w":480,"quizOptions":["A","B","C","D"],"correctOptionIndex":0,"explanation":"one line"}]
-\`\`\`
-Max 4 cards. Spread x 900–2100, y 450–1250 so cards land in the visible center without stacking. Never mention the fence or the JSON in your prose; for a plain question, no fence at all.`
+      ? systemWithSchedule + "\n\n" + boardCardsPrompt(retrieval.source_refs)
       : systemWithSchedule;
 
     const messages = [...history, { role: "user", content: message }];
@@ -335,40 +515,13 @@ Max 4 cards. Spread x 900–2100, y 450–1250 so cards land in the visible cent
     }
 
     // Strip + validate the cards fence. A malformed fence degrades to a plain reply —
-    // never fail the turn over board furniture.
-    let replyContent = result.content;
-    let cards: any[] = [];
-    if (allowCards && typeof replyContent === "string") {
-      const m = replyContent.match(/```cards\s*\n([\s\S]*?)```/);
-      if (m) {
-        replyContent = replyContent.replace(m[0], "").trim();
-        try {
-          const parsed = JSON.parse(m[1]);
-          if (Array.isArray(parsed)) {
-            cards = parsed.slice(0, 4).flatMap((c: any) => {
-              const kind = c?.kind === "quiz" ? "quiz" : "note";
-              const title = String(c?.title ?? "").slice(0, 80).trim();
-              const content = String(c?.content ?? "").slice(0, 1200).trim();
-              if (!title || !content) return [];
-              const card: any = {
-                kind, title, content,
-                x: Math.max(60, Math.min(2500, Number(c?.x) || 1000)),
-                y: Math.max(60, Math.min(1500, Number(c?.y) || 600)),
-                w: Math.max(320, Math.min(640, Number(c?.w) || 460)),
-              };
-              if (kind === "quiz") {
-                const opts = Array.isArray(c?.quizOptions) ? c.quizOptions.slice(0, 6).map((o: any) => String(o).slice(0, 160)) : [];
-                if (opts.length < 2) return [];
-                card.quizOptions = opts;
-                card.correctOptionIndex = Math.max(0, Math.min(opts.length - 1, Number(c?.correctOptionIndex) || 0));
-                if (c?.explanation) card.explanation = String(c.explanation).slice(0, 300);
-              }
-              return [card];
-            });
-          }
-        } catch { cards = []; }
-      }
-    }
+    // never fail the turn over board furniture. `reference` cards are checked against
+    // THIS turn's retrieved sources, so a hallucinated filename dies here.
+    const fence = allowCards
+      ? parseCardsFence(result.content, retrieval.source_refs)
+      : { reply: result.content, cards: [] as BoardCardPayload[] };
+    const replyContent = fence.reply;
+    const cards = fence.cards;
 
     // Persist the private exchange AFTER a successful answer, so a failed turn does not
     // leave a dangling user message the next turn would replay as context.

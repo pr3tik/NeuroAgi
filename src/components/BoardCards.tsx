@@ -1,9 +1,19 @@
 // BoardCards.tsx — structured study cards on the collaborative whiteboard.
 // Cards are a THIRD shared structure in the room's Y.Doc (alongside strokes/meta):
-// draggable markdown notes and interactive quizzes that any member — or Reggie —
-// can place on the board. Rendered as DOM inside the whiteboard's zoom/pan wrapper,
-// positioned in board-percentage space exactly like the text-input overlay, so they
-// track pan/zoom for free.
+// draggable material that any member — or Reggie — can place on the board. Rendered as
+// DOM inside the whiteboard's zoom/pan wrapper, positioned in board-percentage space
+// exactly like the text-input overlay, so they track pan/zoom for free.
+//
+// Five kinds, all sharing one chrome (header/drag/delete/attribution) and differing only
+// in the body:
+//   note      markdown paragraph
+//   quiz      question + interactive options, answered collaboratively
+//   guide     a structured study guide — markdown sections, wider and taller, scrollable
+//   terms     a key-terms definition list (NOT markdown — the shape IS the content)
+//   reference points at a REAL indexed course file; the server guarantees the file exists
+//
+// An unknown/legacy `kind` falls back to the note rendering rather than crashing — the
+// Y.Doc is shared and long-lived, so old clients and old cards must keep working.
 //
 // All mutations go through callbacks — StudyRooms owns the Y.Array; this component
 // never touches Yjs directly (same contract as strokes).
@@ -11,13 +21,16 @@
 import { useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { X, GripHorizontal, Check, Sparkles } from "lucide-react";
+import { X, GripHorizontal, Check, Sparkles, BookOpen, ListChecks, FileText } from "lucide-react";
+
+export type BoardCardKind = "note" | "quiz" | "guide" | "terms" | "reference";
+export type BoardCardTerm = { term: string; definition: string };
 
 export type BoardCard = {
   id: string;
-  kind: "note" | "quiz";
+  kind: BoardCardKind;
   title: string;
-  content: string;           // markdown (quiz: the question text)
+  content?: string;          // markdown (quiz: the question text). Absent on terms/reference.
   x: number;                 // board px (0..BOARD_W)
   y: number;                 // board px (0..BOARD_H)
   w: number;                 // board px
@@ -30,11 +43,32 @@ export type BoardCard = {
   // shared quiz state: latest answer wins the reveal (collaborative, not per-user)
   answeredIndex?: number;
   answeredBy?: string;
+  // terms-only
+  terms?: BoardCardTerm[];
+  // reference-only — documentId/sourceTitle are SERVER-supplied and always name a real
+  // indexed course file; api/room-ai.ts drops any reference it can't match to retrieval.
+  why?: string;
+  documentId?: string;
+  sourceTitle?: string;
 };
 
-export const CARD_COLORS: Record<BoardCard["kind"], string> = {
-  note: "122, 140, 245",   // periwinkle
-  quiz: "201, 212, 255",   // ice-lavender
+// Accent per kind, as a bare "r, g, b" triple so call sites keep their own alpha.
+// NOTE: these values are only ever interpolated into `style` objects (real CSS), never
+// into an SVG presentation attribute — that is what lets `guide` use a CSS custom
+// property, which var() in a `color=` attribute could not do.
+export const CARD_COLORS: Record<BoardCardKind, string> = {
+  note:      "122, 140, 245",     // periwinkle
+  quiz:      "201, 212, 255",     // ice-lavender
+  guide:     "var(--gold-rgb)",   // lavender brand accent, follows the theme
+  terms:     "150, 162, 255",     // deeper periwinkle — sits beside note without echoing it
+  reference: "126, 198, 158",     // sage green — "this is a real artifact", not a suggestion
+};
+
+// Header icon per kind. Kinds without one keep the original sparkle/grip.
+const KIND_ICON: Partial<Record<BoardCardKind, typeof BookOpen>> = {
+  guide: BookOpen,
+  terms: ListChecks,
+  reference: FileText,
 };
 
 export default function BoardCards({
@@ -84,6 +118,16 @@ export default function BoardCards({
         const rgb = CARD_COLORS[card.kind] ?? CARD_COLORS.note;
         const isReggie = card.createdBy === "Reggie";
         const answered = card.answeredIndex != null;
+        // A kind icon replaces the grip/sparkle so the card announces what it is at a
+        // glance; Reggie's authorship still reads off the attribution footer, and the
+        // header is still the drag handle (cursor: grab) either way.
+        const KindIcon = KIND_ICON[card.kind];
+        // Which body renders — and therefore whether the markdown stylesheet applies.
+        // A `terms` card that somehow arrived without its array falls back to markdown
+        // rather than rendering nothing (the Y.Doc outlives any one client version).
+        const asTerms = card.kind === "terms" && Array.isArray(card.terms);
+        const asReference = card.kind === "reference";
+        const isMarkdown = !asTerms && !asReference;
         return (
           <div
             key={card.id}
@@ -114,9 +158,11 @@ export default function BoardCards({
                 cursor: "grab", touchAction: "none", userSelect: "none",
               }}
             >
-              {isReggie
-                ? <Sparkles size={14} color={`rgb(${rgb})`} style={{ flexShrink: 0 }} />
-                : <GripHorizontal size={14} color={`rgba(${rgb}, 0.8)`} style={{ flexShrink: 0 }} />}
+              {KindIcon
+                ? <KindIcon size={14} style={{ flexShrink: 0, color: `rgb(${rgb})` }} />
+                : isReggie
+                  ? <Sparkles size={14} style={{ flexShrink: 0, color: `rgb(${rgb})` }} />
+                  : <GripHorizontal size={14} style={{ flexShrink: 0, color: `rgba(${rgb}, 0.8)` }} />}
               <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: "#EDF0FF", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {card.title}
               </span>
@@ -128,9 +174,39 @@ export default function BoardCards({
               ><X size={14} /></button>
             </div>
 
-            {/* Body */}
-            <div style={{ padding: "11px 14px", fontSize: 13.5, lineHeight: 1.55, color: "rgba(237,240,255,0.92)", maxHeight: 340, overflowY: "auto" }} className="markdown-body board-card-md">
-              <Markdown remarkPlugins={[remarkGfm]}>{card.content}</Markdown>
+            {/* Body — a guide carries 2–4 sections, so it gets more room before scrolling */}
+            <div
+              style={{ padding: "11px 14px", fontSize: 13.5, lineHeight: 1.55, color: "rgba(237,240,255,0.92)", maxHeight: card.kind === "guide" ? 460 : 340, overflowY: "auto" }}
+              className={isMarkdown ? "markdown-body board-card-md" : undefined}
+            >
+              {/* terms — a definition list, not markdown: the shape IS the content, and
+                  letting the model's prose decide the layout is what makes a glossary
+                  card look like a note with colons in it. */}
+              {asTerms ? (
+                <>
+                  {card.content && (
+                    <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "rgba(237,240,255,0.6)" }}>{card.content}</p>
+                  )}
+                  <dl style={{ margin: 0 }}>
+                    {card.terms.map((t, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          padding: i === 0 ? "0 0 9px" : "9px 0",
+                          borderTop: i === 0 ? "none" : `1px solid rgba(${rgb}, 0.18)`,
+                        }}
+                      >
+                        <dt style={{ fontSize: 13, fontWeight: 700, color: "#EDF0FF" }}>{t.term}</dt>
+                        <dd style={{ margin: "3px 0 0", fontSize: 12.5, lineHeight: 1.5, color: "rgba(237,240,255,0.6)" }}>{t.definition}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              ) : asReference ? (
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "rgba(237,240,255,0.85)" }}>{card.why}</p>
+              ) : (
+                <Markdown remarkPlugins={[remarkGfm]}>{card.content ?? ""}</Markdown>
+              )}
 
               {card.kind === "quiz" && Array.isArray(card.quizOptions) && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
@@ -166,6 +242,26 @@ export default function BoardCards({
                 </div>
               )}
             </div>
+
+            {/* reference — the file itself, as a footer chip. This title is server-verified
+                against the turn's retrieved sources, so it always names a file the room
+                actually has indexed. */}
+            {card.kind === "reference" && card.sourceTitle && (
+              <div style={{ padding: "0 14px 9px" }}>
+                <span
+                  title={card.sourceTitle}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%",
+                    padding: "4px 10px", borderRadius: 999,
+                    background: `rgba(${rgb}, 0.13)`, border: `1px solid rgba(${rgb}, 0.32)`,
+                    fontSize: 11.5, color: "rgba(237,240,255,0.88)",
+                  }}
+                >
+                  <FileText size={11} style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{card.sourceTitle}</span>
+                </span>
+              </div>
+            )}
 
             <div style={{ padding: "0 14px 8px", fontSize: 10.5, letterSpacing: "0.06em", textTransform: "uppercase", color: `rgba(${rgb}, 0.75)` }}>
               {isReggie ? "✦ Reggie" : card.createdBy}
