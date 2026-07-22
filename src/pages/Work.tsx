@@ -342,11 +342,19 @@ export default function Work() {
     : null;
   const heroFirstCourse = heroFirst?.courseCode ?? heroFirst?.courseName ?? "";
 
+  // Date + assignment count. On web these render on two separate, center-aligned
+  // lines (below); the single-line joined form is the fallback used everywhere else.
+  const subtitleDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  const subtitleCount = upcoming.length > 0
+    ? `${upcoming.length} assignment${upcoming.length !== 1 ? "s" : ""} coming up`
+    : "";
   const subtitleText = syncStatus === "syncing"
     ? "Syncing your Canvas…"
     : upcoming.length > 0
-    ? `${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" })} · ${upcoming.length} assignment${upcoming.length !== 1 ? "s" : ""} coming up`
+    ? `${subtitleDate} · ${subtitleCount}`
     : hasToken ? "You're all caught up" : "Connect Canvas to see assignments";
+  // Web only: show the date and the assignment count stacked instead of joined.
+  const splitSubtitle = !isMobile && syncStatus !== "syncing" && upcoming.length > 0;
 
   // ── GPA progress bar ──
   const gpaNum = gpaRaw != null ? Number(gpaRaw) : null;
@@ -446,14 +454,33 @@ export default function Work() {
               <span style={{ fontFamily: "var(--font-sans)", fontWeight: 300, color: "#E3E2E2" }}>.</span>
             )}
           </p>
-          <p style={{
-            fontFamily: "var(--font-sans)", fontWeight: 400,
-            fontSize: "16px", lineHeight: "24px",
-            color: "#C8C5CB", opacity: 0.8,
-            marginTop: "16px", marginBottom: 0,
-          }}>
-            {subtitleText}
-          </p>
+          {splitSubtitle ? (
+            <div style={{ textAlign: "center", marginTop: "16px" }}>
+              <p style={{
+                fontFamily: "var(--font-sans)", fontWeight: 400,
+                fontSize: "16px", lineHeight: "24px",
+                color: "#C8C5CB", opacity: 0.8, margin: 0,
+              }}>
+                {subtitleDate}
+              </p>
+              <p style={{
+                fontFamily: "var(--font-sans)", fontWeight: 400,
+                fontSize: "16px", lineHeight: "24px",
+                color: "#C8C5CB", opacity: 0.8, margin: 0,
+              }}>
+                {subtitleCount}
+              </p>
+            </div>
+          ) : (
+            <p style={{
+              fontFamily: "var(--font-sans)", fontWeight: 400,
+              fontSize: "16px", lineHeight: "24px",
+              color: "#C8C5CB", opacity: 0.8,
+              marginTop: "16px", marginBottom: 0,
+            }}>
+              {subtitleText}
+            </p>
+          )}
         </div>
 
         {/* ── Search bar ── */}
