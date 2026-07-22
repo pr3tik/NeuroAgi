@@ -439,6 +439,41 @@ export default function Work() {
   const activityItems = [...recentSubmissions, ...recentAnnouncements].slice(0, 3);
   const showActivity = activityItems.length > 0;
 
+  // Shared activity-feed rows — rendered beside "Pick up where you left off" on desktop
+  // (primary), or in the right rail as a fallback when there are no indexed materials.
+  const activityFeedRows = (
+    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+      {activityItems.map((item, i) => (
+        <div key={i} style={{
+          display: "flex", alignItems: "center", gap: "16px",
+          padding: "12px 0",
+          borderBottom: "1px solid rgba(255,255,255,0.04)",
+        }}>
+          <div style={{
+            width: "8px", height: "8px", borderRadius: "9999px",
+            background: item.recent ? "rgba(200,197,203,0.5)" : "#343535",
+            flexShrink: 0,
+          }} />
+          <p style={{
+            flex: 1, minWidth: 0, margin: 0,
+            fontFamily: "var(--font-sans)", fontSize: "14px",
+            color: item.recent ? "#E3E2E2" : "#C8C5CB",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {item.text}
+          </p>
+          <p style={{
+            margin: 0, whiteSpace: "nowrap", flexShrink: 0,
+            fontFamily: "var(--font-sans)", fontSize: "10px",
+            color: "rgba(200,197,203,0.4)",
+          }}>
+            {item.time}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+
   const glassCard = {
     borderRadius: isMobile ? "16px" : "32px",
     background: "rgba(26,26,30,0.6)",
@@ -612,6 +647,10 @@ export default function Work() {
         {/* ── Pick up where you left off + Your materials (spec v2 sections) ── */}
         {homeExtras.materials.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 26, marginBottom: isMobile ? "24px" : "32px", animation: "workRise 0.6s ease both", animationDelay: "140ms" }}>
+            {/* Pick up + Recent Activity share a row on desktop, mirroring the dashboard
+                grid's 1fr / 418.67px rhythm below. Recent Activity here is desktop-only —
+                mobile keeps its own feed further down. */}
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) 418.67px", gap: 24, alignItems: "start" }}>
             <div>
               <SectionHeader title="Pick up where you left off" desc="Jump back into what you were working on" />
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(250px, 330px))", gap: 12 }}>
@@ -633,25 +672,45 @@ export default function Work() {
                 })()}
               </div>
             </div>
+            {!isMobile && showActivity && (
+              <div>
+                <SectionHeader title="Recent Activity" desc="Your latest submissions and announcements" />
+                {activityFeedRows}
+              </div>
+            )}
+            </div>
             {homeExtras.materials.length > 0 && (
               <div>
                 <SectionHeader
                   title="Your materials"
                   desc="Course files Reggie can teach from"
-                  action="Open files"
-                  onAction={goPage("files")}
+                  right={
+                    <button onClick={goPage("files")} style={{
+                      flexShrink: 0, background: "rgba(var(--teal-rgb),0.14)",
+                      border: "1px solid rgba(var(--teal-rgb),0.3)",
+                      color: "rgb(var(--teal-rgb))",
+                      borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 600,
+                      cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+                    }}>Open files</button>
+                  }
                 />
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  {homeExtras.materials.map(m => (
-                    <div key={m.id} style={{
-                      display: "inline-flex", alignItems: "center", gap: 8,
-                      background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)",
-                      borderRadius: 999, padding: "8px 14px",
-                    }}>
-                      <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{m.name}</span>
-                      <MetaLine parts={[`${m.count} indexed`, "searchable"]} />
-                    </div>
-                  ))}
+                  {homeExtras.materials.map(m => {
+                    // "Other uploads" has no meaningful name — lead with the file count instead
+                    // of a vague label. Real courses keep their code as the title.
+                    const files = `${m.count} ${m.count === 1 ? "file" : "files"}`;
+                    const isOther = m.id === "other";
+                    return (
+                      <div key={m.id} style={{
+                        display: "inline-flex", alignItems: "center", gap: 8,
+                        background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: 999, padding: "8px 14px",
+                      }}>
+                        <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{isOther ? files : m.name}</span>
+                        <MetaLine parts={isOther ? ["ready to search"] : [files, "ready to search"]} />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1081,8 +1140,10 @@ export default function Work() {
               </div> {/* end content wrapper */}
             </div>}
 
-            {/* Activity feed — desktop only, only shown when real activity exists */}
-            {showActivity && (
+            {/* Recent Activity moved up beside "Pick up where you left off". This right-rail
+                copy is a fallback for when there are no indexed materials (so the pick-up
+                row — and its activity column — doesn't render). */}
+            {showActivity && homeExtras.materials.length === 0 && (
               <div style={{ padding: "0 8px" }}>
                 <p style={{
                   fontFamily: "var(--font-sans)", fontWeight: 600,
@@ -1091,36 +1152,7 @@ export default function Work() {
                 }}>
                   Recent Activity
                 </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                  {activityItems.map((item, i) => (
-                    <div key={i} style={{
-                      display: "flex", alignItems: "center", gap: "16px",
-                      padding: "12px 0",
-                      borderBottom: "1px solid rgba(255,255,255,0.04)",
-                    }}>
-                      <div style={{
-                        width: "8px", height: "8px", borderRadius: "9999px",
-                        background: item.recent ? "rgba(200,197,203,0.5)" : "#343535",
-                        flexShrink: 0,
-                      }} />
-                      <p style={{
-                        flex: 1, minWidth: 0, margin: 0,
-                        fontFamily: "var(--font-sans)", fontSize: "14px",
-                        color: item.recent ? "#E3E2E2" : "#C8C5CB",
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>
-                        {item.text}
-                      </p>
-                      <p style={{
-                        margin: 0, whiteSpace: "nowrap", flexShrink: 0,
-                        fontFamily: "var(--font-sans)", fontSize: "10px",
-                        color: "rgba(200,197,203,0.4)",
-                      }}>
-                        {item.time}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+                {activityFeedRows}
               </div>
             )}
 
