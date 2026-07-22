@@ -26,6 +26,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "../css/markdown.css";
 import { SectionLabel } from "../components/uikit";
+import ReggieOrb from "../components/ReggieOrb";
 import { tealAlpha } from "../lib/theme";
 
 // Concrete rgba (not var()) — ACCENT also feeds an SVG stroke= presentation
@@ -247,14 +248,9 @@ function UserBubble({ text }: { text: string }) {
 function AssistantBubble({ text, sources }: { text: string; sources?: { title: string; heading?: string }[] }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", marginBottom: "20px" }}>
-      {/* Orb indicator */}
+      {/* Orb indicator — Reggie's canonical animated avatar */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-        <div style={{
-          width: 22, height: 22, borderRadius: "50%",
-          background: "radial-gradient(circle at 35% 35%, rgba(var(--teal-rgb), 0.8), rgba(0,100,100,0.6))",
-          boxShadow: "0 0 8px rgba(var(--teal-rgb), 0.3)",
-          flexShrink: 0,
-        }} />
+        <ReggieOrb size={22} glow />
         <span style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "0.5px", fontWeight: 600 }}>
           REGGIE
         </span>
@@ -405,12 +401,7 @@ function SystemNotice({ text }: { text: string }) {
 function ThinkingBubble() {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}>
-      <div style={{
-        width: 22, height: 22, borderRadius: "50%",
-        background: "radial-gradient(circle at 35% 35%, rgba(var(--teal-rgb), 0.8), rgba(0,100,100,0.6))",
-        boxShadow: "0 0 8px rgba(var(--teal-rgb), 0.3)",
-        flexShrink: 0,
-      }} />
+      <ReggieOrb size={22} glow />
       <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
         {[0, 1, 2].map(i => (
           <div key={i} style={{
@@ -803,11 +794,7 @@ export default function StudyAssistant() {
         }}>
           {/* Orb + title */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
-            <div style={{
-              width: 52, height: 52, borderRadius: "50%",
-              background: "radial-gradient(circle at 35% 35%, rgba(var(--teal-rgb), 0.85), rgba(0,80,80,0.7))",
-              boxShadow: "0 0 32px rgba(var(--teal-rgb), 0.25), 0 0 0 1px rgba(var(--teal-rgb), 0.2)",
-            }} />
+            <ReggieOrb size={52} glow />
             <div style={{ textAlign: "center" }}>
               <h2 style={{
                 fontSize: "22px", fontWeight: 600,
