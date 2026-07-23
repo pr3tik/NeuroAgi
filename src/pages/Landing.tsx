@@ -2415,9 +2415,9 @@ function NeuralCoreSection({ t: _t }: { t: typeof DARK }) {
   React.useEffect(() => {
     if (!inView) { setChatStep(0); return; }
     const ts = [
-      setTimeout(() => setChatStep(1), 820),
-      setTimeout(() => setChatStep(2), 1640),
-      setTimeout(() => setChatStep(3), 2520),
+      setTimeout(() => setChatStep(1), 700),
+      setTimeout(() => setChatStep(2), 1500),
+      setTimeout(() => setChatStep(3), 3300),
     ];
     return () => ts.forEach(clearTimeout);
   }, [inView]);
@@ -2431,89 +2431,103 @@ function NeuralCoreSection({ t: _t }: { t: typeof DARK }) {
   return (
     <section
       ref={sectionRef}
-      style={{ background: "#ffffff", padding: "clamp(72px,9vw,112px) clamp(20px,4vw,48px)", overflow: "hidden", position: "relative" }}
+      style={{ background: "#f5f5f7", padding: "clamp(80px,9vw,120px) clamp(20px,4vw,48px)", overflow: "hidden", position: "relative" }}
     >
-      {/* Ambient */}
-      <div aria-hidden style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: "90%", height: 400, background: "radial-gradient(ellipse 55% 45% at 50% 0%, rgba(79,110,255,0.055) 0%, transparent 100%)", pointerEvents: "none" }} />
+      {/* ambient top glow */}
+      <div aria-hidden style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 900, height: 500, background: "radial-gradient(ellipse 52% 44% at 50% 0%, rgba(79,110,255,0.07) 0%, transparent 100%)", pointerEvents: "none" }} />
 
       <div style={{ maxWidth: 1060, margin: "0 auto", position: "relative", zIndex: 1 }}>
 
         {/* Headline */}
         <Reveal>
-          <div style={{ textAlign: "center", marginBottom: "clamp(52px,6.5vw,84px)" }}>
-            <h2 style={{ fontSize: "clamp(28px,4vw,52px)", fontWeight: 600, letterSpacing: "-0.03em", lineHeight: 1.1, color: "#1d1d1f", margin: "0 0 16px", fontFamily: FONT, textWrap: "balance" as any }}>
+          <div style={{ textAlign: "center", marginBottom: "clamp(48px,6vw,72px)" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" as any, color: "#4F6EFF", marginBottom: 14, fontFamily: FONT }}>Intelligence Layer</div>
+            <h2 style={{ fontSize: "clamp(32px,4.2vw,56px)", fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.08, color: "#1d1d1f", margin: "0 0 16px", fontFamily: FONT, textWrap: "balance" as any }}>
               Your AI never stops learning.
             </h2>
-            <p style={{ fontSize: "clamp(15px,1.6vw,18px)", color: "#6e6e73", lineHeight: 1.65, margin: "0 auto", maxWidth: 480, fontFamily: FONT }}>
+            <p style={{ fontSize: "clamp(15px,1.55vw,17px)", color: "#6e6e73", lineHeight: 1.65, maxWidth: 460, margin: "0 auto", fontFamily: FONT }}>
               Every course, lecture, and deadline flows to Reggie — who remembers everything and knows exactly where you&apos;re stuck.
             </p>
           </div>
         </Reveal>
 
-        {/* ── Intelligence diagram ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 0, justifyContent: "center", flexWrap: "wrap", rowGap: 32 }}>
+        {/* ── Floating plate ── */}
+        <div style={{ background: "#ffffff", borderRadius: 28, border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.055), 0 32px 72px rgba(0,0,0,0.06)", padding: "clamp(28px,3.5vw,48px)" }}>
 
-          {/* ── Source cards ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: "0 0 auto" }}>
-            {INTEL_SOURCES.map((s, i) => (
-              <div key={s.app} style={{
-                width: "clamp(230px,21vw,280px)", padding: "13px 14px",
-                borderRadius: 16, background: "#fafafa", border: "1px solid #ebebef",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.03)",
-                display: "flex", alignItems: "flex-start", gap: 11,
-                opacity: inView ? 1 : 0,
-                transform: inView ? "translateX(0)" : "translateX(-22px)",
-                transition: `opacity 0.52s ${0.04 + i * 0.08}s cubic-bezier(0.16,1,0.3,1), transform 0.52s ${0.04 + i * 0.08}s cubic-bezier(0.16,1,0.3,1)`,
-              }}>
-                <div style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, background: `${s.color}14`, border: `1px solid ${s.color}20`, display: "flex", alignItems: "center", justifyContent: "center", color: s.color }}>
-                  <s.Icon />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: "#1d1d1f", fontFamily: FONT }}>{s.app}</span>
-                    <span style={{ fontSize: 10, color: "#b8b8c0", fontFamily: FONT }}>{s.time}</span>
+          {/* Vis row: source cards → arcs → Reggie node → line → chat */}
+          <div className="ncs-vis-row" style={{ gap: 0 }}>
+
+            {/* Source cards */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
+              {INTEL_SOURCES.map((s, i) => (
+                <div key={s.app} className="ncs-src-card" style={{
+                  minHeight: 92, padding: "13px 14px",
+                  borderRadius: 18, border: "1px solid rgba(0,0,0,0.07)", background: "#f5f5f7",
+                  display: "flex", alignItems: "flex-start", gap: 11,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                  opacity: inView ? 1 : 0,
+                  transform: inView ? "none" : "translateX(-16px)",
+                  transition: `opacity 0.48s ${0.04 + i * 0.1}s ease, transform 0.48s ${0.04 + i * 0.1}s cubic-bezier(0.16,1,0.3,1)`,
+                }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, background: `${s.color}15`, border: `1px solid ${s.color}20`, display: "flex", alignItems: "center", justifyContent: "center", color: s.color }}>
+                    <s.Icon />
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: "#1d1d1f", fontFamily: FONT, lineHeight: 1.35, marginBottom: 2 }}>{s.title}</div>
-                  <div style={{ fontSize: 10.5, color: "#86868b", fontFamily: FONT, lineHeight: 1.4 }}>{s.detail}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#1d1d1f", fontFamily: FONT }}>{s.app}</span>
+                      <span style={{ fontSize: 10, color: "#b8b8c0", fontFamily: FONT }}>{s.time}</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, fontWeight: 500, color: "#1d1d1f", lineHeight: 1.3, marginBottom: 2, fontFamily: FONT }}>{s.title}</div>
+                    <div style={{ fontSize: 10.5, color: "#86868b", lineHeight: 1.4, fontFamily: FONT }}>{s.detail}</div>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
 
-          {/* ── Animated flow column ── */}
-          <div style={{ width: "clamp(48px,5vw,80px)", alignSelf: "stretch", position: "relative", flexShrink: 0, opacity: inView ? 1 : 0, transition: "opacity 0.5s 0.28s ease", minHeight: 180 }}>
-            {[0, 1, 2].map(i => (
-              <div key={i} style={{ position: "absolute", top: `${14 + i * 36}%`, left: 0, right: 0, height: 1, background: "linear-gradient(90deg, rgba(79,110,255,0.28) 0%, rgba(79,110,255,0.07) 100%)" }}>
-                {/* Traveling glow dot */}
-                <div style={{
-                  position: "absolute", width: 22, height: 22, borderRadius: "50%", top: -11, left: -11,
-                  background: "radial-gradient(circle, rgba(79,110,255,0.52) 0%, rgba(79,110,255,0.16) 55%, transparent 70%)",
-                  animation: inView ? `ncsParticle 2s ${0.38 + i * 0.6}s ease-in-out infinite` : "none",
-                }} />
-                {/* Arrowhead */}
-                <svg style={{ position: "absolute", right: -5, top: -4 }} width="10" height="9" viewBox="0 0 10 9" fill="none">
-                  <path d="M0 4.5h8M5.5 1.5l3 3-3 3" stroke="rgba(79,110,255,0.32)" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-            ))}
-          </div>
+            {/* Bezier arc connectors — fixed 104×296 box so CSS offset-path coords match pixels */}
+            <div className="ncs-arc-wrap" style={{ width: 104, height: 296, position: "relative", flexShrink: 0 }}>
+              <svg viewBox="0 0 104 296" style={{ width: "100%", height: "100%" }} aria-hidden>
+                <path d="M 0,46  C 52,46  52,148 104,148" fill="none" stroke="rgba(79,110,255,0.16)" strokeWidth="1.2" strokeLinecap="round"/>
+                <path d="M 0,148 L 104,148"               fill="none" stroke="rgba(79,110,255,0.16)" strokeWidth="1.2"/>
+                <path d="M 0,250 C 52,250 52,148 104,148" fill="none" stroke="rgba(79,110,255,0.16)" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
+              {inView && (
+                <>
+                  <div className="ncs-p1" style={{ width: 7, height: 7, borderRadius: "50%", background: "#4F6EFF", position: "absolute", top: 0, left: 0, opacity: 0 }} />
+                  <div className="ncs-p2" style={{ width: 7, height: 7, borderRadius: "50%", background: "#4F6EFF", position: "absolute", top: 0, left: 0, opacity: 0 }} />
+                  <div className="ncs-p3" style={{ width: 7, height: 7, borderRadius: "50%", background: "#4F6EFF", position: "absolute", top: 0, left: 0, opacity: 0 }} />
+                </>
+              )}
+            </div>
 
-          {/* ── Reggie chat card ── */}
-          <Reveal delay={0.3}>
-            <div style={{
-              width: "clamp(238px,23vw,294px)", borderRadius: 22, overflow: "hidden",
-              background: "#ffffff", border: "1px solid rgba(79,110,255,0.11)",
-              boxShadow: "0 2px 10px rgba(79,110,255,0.06), 0 18px 52px rgba(79,110,255,0.10), inset 0 1px 0 rgba(255,255,255,1)",
-            }}>
-              {/* Nav bar */}
-              <div style={{ padding: "11px 14px 10px", borderBottom: "1px solid rgba(0,0,0,0.055)", background: "rgba(249,249,252,0.96)", display: "flex", alignItems: "center", gap: 9 }}>
-                <div style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,#5F7BFF 0%,#3B50EC 100%)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 3px 10px rgba(59,80,236,0.28)" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT }}>R</span>
-                </div>
+            {/* Reggie node */}
+            <div className="ncs-node-wrap" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 160, height: 160 }}>
+                <div style={{ position: "absolute", width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle, rgba(79,110,255,0.18) 0%, rgba(79,110,255,0.06) 45%, transparent 70%)", animation: "ncsGlow 3s ease-in-out infinite alternate" }} />
+                <div className="ncs-ring1" style={{ position: "absolute", borderRadius: "50%", border: "1px solid rgba(79,110,255,0.18)" }} />
+                <div className="ncs-ring2" style={{ position: "absolute", borderRadius: "50%", border: "1px solid rgba(79,110,255,0.18)" }} />
+                <div className="ncs-ring3" style={{ position: "absolute", borderRadius: "50%", border: "1px solid rgba(79,110,255,0.18)" }} />
+                <div style={{ width: 76, height: 76, borderRadius: "50%", background: "linear-gradient(145deg,#6F8FFF 0%,#3B50EC 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 700, color: "#fff", boxShadow: "0 4px 14px rgba(59,80,236,0.32), inset 0 1px 0 rgba(255,255,255,0.18)", position: "relative", zIndex: 2, fontFamily: FONT }}>R</div>
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#4F6EFF", marginTop: 10, letterSpacing: "0.01em", fontFamily: FONT }}>Reggie</div>
+              <div style={{ marginTop: 5, display: "flex", alignItems: "center", gap: 5 }}>
+                <div className="ncs-live" style={{ width: 6, height: 6, borderRadius: "50%", background: "#34C759" }} />
+                <span style={{ fontSize: 10, color: "#34C759", fontWeight: 600, fontFamily: FONT }}>3 sources active</span>
+              </div>
+            </div>
+
+            {/* Connector line node → chat */}
+            <div aria-hidden className="ncs-out-line" style={{ height: 1, background: "linear-gradient(90deg,rgba(79,110,255,0.2),rgba(79,110,255,0.07))" }} />
+
+            {/* Chat card */}
+            <div className="ncs-chat-card" style={{ borderRadius: 22, overflow: "hidden", background: "#ffffff", border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 2px 8px rgba(79,110,255,0.07), 0 16px 40px rgba(79,110,255,0.10)", opacity: inView ? 1 : 0, transform: inView ? "none" : "translateX(14px)", transition: "opacity 0.52s 0.38s ease, transform 0.52s 0.38s cubic-bezier(0.16,1,0.3,1)" }}>
+              {/* Nav */}
+              <div style={{ padding: "11px 14px 10px", borderBottom: "1px solid rgba(0,0,0,0.055)", background: "rgba(249,249,252,0.97)", display: "flex", alignItems: "center", gap: 9 }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,#6F8FFF,#3B50EC)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0, boxShadow: "0 2px 8px rgba(59,80,236,0.28)", fontFamily: FONT }}>R</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1d1d1f", fontFamily: FONT, lineHeight: 1 }}>Reggie</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#34C759", animation: "ncsPulse 2s ease-in-out infinite" }} />
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1d1d1f", lineHeight: 1, fontFamily: FONT }}>Reggie</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+                    <div className="ncs-live" style={{ width: 5, height: 5, borderRadius: "50%", background: "#34C759" }} />
                     <span style={{ fontSize: 10, color: "#34C759", fontWeight: 600, fontFamily: FONT }}>3 sources loaded</span>
                   </div>
                 </div>
@@ -2521,23 +2535,22 @@ function NeuralCoreSection({ t: _t }: { t: typeof DARK }) {
               </div>
 
               {/* Chat body */}
-              <div style={{ padding: "11px 11px 10px", display: "flex", flexDirection: "column", gap: 8, minHeight: 172 }}>
+              <div style={{ padding: "12px 12px 10px", display: "flex", flexDirection: "column", gap: 8, minHeight: 168 }}>
                 {/* User bubble */}
-                <div style={{ display: "flex", justifyContent: "flex-end", opacity: chatStep >= 1 ? 1 : 0, transform: chatStep >= 1 ? "none" : "translateY(7px) scale(0.97)", transition: "opacity 0.32s ease, transform 0.32s ease" }}>
-                  <div style={{ maxWidth: "85%", padding: "8px 12px", borderRadius: "15px 15px 3px 15px", background: "#4F6EFF", color: "#fff", fontSize: 11.5, lineHeight: 1.45, fontFamily: FONT }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", opacity: chatStep >= 1 ? 1 : 0, transform: chatStep >= 1 ? "none" : "translateY(6px)", transition: "opacity 0.32s ease, transform 0.32s ease" }}>
+                  <div style={{ maxWidth: "88%", padding: "8px 12px", borderRadius: "17px 17px 4px 17px", background: "#4F6EFF", color: "#fff", fontSize: 11.5, lineHeight: 1.45, fontFamily: FONT, boxShadow: "0 2px 8px rgba(79,110,255,0.28)" }}>
                     Summarize reaction mechanisms for CHEM 201
                   </div>
                 </div>
-
                 {/* Reggie bubble */}
-                <div style={{ opacity: chatStep >= 2 ? 1 : 0, transform: chatStep >= 2 ? "none" : "translateY(8px)", transition: "opacity 0.38s 0.06s ease, transform 0.38s 0.06s ease" }}>
-                  <div style={{ padding: "9px 12px", borderRadius: "3px 15px 15px 15px", background: "#f4f4f8", border: "1px solid rgba(0,0,0,0.046)" }}>
+                <div style={{ opacity: chatStep >= 2 ? 1 : 0, transform: chatStep >= 2 ? "none" : "translateY(8px)", transition: "opacity 0.36s 0.06s ease, transform 0.36s 0.06s ease" }}>
+                  <div style={{ padding: "10px 12px", borderRadius: "4px 17px 17px 17px", background: "#f0f0f5", border: "1px solid rgba(0,0,0,0.046)" }}>
                     {chatStep === 2 ? (
                       <div style={{ display: "flex", gap: 4, padding: "3px 0" }}>
-                        {[0,1,2].map(j => <div key={j} style={{ width: 5, height: 5, borderRadius: "50%", background: "#4F6EFF", opacity: 0.42, animation: `ncsBounce 1.2s ${j*0.18}s infinite ease-in-out` }} />)}
+                        {[0,1,2].map(j => <div key={j} style={{ width: 5, height: 5, borderRadius: "50%", background: "#4F6EFF", opacity: 0.45, animation: `ncsBounce 1.2s ${j*0.18}s infinite ease-in-out` }} />)}
                       </div>
                     ) : chatStep >= 3 ? reggieLines.map((line, j) => (
-                      <div key={j} style={{ fontSize: 11, color: "#333", lineHeight: 1.52, display: "flex", gap: 6, marginBottom: j < 2 ? 5 : 0, animation: `ncsFadeUp 0.32s ${j*0.1}s both ease` }}>
+                      <div key={j} style={{ fontSize: 11, color: "#1d1d1f", lineHeight: 1.55, display: "flex", gap: 6, marginBottom: j < 2 ? 5 : 0, animation: `ncsFadeUp 0.3s ${j*0.09}s both ease` }}>
                         <span style={{ color: "#4F6EFF", fontWeight: 700, flexShrink: 0, fontFamily: FONT }}>{j+1}.</span>
                         <span style={{ fontFamily: FONT }}>{line}</span>
                       </div>
@@ -2547,37 +2560,66 @@ function NeuralCoreSection({ t: _t }: { t: typeof DARK }) {
               </div>
 
               {/* Footer */}
-              <div style={{ padding: "8px 14px", borderTop: "1px solid rgba(0,0,0,0.05)", background: "rgba(249,249,252,0.96)", display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ padding: "8px 14px", borderTop: "1px solid rgba(0,0,0,0.05)", background: "rgba(249,249,252,0.97)", display: "flex", alignItems: "center", gap: 6 }}>
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.5" stroke="#a0a0aa" strokeWidth="1.1"/><path d="M5.5 3.5v2.2l1.3 1.3" stroke="#a0a0aa" strokeWidth="1.1" strokeLinecap="round"/></svg>
                 <span style={{ fontSize: 10, color: "#86868b", fontFamily: FONT }}>47 concepts indexed · 3 active courses</span>
               </div>
             </div>
-          </Reveal>
+
+          </div>
         </div>
 
-        {/* ── Stats ── */}
-        <div style={{ display: "flex", gap: "clamp(24px,5vw,56px)", justifyContent: "center", flexWrap: "wrap", marginTop: "clamp(52px,6.5vw,80px)" }}>
+        {/* Stats */}
+        <div style={{ display: "flex", gap: "clamp(20px,4vw,56px)", justifyContent: "center", flexWrap: "wrap", marginTop: "clamp(40px,5vw,60px)", alignItems: "center" }}>
           {[
-            { val: "47", sub: "concepts per lecture" },
-            { val: "< 1s", sub: "indexed on upload" },
+            { val: "47",   sub: "concepts per lecture" },
+            { val: "<1s",  sub: "indexed on upload" },
             { val: "100%", sub: "private to you" },
-          ].map(({ val, sub }, i) => (
-            <Reveal key={val} delay={0.72 + i * 0.08}>
-              <div style={{ textAlign: "center" }}>
-                <p style={{ fontSize: "clamp(28px,3.2vw,40px)", fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, color: "#1d1d1f", margin: "0 0 6px", fontFamily: FONT }}>{val}</p>
-                <p style={{ fontSize: 12, color: "#86868b", letterSpacing: "0.01em", fontFamily: FONT }}>{sub}</p>
-              </div>
-            </Reveal>
+          ].map(({ val, sub }, i, arr) => (
+            <React.Fragment key={val}>
+              <Reveal delay={0.7 + i * 0.08}>
+                <div style={{ textAlign: "center" }}>
+                  <p style={{ fontSize: "clamp(30px,3.5vw,44px)", fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, color: "#1d1d1f", margin: "0 0 6px", fontFamily: FONT }}>{val}</p>
+                  <p style={{ fontSize: 11.5, color: "#86868b", letterSpacing: "0.01em", fontFamily: FONT }}>{sub}</p>
+                </div>
+              </Reveal>
+              {i < arr.length - 1 && <div aria-hidden style={{ width: 1, background: "rgba(0,0,0,0.07)", height: 36 }} />}
+            </React.Fragment>
           ))}
         </div>
+
       </div>
 
       <style>{`
-        @keyframes ncsPulse    { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(52,199,89,0.28)} 50%{opacity:0.8;box-shadow:0 0 0 4px rgba(52,199,89,0)} }
-        @keyframes pulseGlow   { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(52,199,89,0.3)}  50%{opacity:0.8;box-shadow:0 0 0 4px rgba(52,199,89,0)} }
-        @keyframes ncsParticle { 0%{left:-11px;opacity:0} 14%{opacity:1} 86%{opacity:1} 100%{left:calc(100% - 11px);opacity:0} }
-        @keyframes ncsBounce   { 0%,80%,100%{transform:translateY(0);opacity:0.42} 40%{transform:translateY(-4px);opacity:1} }
-        @keyframes ncsFadeUp   { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+        /* ── layout ───────────────────────────────────────────── */
+        .ncs-vis-row{display:flex;align-items:center;justify-content:center}
+        .ncs-src-card{width:clamp(210px,21vw,258px)}
+        .ncs-out-line{width:clamp(20px,2.2vw,36px);flex-shrink:0}
+        .ncs-chat-card{width:clamp(220px,22vw,258px);flex-shrink:0}
+        /* ── particles ────────────────────────────────────────── */
+        .ncs-p1{offset-path:path('M 0,46 C 52,46 52,148 104,148');animation:ncsTravel 2.4s 0.1s ease-in-out infinite}
+        .ncs-p2{offset-path:path('M 0,148 L 104,148');animation:ncsTravel 2.4s 0.9s ease-in-out infinite}
+        .ncs-p3{offset-path:path('M 0,250 C 52,250 52,148 104,148');animation:ncsTravel 2.4s 1.7s ease-in-out infinite}
+        @keyframes ncsTravel{0%{offset-distance:0%;opacity:0}6%{opacity:1}92%{opacity:1}100%{offset-distance:100%;opacity:0}}
+        /* ── rings / glow ─────────────────────────────────────── */
+        .ncs-ring1{width:104px;height:104px;animation:ncsRing 2.8s 0s ease-out infinite}
+        .ncs-ring2{width:130px;height:130px;animation:ncsRing 2.8s .7s ease-out infinite}
+        .ncs-ring3{width:158px;height:158px;animation:ncsRing 2.8s 1.4s ease-out infinite}
+        @keyframes ncsRing{0%{transform:scale(.82);opacity:.7}60%{opacity:.22}100%{transform:scale(1.06);opacity:0}}
+        .ncs-live{animation:ncsLive 2s ease-in-out infinite}
+        @keyframes ncsLive{0%,100%{box-shadow:0 0 0 0 rgba(52,199,89,.4)}50%{box-shadow:0 0 0 5px rgba(52,199,89,0)}}
+        @keyframes ncsGlow{from{transform:scale(.88);opacity:.7}to{transform:scale(1.08);opacity:1}}
+        @keyframes ncsBounce{0%,80%,100%{transform:translateY(0);opacity:.45}40%{transform:translateY(-5px);opacity:1}}
+        @keyframes ncsFadeUp{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+        /* ── mobile ───────────────────────────────────────────── */
+        @media(max-width:760px){
+          .ncs-vis-row{flex-direction:column;align-items:stretch;gap:20px}
+          .ncs-arc-wrap,.ncs-out-line{display:none}
+          .ncs-src-card{width:100%}
+          .ncs-node-wrap{flex-direction:row!important;justify-content:center;gap:14px;padding:4px 0}
+          .ncs-chat-card{width:100%}
+        }
+        @media(prefers-reduced-motion:reduce){.ncs-p1,.ncs-p2,.ncs-p3,.ncs-ring1,.ncs-ring2,.ncs-ring3,.ncs-live{animation:none!important}}
       `}</style>
     </section>
   );
